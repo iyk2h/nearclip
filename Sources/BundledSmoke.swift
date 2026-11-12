@@ -23,7 +23,7 @@ final class BundledSmoke {
             self.began = true; self.a.connect(device: self.b.device)
         }
         a.onVerify = { _, _, reply in reply(true) }; b.onVerify = { _, _, reply in reply(true) }
-        a.onPaired = { [weak self] code, _ in self?.codeA = code }; b.onPaired = { [weak self] code, _ in self?.codeB = code }
+        a.onPaired = { [weak self] code, _ in self?.codeA = code; self?.a.endDiscovery() }; b.onPaired = { [weak self] code, _ in self?.codeB = code; self?.b.endDiscovery() }
         a.onStatus = { print("Pairing A:", $0) }; b.onStatus = { print("Pairing B:", $0) }
         a.start(); b.start()
         let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in self?.tick() }

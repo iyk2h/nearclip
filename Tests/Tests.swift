@@ -213,7 +213,7 @@ func numericPairingTests() throws {
     }
     a.onVerify = { _, digits, reply in digitsA = digits; replyA = reply }
     b.onVerify = { _, digits, reply in digitsB = digits; replyB = reply }
-    a.onPaired = { code, _ in codeA = code }; b.onPaired = { code, _ in codeB = code }
+    a.onPaired = { code, _ in codeA = code; a.endDiscovery() }; b.onPaired = { code, _ in codeB = code; b.endDiscovery() }
     a.start(); b.start()
     let deadline = Date().addingTimeInterval(12)
     while (replyA == nil || replyB == nil) && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.03)) }
@@ -251,6 +251,41 @@ func numericPairingTests() throws {
     try Check.that(cancelled == 2 && !unauthorizedPair, "rejecting numbers cancels both ends without saving a secret")
 }
 
+func pairingAccessTests() throws {
+    var fresh = PairingAccess(hasTrustedPeer: false)
+    try Check.that(fresh.isOpen, "first use allows discovery")
+    fresh.didPair()
+    try Check.that(!fresh.isOpen, "approved pairing closes discovery")
+    var saved = PairingAccess(hasTrustedPeer: true)
+    try Check.that(!saved.isOpen, "saved pairing starts closed")
+    saved.open(); saved.didAuthenticate()
+    try Check.that(saved.isOpen, "trusted reconnect preserves explicit invitation")
+    saved.close()
+    try Check.that(!saved.isOpen, "cancel or timeout closes invitation")
+    var migrated = PairingAccess(hasTrustedPeer: false)
+    migrated.didAuthenticate()
+    try Check.that(!migrated.isOpen, "legacy authenticated peer closes first-use discovery")
+}
+
+func expiredInvitationTests() throws {
+    let server = NearbyPairing(device: UUID().uuidString, name: "Expired invitation", discovery: false)
+    let client = NearbyPairing(device: UUID().uuidString, name: "New requester", discovery: false)
+    defer { server.stop(); client.stop() }
+    var verified = false, ended = false
+    server.onVerify = { _, _, _ in verified = true }
+    client.onVerify = { _, _, _ in verified = true }
+    client.onEnded = { ended = true }
+    server.onListening = { port in
+        // Simulate the deadline passing before a queued UI timer has run.
+        server.invitationDeadline = Date.distantPast
+        client.connectDirect(host: "127.0.0.1", port: port)
+    }
+    client.start(); server.start()
+    let deadline = Date().addingTimeInterval(5)
+    while !ended && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
+    try Check.that(ended && !verified, "expired invitation rejects incoming pairing before UI timer fires")
+}
+
 func addressTests() throws {
     try Check.that(try ConnectionAddress(" my-mac.local:54321 ") == ConnectionAddress("my-mac.local:54321"), "trim connection address")
     try Check.that(try ConnectionAddress("[::1]:1234").host == "::1", "IPv6 address brackets")
@@ -266,7 +301,7 @@ func directPairingTests() throws {
     a.syncPort = 51001; b.syncPort = 51002
     var codeA: String?, codeB: String?, routeA: DirectPeer?, routeB: DirectPeer?
     a.onRoute = { routeA = $0 }; b.onRoute = { routeB = $0 }
-    a.onPaired = { code, _ in codeA = code }; b.onPaired = { code, _ in codeB = code }
+    a.onPaired = { code, _ in codeA = code; a.endDiscovery() }; b.onPaired = { code, _ in codeB = code; b.endDiscovery() }
     var approveA: ((Bool) -> Void)?, approveB: ((Bool) -> Void)?
     a.onVerify = { _, _, reply in approveA = reply }; b.onVerify = { _, _, reply in approveB = reply }
     a.onListening = { port in b.connectDirect(host: "127.0.0.1", port: port, expected: a.device) }
@@ -278,7 +313,7 @@ func directPairingTests() throws {
     approveA?(true); approveB?(true)
     let finish = Date().addingTimeInterval(5)
     while (codeA == nil || codeB == nil) && Date() < finish { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
-    try Check.that(codeA != nil && codeA == codeB, "direct pairing requires both approvals")
+    try Check.that(codeA != nil && codeA == codeB, "closing discovery preserves both pairing confirmations")
     try Check.that(routeA?.device == b.device && routeA?.port == 51002 && routeB?.port == 51001, "approved handshake carries authenticated reconnect port")
     a.stop(); b.stop()
     try Check.that(!a.busy && !b.busy && a.candidates.isEmpty, "stop clears pairing sessions and discovery")
@@ -308,7 +343,7 @@ func directPairingTests() throws {
 struct TestMain {
     static func main() {
         do {
-            try addressTests(); try directPairingTests(); try cryptoTests(); try clipboardTests(); try networkTests(); try discoveryTests(); try numericPairingTests()
+            try expiredInvitationTests(); try pairingAccessTests(); try addressTests(); try directPairingTests(); try cryptoTests(); try clipboardTests(); try networkTests(); try discoveryTests(); try numericPairingTests()
             print("\nAll \(Check.count) checks passed. General clipboard was not accessed.")
         } catch {
             fputs("\(error.localizedDescription)\n", stderr); exit(1)

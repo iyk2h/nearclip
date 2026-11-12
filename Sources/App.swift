@@ -5,6 +5,8 @@ final class WindowBackground: NSView {
     override func draw(_ dirtyRect: NSRect) { NSColor.windowBackgroundColor.setFill(); dirtyRect.fill() }
 }
 
+final class DeviceList: NSStackView { override var isFlipped: Bool { true } }
+
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem!
     private var window: NSWindow!
@@ -20,8 +22,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let preview = CommandLine.arguments.contains("--render-preview") || CommandLine.arguments.contains("--preview") || CommandLine.arguments.contains("--smoke-test") || CommandLine.arguments.contains("--lifecycle-smoke")
     private let statusLabel = NSTextField(labelWithString: "연결할 Mac을 기다리고 있어요")
     private let activityLabel = NSTextField(wrappingLabelWithString: "연결한 뒤 복사하는 내용부터 공유해요.")
-    private let nearbyPicker = NSPopUpButton(frame: .zero, pullsDown: false)
-    private var connectButton: NSButton!
+    private var candidates: [(device: String, name: String)] = []
+    private var deviceList: NSStackView!
+    private var discoveryView: NSView!
+    private var trustedView: NSView!
+    private var advancedView: NSView!
+    private var advancedButton: NSButton!
+    private var advanced = false
+    private var tabHeight: NSLayoutConstraint!
+    private var peerLabel = NSTextField(labelWithString: "")
+    private var peerDetail = NSTextField(wrappingLabelWithString: "")
+    private let pairingHint = NSTextField(wrappingLabelWithString: "")
+    private var trustLabel = NSTextField(wrappingLabelWithString: "")
+    private var statusIcon: NSImageView!
+    private var sharingActions: NSView!
+    private var access = PairingAccess(hasTrustedPeer: false)
+    private var pairedName: String?
+    private var discoveryDeadline: Timer?
     private var verificationAlert: NSAlert?
     private var toggle: NSButton!
     private var menuStatus: NSMenuItem!
@@ -72,6 +89,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 device = UserDefaults.standard.string(forKey: "deviceID") ?? previousDefaults?.string(forKey: "deviceID") ?? UUID().uuidString
                 UserDefaults.standard.set(device, forKey: "deviceID")
                 enabled = UserDefaults.standard.object(forKey: "enabled") as? Bool ?? true
+                pairedName = UserDefaults.standard.string(forKey: "pairedMacName")
+                access = PairingAccess(hasTrustedPeer: pairedName != nil || UserDefaults.standard.data(forKey: "directPeer") != nil)
                 let clock = UInt64(UserDefaults.standard.string(forKey: "logicalClock") ?? "0") ?? 0
                 sync = ClipboardSync(device: device, clock: min(clock, UInt64.max - 100_000)) {
                     UserDefaults.standard.set(String($0), forKey: "logicalClock")
@@ -101,6 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             restartTransport(); startPairing(); sync.start()
             if let index = CommandLine.arguments.firstIndex(of: "--pair-with"), CommandLine.arguments.count > index + 3,
                let port = UInt16(CommandLine.arguments[index + 2]) {
+                if access.hasTrustedPeer { openDiscovery() }
                 pairing?.connectDirect(host: CommandLine.arguments[index + 1], port: port, expected: CommandLine.arguments[index + 3])
             }
             let center = NSWorkspace.shared.notificationCenter
@@ -114,7 +134,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         terminating = true
         NSWorkspace.shared.notificationCenter.removeObserver(self)
-        sync?.stop(); transport?.stop(); pairing?.stop()
+        discoveryDeadline?.invalidate(); sync?.stop(); transport?.stop(); pairing?.stop()
         if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
         if CommandLine.arguments.contains("--lifecycle-smoke") { print("PASS: app termination callback completed"); fflush(stdout) }
     }
@@ -162,6 +182,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func button(_ title: String, action: Selector) -> NSButton {
         let button = NSButton(title: title, target: self, action: action)
         button.bezelStyle = .rounded; button.controlSize = .large
+        button.setContentHuggingPriority(.required, for: .horizontal)
         return button
     }
     private func column(_ views: [NSView], spacing: CGFloat = 12) -> NSStackView {
@@ -171,7 +192,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return stack
     }
     private func row(_ views: [NSView]) -> NSStackView {
-        let stack = NSStackView(views: views); stack.orientation = .horizontal; stack.spacing = 10
+        let stack = NSStackView(views: views); stack.orientation = .horizontal; stack.spacing = 10; stack.distribution = .fill
         return stack
     }
     private func panel(_ content: NSView) -> NSView {
@@ -187,45 +208,91 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         ])
         return box
     }
+    private var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev" }
+    private func symbol(_ name: String, size: CGFloat = 24) -> NSImageView {
+        let view = NSImageView()
+        view.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(.init(pointSize: size, weight: .regular))
+        view.contentTintColor = .secondaryLabelColor
+        view.widthAnchor.constraint(equalToConstant: size + 8).isActive = true
+        view.heightAnchor.constraint(equalToConstant: size + 8).isActive = true
+        return view
+    }
+    private func flexible(_ view: NSView) -> NSView {
+        view.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: .horizontal)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return view
+    }
     private func makeWindow() {
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 620),
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 540),
                           styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
-        window.title = "NearClip"; window.subtitle = "Mac 사이를 잇는 클립보드"
-        window.isReleasedWhenClosed = false; window.delegate = self; window.center()
+        window.title = "NearClip"; window.isReleasedWhenClosed = false
+        window.delegate = self; window.center()
         let root = WindowBackground(); window.contentView = root
-        let brand = label("nearclip", size: 24, weight: .semibold)
-        brand.font = .monospacedSystemFont(ofSize: 24, weight: .semibold)
-        let tagline = label("LOCAL CLIPBOARD  /  텍스트 + 이미지", size: 11, color: .secondaryLabelColor)
-        tagline.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-        let heading = column([brand, tagline], spacing: 4)
-        statusLabel.font = .monospacedSystemFont(ofSize: 15, weight: .semibold)
+        let brand = label("nearclip", size: 20, weight: .semibold)
+        brand.font = .monospacedSystemFont(ofSize: 20, weight: .semibold)
+        let tagline = label("LOCAL CLIPBOARD", size: 10, color: .secondaryLabelColor)
+        tagline.font = .monospacedSystemFont(ofSize: 10, weight: .medium)
+        tabButtons = [button("연결", action: #selector(selectConnection)), button("설정", action: #selector(showSettings))]
+        for button in tabButtons { button.setButtonType(.pushOnPushOff); button.controlSize = .regular }
+        tabButtons[0].state = .on
+        let heading = row([flexible(column([brand, tagline], spacing: 3)), row(tabButtons)])
+        statusLabel.font = .systemFont(ofSize: 20, weight: .semibold)
         activityLabel.font = .systemFont(ofSize: 12); activityLabel.textColor = .secondaryLabelColor
+        activityLabel.maximumNumberOfLines = 3
+        statusIcon = symbol("laptopcomputer", size: 32)
         pauseButton = button("공유 일시 정지", action: #selector(toggleSharing))
         sendButton = button("지금 보내기", action: #selector(sendNow))
-        let trust = label("로컬 네트워크 · 암호화 전송 · 기록 저장 안 함", size: 11, color: .secondaryLabelColor)
-        let statusCard = panel(column([statusLabel, activityLabel, row([pauseButton, sendButton]), trust], spacing: 9))
+        sendButton.toolTip = "현재 클립보드의 텍스트나 이미지를 한 번 보내요."
+        sharingActions = row([pauseButton, sendButton, flexible(NSView())])
+        trustLabel.font = .systemFont(ofSize: 11); trustLabel.textColor = .secondaryLabelColor
+        let statusCard = panel(column([
+            row([statusIcon, flexible(column([statusLabel, activityLabel], spacing: 5))]),
+            sharingActions, separator(), trustLabel
+        ], spacing: 14))
 
         tabView = NSTabView(); tabView.tabViewType = .noTabsNoBorder
         let connect = NSTabViewItem(identifier: "connect"); connect.label = "연결"
-        nearbyPicker.controlSize = .large
-        nearbyPicker.setAccessibilityLabel("같은 네트워크에서 찾은 Mac")
-        nearbyPicker.addItem(withTitle: "주변 Mac을 찾고 있어요…")
-        nearbyPicker.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        connectButton = button("연결", action: #selector(connectNearby)); connectButton.bezelColor = .systemTeal
-        cancelButton = button("취소", action: #selector(cancelPairing)); cancelButton.isHidden = true
+        cancelButton = button("찾기 취소", action: #selector(cancelDiscovery))
+        cancelButton.controlSize = .regular
         addressButton = button("주소로 연결…", action: #selector(connectAddress))
-        localAddress.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
-        localAddress.isSelectable = true; localAddress.setContentHuggingPriority(.defaultLow, for: .horizontal);
-        copyAddressButton = button("주소 복사", action: #selector(copyAddress)); copyAddressButton.isEnabled = false; localAddress.setAccessibilityLabel("이 Mac의 연결 주소")
-        let connectionContent = column([
-            label("주변 Mac", size: 13, weight: .semibold),
-            row([nearbyPicker, connectButton, cancelButton]),
-            label("연결할 Mac을 선택하고 양쪽의 6자리 숫자를 확인하세요.\n새 Mac과 연결하면 이전 연결을 교체해요.", size: 12, color: .secondaryLabelColor),
-            row([button("다시 찾기", action: #selector(retry)), addressButton]),
-            separator(), label("직접 연결", size: 12, weight: .semibold), row([localAddress, copyAddressButton]),
-            label("상대 Mac의 ‘주소로 연결’에 이 주소를 입력하세요.", size: 11, color: .secondaryLabelColor)
+        localAddress.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        localAddress.isSelectable = true; _ = flexible(localAddress)
+        copyAddressButton = button("주소 복사", action: #selector(copyAddress))
+        copyAddressButton.isEnabled = false; localAddress.setAccessibilityLabel("이 Mac의 연결 주소")
+        deviceList = DeviceList(); deviceList.orientation = .vertical; deviceList.alignment = .leading; deviceList.spacing = 0
+        let scroll = NSScrollView(); scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true
+        scroll.drawsBackground = false; scroll.documentView = deviceList
+        deviceList.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            deviceList.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
+            deviceList.trailingAnchor.constraint(equalTo: scroll.contentView.trailingAnchor),
+            deviceList.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
+            scroll.heightAnchor.constraint(equalToConstant: 116)
+        ])
+        advancedButton = button("Mac이 보이지 않나요?", action: #selector(toggleAdvanced))
+        advancedButton.bezelStyle = .inline; advancedButton.controlSize = .regular
+        advancedView = column([
+            label("두 Mac에서 로컬 네트워크 권한을 허용하세요.\n주소로 연결할 때도 양쪽 숫자를 확인해야 해요.", size: 11, color: .secondaryLabelColor),
+            row([localAddress, copyAddressButton]),
+            row([addressButton, button("네트워크 권한", action: #selector(networkSettings)), flexible(NSView())])
+        ], spacing: 8)
+        advancedView.isHidden = true
+        pairingHint.font = .systemFont(ofSize: 11); pairingHint.textColor = .secondaryLabelColor
+        discoveryView = column([
+            row([flexible(label("주변 Mac", size: 13, weight: .semibold)), cancelButton, button("다시 찾기", action: #selector(retry))]),
+            scroll,
+            pairingHint,
+            row([advancedButton, flexible(NSView())]), advancedView
         ], spacing: 10)
-        connect.view = inset(connectionContent)
+        peerLabel.font = .systemFont(ofSize: 14, weight: .semibold)
+        peerLabel.lineBreakMode = .byTruncatingTail
+        peerDetail.font = .systemFont(ofSize: 11); peerDetail.textColor = .secondaryLabelColor
+        trustedView = column([
+            label("저장된 Mac", size: 11, color: .secondaryLabelColor, weight: .medium),
+            row([symbol("laptopcomputer"), flexible(column([peerLabel, peerDetail], spacing: 4)), button("다른 Mac 연결", action: #selector(openDiscovery))]),
+            label("새 연결 요청은 닫혀 있어요. 저장된 Mac에는 자동으로 다시 연결해요.", size: 11, color: .secondaryLabelColor)
+        ], spacing: 12)
+        connect.view = inset(column([discoveryView, trustedView], spacing: 0))
         let settings = NSTabViewItem(identifier: "settings"); settings.label = "설정"
         closePicker.addItems(withTitles: ["닫을 때 물어보기", "메뉴 막대에서 계속 실행", "앱 완전히 종료"])
         closePicker.selectItem(at: closeBehavior.rawValue); closePicker.target = self; closePicker.action = #selector(changeCloseBehavior)
@@ -238,34 +305,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             label("창을 닫으면", size: 12, weight: .medium), closePicker, closeHint,
             separator(), label("연결 관리", size: 14, weight: .semibold),
             label("연결을 해제하면 상대 Mac과 다시 숫자를 확인해야 해요.", size: 12, color: .secondaryLabelColor),
-            row([button("연결 해제…", action: #selector(forgetPairing)), button("네트워크 설정", action: #selector(networkSettings))])
+            row([button("연결 해제…", action: #selector(forgetPairing)), button("네트워크 설정", action: #selector(networkSettings)), flexible(NSView())])
         ], spacing: 10)
         settings.view = inset(settingsContent)
         tabView.addTabViewItem(connect); tabView.addTabViewItem(settings)
-        tabView.heightAnchor.constraint(equalToConstant: 276).isActive = true
-        tabButtons = [button("연결", action: #selector(selectConnection)), button("설정", action: #selector(showSettings))]
-        for button in tabButtons { button.setButtonType(.pushOnPushOff) }
-        tabButtons[0].state = .on
-        let tabs = column([row(tabButtons), tabView], spacing: 6)
-        let footer = row([button("도움말", action: #selector(help)), label("v0.3.0 · beta", size: 11, color: .secondaryLabelColor), NSView(), button("NearClip 종료", action: #selector(quit))])
-        footer.arrangedSubviews[2].setContentHuggingPriority(.defaultLow, for: .horizontal)
-        let stack = column([heading, statusCard, tabs, footer], spacing: 14)
+        tabHeight = tabView.heightAnchor.constraint(equalToConstant: 250); tabHeight.isActive = true
+        let footer = row([button("도움말", action: #selector(help)), label("v" + version + " · beta", size: 10, color: .secondaryLabelColor), flexible(NSView()), button("종료  ⌘Q", action: #selector(quit))])
+        let stack = column([heading, statusCard, tabView, separator(), footer], spacing: 18)
         stack.translatesAutoresizingMaskIntoConstraints = false; root.addSubview(stack)
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
             stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
-            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 22),
-            stack.bottomAnchor.constraint(lessThanOrEqualTo: root.bottomAnchor, constant: -18)
+            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 24),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: root.bottomAnchor, constant: -20)
         ])
+        rebuildDevices()
         root.layoutSubtreeIfNeeded()
     }
     private func separator() -> NSBox { let box = NSBox(); box.boxType = .separator; return box }
     private func inset(_ content: NSView) -> NSView {
         let view = NSView(); content.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(content)
         NSLayoutConstraint.activate([
-            content.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 18),
-            content.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -18),
-            content.topAnchor.constraint(equalTo: view.topAnchor, constant: 18),
+            content.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 0),
+            content.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: 0),
+            content.topAnchor.constraint(equalTo: view.topAnchor, constant: 0),
             content.bottomAnchor.constraint(lessThanOrEqualTo: view.bottomAnchor, constant: -12)
         ])
         return view
@@ -273,7 +336,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func applyPreviewState() {
         guard preview else { return }
         localAddress.stringValue = "my-mac.local:54321"
-        if CommandLine.arguments.contains("--connected") { peers = ["옆자리 Mac"]; lastActivity = "텍스트 받음 · 14:32:08" }
+        if CommandLine.arguments.contains("--connected") || CommandLine.arguments.contains("--offline") {
+            pairedName = "Studio MacBook Pro"; access = PairingAccess(hasTrustedPeer: true)
+        }
+        if CommandLine.arguments.contains("--connected") { peers = ["Studio MacBook Pro"]; lastActivity = "텍스트 받음 · 14:32:08" }
+        if CommandLine.arguments.contains("--nearby") {
+            candidates = [("A1B20000-0000-0000-0000-000000000001", "Studio MacBook Pro"), ("C3D40000-0000-0000-0000-000000000002", "Design Mac mini")]
+            rebuildDevices()
+        }
+        if CommandLine.arguments.contains("--advanced") { advanced = true }
+        if CommandLine.arguments.contains("--invite") { access.open() }
+        hasLocalAddress = true
         if CommandLine.arguments.contains("--paused") { enabled = false }
         if CommandLine.arguments.contains("--settings") { selectTab(1) }
         if CommandLine.arguments.contains("--light") { NSApp.appearance = NSAppearance(named: .aqua) }
@@ -292,18 +365,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         self.pairing = pairing
         pairing.onCandidates = { [weak self] candidates in
             guard let self else { return }
-            let selected = self.nearbyPicker.selectedItem?.representedObject as? String
-            self.nearbyPicker.removeAllItems()
-            for candidate in candidates {
-                self.nearbyPicker.addItem(withTitle: candidate.name + " · " + candidate.device.prefix(4))
-                self.nearbyPicker.lastItem?.representedObject = candidate.device
-            }
-            if candidates.isEmpty { self.nearbyPicker.addItem(withTitle: "발견된 Mac 없음 · 다시 찾기") }
-            else { self.networkNote = nil }
-            if let selected, let item = self.nearbyPicker.itemArray.first(where: { $0.representedObject as? String == selected }) {
-                self.nearbyPicker.select(item)
-            }
-            self.refresh()
+            self.candidates = candidates.map { ($0.device, $0.name) }
+            if !candidates.isEmpty { self.networkNote = nil }
+            self.rebuildDevices(); self.refresh()
         }
         pairing.onStatus = { [weak self] status in
             guard let self, self.verificationAlert == nil, self.peers.isEmpty else { return }
@@ -316,15 +380,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 try KeyStore.save(code); self.code = code; self.sync.resetSession()
                 UserDefaults.standard.set(try self.pendingRoute.map { try JSONEncoder().encode($0) }, forKey: "directPeer")
                 self.pendingRoute = nil
+                self.pairedName = name; UserDefaults.standard.set(name, forKey: "pairedMacName")
+                self.access.didPair(); self.discoveryDeadline?.invalidate()
+                // Stop accepting new requests without interrupting delivery of our confirmation.
+                self.pairing?.endDiscovery()
                 self.lastActivity = "\(name) 연결을 확인했어요."; self.restartTransport()
             } catch { self.alert(error.localizedDescription) }
         }
         pairing.onEnded = { [weak self] in
             guard let self else { return }
             if let sheet = self.verificationAlert { self.window.endSheet(sheet.window, returnCode: .abort) }
-            self.verificationAlert = nil; self.refresh()
+            self.verificationAlert = nil
+            if !self.access.isOpen { self.pairing?.endDiscovery() }
+            self.refresh()
         }
-        pairing.start()
+        if access.isOpen { pairing.start() }; refresh()
     }
     private func verifyPairing(name: String, digits: String, reply: @escaping (Bool) -> Void) {
         guard verificationAlert == nil else { reply(false); return }
@@ -363,7 +433,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             transport.onClock = { [weak self] clock in self?.sync.observe(clock: clock) }
             transport.onPeers = { [weak self] peers in
                 guard let self else { return }; self.peers = peers; self.sync.connected = !peers.isEmpty
-                if !peers.isEmpty { self.networkNote = nil }; self.refresh()
+                if let name = peers.first {
+                    self.networkNote = nil; self.pairedName = name
+                    UserDefaults.standard.set(name, forKey: "pairedMacName")
+                    self.access.didAuthenticate()
+                    if !self.access.isOpen { self.pairing?.endDiscovery() }
+                }
+                self.refresh()
             }
             transport.onClip = { [weak self] clip in self?.sync.receive(clip) }
             transport.onStatus = { [weak self] note in self?.networkNote = note; self?.refresh() }
@@ -378,16 +454,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         sendButton?.isEnabled = enabled && !peers.isEmpty
         menuSend?.isEnabled = enabled && !peers.isEmpty
         closeHint.stringValue = ["창을 닫을 때 실행 여부를 물어봐요.", "창을 닫아도 공유돼요. 완전히 끄려면 ‘NearClip 종료’를 누르세요.", "창을 닫으면 클립보드 공유도 함께 종료돼요."][closeBehavior.rawValue]
-        connectButton?.isEnabled = !(pairing?.busy ?? false) && nearbyPicker.selectedItem?.representedObject != nil
         let text: String
-        if !enabled { text = "PAUSED  /  공유 일시 정지" }
-        else if busy { text = "PAIRING  /  연결 확인 중" }
-        else if peers.isEmpty { text = "WAITING  /  연결 대기" }
-        else { text = "CONNECTED  /  \(peers.count)대 공유 중" }
+        if busy { text = "양쪽 숫자를 확인하세요" }
+        else if !enabled { text = "공유가 일시 정지됐어요" }
+        else if !peers.isEmpty { text = "클립보드 공유 중" }
+        else if access.hasTrustedPeer { text = "Mac을 기다리고 있어요" }
+        else { text = "옆 Mac과 연결하세요" }
         statusLabel.stringValue = text
-        statusLabel.textColor = enabled && !peers.isEmpty ? .systemTeal : .labelColor
-        if !enabled { activityLabel.stringValue = "보내기와 받기가 모두 멈췄어요. 재개한 뒤 복사한 내용부터 공유해요." }
-        else { activityLabel.stringValue = networkNote ?? (peers.isEmpty ? "두 Mac에서 앱을 열고 아래 목록에서 연결하세요." : peers.joined(separator: ", ") + "  ·  " + lastActivity) }
+        statusLabel.textColor = .labelColor
+        statusIcon?.image = NSImage(systemSymbolName: busy ? "number.circle" : (!enabled ? "pause.circle" : (peers.isEmpty ? "laptopcomputer" : "checkmark.shield")), accessibilityDescription: nil)?.withSymbolConfiguration(.init(pointSize: 32, weight: .regular))
+        statusIcon?.contentTintColor = !peers.isEmpty && enabled ? .systemTeal : .secondaryLabelColor
+        if !enabled { activityLabel.stringValue = "보내기와 받기를 멈췄어요. 재개한 뒤 복사한 내용부터 공유해요." }
+        else if busy { activityLabel.stringValue = networkNote ?? "두 Mac에서 같은 숫자인지 확인하고 연결을 눌러주세요." }
+        else if !peers.isEmpty { activityLabel.stringValue = lastActivity }
+        else { activityLabel.stringValue = networkNote ?? (access.hasTrustedPeer ? "상대 Mac에서 NearClip을 켜면 자동으로 연결돼요." : "같은 네트워크에서 텍스트와 이미지를 복사하고 붙여넣으세요.") }
+        sharingActions?.isHidden = !access.hasTrustedPeer && peers.isEmpty
+        pairingHint.stringValue = access.hasTrustedPeer ? "양쪽 숫자를 확인하면 저장된 연결을 새 Mac으로 교체해요." : "상대 Mac의 ‘연결’을 누른 뒤, 양쪽의 6자리 숫자를 확인하세요."
+        trustLabel.stringValue = access.isOpen && access.hasTrustedPeer ? "새 연결 허용 중 · 2분 뒤 자동 닫힘 · 양쪽 숫자 확인 필수" : access.isOpen ? "새 Mac 연결 허용 중 · 양쪽 숫자 확인 필수" : "인증된 Mac과 암호화 전송 · 클립보드 기록 저장 안 함"
+        discoveryView?.isHidden = !access.isOpen
+        trustedView?.isHidden = access.isOpen
+        advancedView?.isHidden = !advanced
+        advancedButton?.title = advanced ? "연결 도움말 접기 ▴" : "Mac이 보이지 않나요? ▾"
+        cancelButton?.isHidden = !access.hasTrustedPeer && !busy
+        cancelButton?.title = busy ? "연결 취소" : "찾기 취소"
+        copyAddressButton?.isEnabled = hasLocalAddress && access.isOpen
+        peerLabel.stringValue = peers.first ?? pairedName ?? "저장된 Mac"
+        peerDetail.stringValue = peers.isEmpty ? "오프라인 · 자동 재연결 대기" : "연결됨 · 텍스트 + 이미지"
+        for view in deviceList?.arrangedSubviews ?? [] {
+            (view as? NSStackView)?.arrangedSubviews.compactMap { $0 as? NSButton }.forEach { $0.isEnabled = !busy }
+        }
+        updateWindowSize()
         menuStatus?.title = text
         menuToggle?.title = enabled ? "공유 일시 정지" : "공유 다시 시작"
         toggle?.state = enabled ? .on : .off
@@ -395,12 +491,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         statusItem?.button?.image = NSImage(systemSymbolName: !enabled ? "pause.circle" : (peers.isEmpty ? "doc.on.clipboard" : "checkmark.circle"), accessibilityDescription: text)
     }
     @objc private func showWindow() { NSApp.setActivationPolicy(.regular); window?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
-    @objc private func connectNearby() {
-        guard !preview else { return }
-        if let selected = nearbyPicker.selectedItem?.representedObject as? String { pendingRoute = nil; pairing?.connect(device: selected); refresh() }
+    private func rebuildDevices() {
+        guard let deviceList else { return }
+        for view in deviceList.arrangedSubviews { deviceList.removeArrangedSubview(view); view.removeFromSuperview() }
+        if candidates.isEmpty {
+            let empty = column([
+                label("다른 Mac에서도 NearClip을 켜주세요", size: 13, weight: .medium),
+                label("이미 연결한 Mac이라면 ‘다른 Mac 연결’을 누르세요.\n발견하면 이곳에 표시돼요.", size: 11, color: .secondaryLabelColor)
+            ], spacing: 6)
+            deviceList.addArrangedSubview(empty)
+            empty.widthAnchor.constraint(equalTo: deviceList.widthAnchor).isActive = true
+        }
+        for candidate in candidates {
+            let name = label(candidate.name, size: 13, weight: .medium)
+            name.maximumNumberOfLines = 1; name.lineBreakMode = .byTruncatingTail
+            let identity = label("Mac · " + candidate.device.prefix(4), size: 10, color: .secondaryLabelColor)
+            identity.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
+            let connect = button("연결", action: #selector(connectNearby(_:)))
+            connect.identifier = NSUserInterfaceItemIdentifier(candidate.device)
+            connect.setAccessibilityLabel(candidate.name + "에 연결")
+            let item = row([symbol("laptopcomputer", size: 22), flexible(column([name, identity], spacing: 3)), connect])
+            item.heightAnchor.constraint(equalToConstant: 54).isActive = true
+            deviceList.addArrangedSubview(item); item.widthAnchor.constraint(equalTo: deviceList.widthAnchor).isActive = true
+        }
+    }
+    private func updateWindowSize() {
+        guard let tabView, let window else { return }
+        let settings = tabView.selectedTabViewItem?.identifier as? String == "settings"
+        let height: CGFloat = settings ? 250 : (access.isOpen ? (advanced ? 342 : 228) : 108)
+        tabHeight.constant = height
+        let contentHeight = height + (sharingActions.isHidden ? 270 : 316)
+        if abs((window.contentView?.bounds.height ?? 0) - contentHeight) > 1 {
+            var frame = window.frame
+            let newHeight = window.frameRect(forContentRect: NSRect(x: 0, y: 0, width: 560, height: contentHeight)).height
+            frame.origin.y += frame.height - newHeight; frame.size.height = newHeight
+            window.setFrame(frame, display: true)
+        }
+    }
+    @objc private func toggleAdvanced() { advanced.toggle(); refresh() }
+    @objc private func openDiscovery() {
+        access.open(); advanced = false; networkNote = nil; hasLocalAddress = false
+        localAddress.stringValue = "주소 준비 중…"
+        discoveryDeadline?.invalidate()
+        pairing?.invitationDeadline = Date().addingTimeInterval(120)
+        let timer = Timer(timeInterval: 120, repeats: false) { [weak self] _ in self?.cancelDiscovery() }
+        discoveryDeadline = timer; RunLoop.main.add(timer, forMode: .common)
+        if !preview { pairing?.start() }
+        selectTab(0); refresh()
+    }
+    @objc private func cancelDiscovery() {
+        // A first-time user can cancel a handshake and keep discovering.
+        if !access.hasTrustedPeer { pairing?.cancel(); pendingRoute = nil; refresh(); return }
+        access.close(); discoveryDeadline?.invalidate(); pairing?.stop()
+        pendingRoute = nil; networkNote = nil; hasLocalAddress = false; refresh()
+    }
+    @objc private func connectNearby(_ sender: NSButton) {
+        guard !preview, access.isOpen, let selected = sender.identifier?.rawValue else { return }
+        pendingRoute = nil; pairing?.connect(device: selected); refresh()
     }
     @objc private func connectAddress() {
-        guard !preview, pairing?.busy == false else { return }
+        guard !preview, access.isOpen, pairing?.busy == false else { return }
         let dialog = NSAlert(); dialog.messageText = "Mac 주소로 연결"
         dialog.informativeText = "연결할 Mac의 호스트 또는 IP 주소와 포트를 입력하세요.\n예: my-mac.local:54321"
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 26))
@@ -420,7 +570,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         do {
             let incoming = try PairCode.create(); try KeyStore.save(incoming); code = incoming
             UserDefaults.standard.removeObject(forKey: "directPeer"); pendingRoute = nil
-            pairing?.cancel()
+            pairedName = nil; UserDefaults.standard.removeObject(forKey: "pairedMacName")
+            access = PairingAccess(hasTrustedPeer: false); discoveryDeadline?.invalidate()
+            pairing?.stop(); pairing?.invitationDeadline = nil; pairing?.start()
             sync.resetSession(); lastActivity = "기존 연결을 지웠어요. 목록에서 Mac을 선택해 주세요."; restartTransport()
         } catch { alert(error.localizedDescription) }
     }
@@ -434,9 +586,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if !preview { UserDefaults.standard.set(enabled, forKey: "enabled") }
         refresh()
     }
-    @objc private func retry() { restartTransport(); pairing?.stop(); pairing?.start(); refresh() }
+    @objc private func retry() { restartTransport(); pairing?.stop(); hasLocalAddress = false; if access.isOpen { pairing?.start() }; refresh() }
     @objc private func willSleep() { sync?.stop(); transport?.stop(); pairing?.stop(); sync?.connected = false }
-    @objc private func didWake() { sync?.baseline(); sync?.start(); restartTransport(); pairing?.start() }
+    @objc private func didWake() { sync?.baseline(); sync?.start(); restartTransport(); if access.isOpen { pairing?.start() } }
     @objc private func copyAddress() {
         guard !preview, hasLocalAddress else { return }
         NSPasteboard.general.clearContents()
@@ -449,9 +601,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         require(statusItem.menu?.items.contains(where: { $0.action == #selector(quit) }) == true, "menu bar exposes quit")
         require(NSApp.mainMenu?.items.first?.submenu?.items.contains(where: { $0.keyEquivalent == "q" }) == true, "Command-Q is installed in app menu")
-        toggleSharing(); require(!enabled && statusLabel.stringValue.contains("PAUSED"), "pause updates visible state")
+        toggleSharing(); require(!enabled && statusLabel.stringValue.contains("일시 정지"), "pause updates visible state")
         toggleSharing(); require(enabled, "resume updates sharing state")
         showSettings(); require(tabView.selectedTabViewItem?.identifier as? String == "settings", "settings navigation")
+        access = PairingAccess(hasTrustedPeer: true); refresh()
+        require(!access.isOpen && discoveryView.isHidden, "trusted peer hides new pairing controls")
+        openDiscovery(); require(access.isOpen && !discoveryView.isHidden, "explicit action opens new pairing")
+        cancelDiscovery(); require(!access.isOpen && discoveryView.isHidden, "cancel closes new pairing")
         closeBehavior = .keepRunning
         require(windowShouldClose(window), "close can keep menu bar running")
         window.orderOut(nil)
@@ -464,12 +620,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func closeWindow() { window.performClose(nil) }
     private func selectTab(_ index: Int) {
         tabView.selectTabViewItem(at: index)
-        for (i, button) in tabButtons.enumerated() { button.state = i == index ? .on : .off }
+        for (i, button) in tabButtons.enumerated() { button.state = i == index ? .on : .off }; updateWindowSize()
     }
     @objc private func selectConnection() { selectTab(0) }
     @objc private func showSettings() { showWindow(); selectTab(1) }
     @objc private func changeCloseBehavior() { closeBehavior = CloseBehavior(rawValue: closePicker.indexOfSelectedItem) ?? .ask; refresh() }
-    @objc private func cancelPairing() { pairing?.cancel(); pendingRoute = nil; refresh() }
     @objc private func networkSettings() {
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork")!)
     }
@@ -507,12 +662,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return false
     }
     @objc private func about() {
-        NSApp.orderFrontStandardAboutPanel(options: [.applicationName: "NearClip", .applicationVersion: "0.3.0", .credits: NSAttributedString(string: "Mac 사이의 텍스트·이미지 클립보드 공유. MIT License.")])
+        NSApp.orderFrontStandardAboutPanel(options: [.applicationName: "NearClip", .applicationVersion: version, .credits: NSAttributedString(string: "Mac 사이의 텍스트·이미지 클립보드 공유. MIT License.")])
     }
     @objc private func quit() { NSApp.terminate(nil) }
     @objc private func help() {
         let dialog = NSAlert(); dialog.messageText = "두 Mac에서 NearClip을 켜두세요"
-        dialog.informativeText = "① 두 Mac 모두 NearClip 0.3 이상을 켜고 같은 Wi-Fi 또는 LAN에 연결하세요.\n② 한쪽에서 목록의 상대 Mac을 선택하고 연결하기를 누르세요.\n③ 양쪽 화면의 6자리 숫자가 같으면 두 Mac에서 모두 연결을 누르세요. 숫자를 전달하거나 입력할 필요 없어요.\n④ 연결됨이 표시되면 새로 복사한 텍스트나 이미지를 다른 Mac에 붙여넣으세요.\n\n권한 요청이 나오면 ‘로컬 네트워크’와 ‘다른 앱에서 붙여넣기’를 허용하세요. 거부했다면 시스템 설정 → 개인정보 보호 및 보안에서 변경할 수 있어요.\n\n텍스트와 실제 이미지 클립보드를 지원해요. Finder의 파일 복사는 지원하지 않아요. 이미지는 20MB·4천만 화소까지예요.\n\n연결 전·일시 정지 중 복사한 내용은 자동 전송하지 않아요. 필요하면 ‘지금 보내기’를 누르세요. 암호 관리자가 비공개로 표시한 내용은 공유하지 않아요.\n\n설정에서 연결 해제를 누르면 기존 연결이 끊어져요. 회사·게스트 Wi-Fi에서 기기 간 통신을 막으면 연결할 수 없어요."
+        dialog.informativeText = "① 두 Mac 모두 NearClip 0.3 이상을 켜고 같은 Wi-Fi 또는 LAN에 연결하세요.\n② 한쪽에서 상대 Mac 옆의 ‘연결’을 누르세요.\n③ 양쪽 화면의 6자리 숫자가 같으면 두 Mac에서 모두 연결을 누르세요. 숫자를 전달하거나 입력할 필요 없어요.\n④ 연결됨이 표시되면 새로 복사한 텍스트나 이미지를 다른 Mac에 붙여넣으세요.\n\n권한 요청이 나오면 ‘로컬 네트워크’와 ‘다른 앱에서 붙여넣기’를 허용하세요. 거부했다면 시스템 설정 → 개인정보 보호 및 보안에서 변경할 수 있어요.\n\n텍스트와 실제 이미지 클립보드를 지원해요. Finder의 파일 복사는 지원하지 않아요. 이미지는 20MB·4천만 화소까지예요.\n\n연결 전·일시 정지 중 복사한 내용은 자동 전송하지 않아요. 필요하면 ‘지금 보내기’를 누르세요. 암호 관리자가 비공개로 표시한 내용은 공유하지 않아요.\n\n설정에서 연결 해제를 누르면 기존 연결이 끊어져요. 회사·게스트 Wi-Fi에서 기기 간 통신을 막으면 연결할 수 없어요."
         dialog.addButton(withTitle: "확인"); dialog.runModal()
     }
     private func alert(_ message: String) {

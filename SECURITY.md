@@ -10,10 +10,12 @@ Pairing uses ephemeral Curve25519 key agreement, a commit/reveal exchange, and a
 
 Clipboard sessions use HKDF-derived directional keys and AES-GCM. Fresh connection nonces bind session keys to the handshake. Encrypted sequence numbers reject replay and reflection. The app limits message sizes before reading frame bodies and checks image dimensions before decoding.
 
+New-pairing discovery closes after a successful pairing. On a saved setup, **Connect another Mac** opens it for at most two minutes. Cancel closes it immediately. Authenticated clipboard sessions and automatic reconnection remain available. Closing discovery does not interrupt delivery of the already-approved confirmation. On first use, discovery stays open until a Mac is paired or the app quits.
+
 ## Data handling
 
 - Clipboard content stays in memory and the system clipboard. NearClip does not keep history or send telemetry.
-- macOS preferences store the device ID, logical clock, settings, and the approved peer's reconnect address. These values are not pairing secrets.
+- macOS preferences store the device ID, logical clock, settings, approved peer name, and reconnect address. These values are not pairing secrets.
 - Bonjour exposes a device name, device ID, service port, and a group discovery hint on the local network. These are not secret.
 - The app skips clipboard entries marked concealed or transient. Applications that omit those markers can still expose sensitive text. Pause sharing before copying content that must remain on one Mac.
 - Pause blocks outgoing and incoming clipboard content. Network discovery and authenticated connections can remain active. Quit closes the listeners and connections.

@@ -31,7 +31,7 @@ build/NearClip.app/Contents/MacOS/NearClip --preview --light
 build/NearClip.app/Contents/MacOS/NearClip --render-preview /tmp/nearclip.png --dark --settings
 ```
 
-Preview mode uses sample UI state. It does not access the Keychain, general clipboard, or network. Use `--connected` or `--paused` for other states.
+Preview mode uses sample UI state. It does not access the Keychain, general clipboard, or network. Use `--nearby`, `--connected`, `--offline`, `--paused`, or `--advanced` for other states. Combine `--connected --paused` to show a paused saved connection.
 
 ## Bundled diagnostics
 
@@ -65,6 +65,6 @@ Tag the tested commit, then attach the packages and checksums to a GitHub prerel
 | `Core.swift` | Keychain, message types, framing, encryption |
 | `Pairing.swift` | Discovery and two-sided numeric pairing |
 | `Transport.swift` | Authenticated clipboard sessions and reconnect |
-| `Preferences.swift` | Address parsing and saved route model |
+| `Preferences.swift` | Address parsing, saved route model, and pairing access policy |
 
 Pairing and clipboard discovery share `_nearclip._tcp`. Pairing advertisements start with `pair-`; clipboard advertisements start with a group hint. Both peers can dial directly, so duplicate connections use a deterministic device-ID order.

@@ -1,40 +1,35 @@
-# 0.3.0 validation
+# 0.3.1 validation
 
-Validated on an Apple Silicon Mac. This is a public beta, not a claim of full production or accessibility certification.
+Validated locally on macOS 15.7.2, Apple Silicon. This is a public beta. Local integration tests do not establish that all physical two-Mac setups work.
 
-## Iteration 1: App controls
+## Automated checks
 
-The previous window had no visible Quit control. Closing the window left sharing active.
+- **82 regression checks passed.** Coverage includes Unicode text, PNG/TIFF fidelity, pause/resume, local TCP, framing limits, authenticated encryption, tampering, replay, numeric pairing, address parsing, direct transfer, and shutdown.
+- New pairing-policy checks cover first use, saved peers, explicit invitations, cancellation, and migration after authenticating a legacy peer.
+- A real local connection to an expired invitation is rejected before verification, even when the UI expiry timer has not run.
+- Pairing tests close discovery immediately after approval and confirm that both peers still receive the pairing confirmation.
 
-Added a visible Quit button, standard application menus, Command-Q and Command-W, a close-action choice, and a saved close preference. Added a settings page for login startup and disconnect.
+Tests use synthetic identities and separate temporary pasteboards. They do not read or write the general clipboard.
 
-The packaged lifecycle diagnostic passed 10 checks: menu-bar Quit, Command-Q registration, pause state, resume state, settings navigation, keep-running close, menu-bar-only activation, window reopening, quit request, and termination callback. The close-choice sheet and macOS login-item approval still need manual testing on additional machines.
+## UI review
 
-## Iteration 2: Connection recovery
+Reviewed 13 official reference sources, including screenshots from eight products. [Reference notes](DESIGN-REFERENCES.md) distinguish observed patterns from design hypotheses.
 
-The previous two-service discovery had failed under the installed app identity. Pairing and clipboard discovery now share one declared service with distinct name prefixes.
+The first rendering pass exposed inconsistent button alignment and excess space in the empty list. A second pass corrected row sizing, button widths, and the scroll document's coordinate system.
 
-Added direct pairing addresses and authenticated reconnect-port exchange. Saved routes are created only after both confirmations. Simultaneous connections select the same physical connection. Shutdown clears sessions. Stale discovery callbacks are ignored after restart.
+The final light and dark previews cover nearby devices, a connected Mac, a saved offline Mac, paused sharing, settings, and expanded connection help. Screenshots use synthetic names and status. They do not show a real remote connection.
 
-The regression suite passed **75 checks** locally and on GitHub-hosted macOS 15 Apple Silicon and Intel runners, including real local TCP, image fidelity, framing limits, tampering, replay, pause, numeric pairing, address parsing, direct pairing, direct transfer, and shutdown. A separate diagnostic inside the actual packaged app passed Bonjour pairing, encrypted synthetic transfer, and connection cleanup.
+- [Nearby devices](connection.png)
+- [Connected](connected.png)
+- [Paused](paused.png)
+- [Settings](settings.png)
 
-## Iteration 3: UI and distribution
+## Packaged diagnostics
 
-Screenshots exposed broken tab rendering and missing backgrounds. Replaced the tab header with native buttons and rendered with the effective appearance. Reduced the window height, used monospaced status and address text, and added address copy.
+The packaged Bonjour pairing, encrypted synthetic transfer, and session cleanup diagnostics passed. The lifecycle diagnostic passed 13 checks, including pause/resume, settings, opening and closing new pairing, menu-bar-only operation, reopening, and quit. Run them as described in [Development](DEVELOPMENT.md#bundled-diagnostics).
 
-The final screens were rendered and visually inspected:
+## Distribution and remaining checks
 
-1. **Connection — pass:** state and main controls are visible. Address fallback is below nearby discovery. [Screenshot](connection.png)
-2. **Settings — pass:** close behavior, login startup, and disconnect are separated from pairing. [Screenshot](settings.png)
-3. **Connected — pass:** the approved peer and last activity appear above the controls. [Screenshot](connected.png)
-4. **Paused — pass:** the screen states that sending and receiving are paused. Manual send is disabled. [Screenshot](paused.png)
+The app is built for arm64 and x86_64 and uses an ad-hoc signature. It is not Developer ID signed or notarized.
 
-These screenshots use synthetic state and do not prove a remote Mac is connected. Native accessibility inspection found labeled buttons and tabs. Full VoiceOver, contrast, and keyboard traversal audits were not completed.
-
-Both CI jobs passed tests, universal compilation, architecture checks, and signature verification: [CI run](https://github.com/iyk2h/nearclip/actions/runs/43161137680).
-
-The universal binary includes arm64 and x86_64. The package has an ad-hoc signature. A DMG, ZIP, and checksums are provided. No valid Developer ID signing identity was available, so this release is not notarized.
-
-## Remaining physical-device checks
-
-The earlier 0.2 build was used successfully on two physical Macs. The 0.3 changes have local integration and packaged diagnostics coverage, but have not yet been verified across two physical Macs. Check sleep/wake, router changes, VPN behavior, the Intel GUI, and login startup before calling this a stable release.
+The earlier 0.2 build worked on two physical Macs in this project. The 0.3.1 changes still need physical two-Mac checks for discovery, text/image sharing, sleep/wake, router changes, VPNs, and login startup. Full VoiceOver, keyboard traversal, and Intel GUI testing are not complete. No independent security audit has been performed.

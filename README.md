@@ -4,17 +4,17 @@
 
 NearClip is a native macOS menu bar app. It shares text and images between two Macs on the same local network. The Macs can use different Apple accounts. No account, cloud service, or third-party runtime is required.
 
-[**Download for macOS**](https://github.com/iyk2h/nearclip/releases/tag/v0.3.0) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Development](docs/DEVELOPMENT.md) · [Roadmap](docs/ROADMAP.md)
+[**Download for macOS**](https://github.com/iyk2h/nearclip/releases/tag/v0.3.1) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Development](docs/DEVELOPMENT.md) · [Roadmap](docs/ROADMAP.md) · [Design references](docs/DESIGN-REFERENCES.md)
 
 ![NearClip connection screen](docs/connection.png)
 
-> **Public beta.** Version 0.3.0 is not notarized by Apple. The app interface is currently in Korean. The steps below include the button labels shown in the app.
+> **Public beta.** Version 0.3.1 is not notarized by Apple. The app interface is currently in Korean. The steps below include the button labels shown in the app.
 
 ## Install
 
 Use macOS 13 or later. Apple Silicon and Intel are supported. Complete these steps on both Macs.
 
-1. Download `NearClip-0.3.0-macOS.dmg` from the [release page](https://github.com/iyk2h/nearclip/releases/tag/v0.3.0).
+1. Download `NearClip-0.3.1-macOS.dmg` from the [release page](https://github.com/iyk2h/nearclip/releases/tag/v0.3.1).
 2. Open the DMG file.
 3. Drag **NearClip** to **Applications**.
 4. Open **NearClip** from Applications.
@@ -24,17 +24,14 @@ If macOS blocks the first launch, follow the [first-launch instructions](docs/TR
 
 ## Connect the Macs
 
-1. Connect both Macs to the same Wi-Fi or wired network.
-2. Open NearClip on both Macs.
-3. On one Mac, open **Connection (`연결`)**.
-4. Select the other Mac from the list.
-5. Click **Connect (`연결`)**.
-6. Compare the six digits on both screens.
-7. If they match, click **Confirm (`숫자가 같아요 · 연결`)** on both Macs.
-8. Wait for **CONNECTED**.
-9. Copy new text or an image, then press `⌘V` on the other Mac.
+1. Connect both Macs to the same Wi-Fi or wired network and open NearClip.
+2. On one Mac, click **Connect (`연결`)** beside the other Mac's name.
+3. Compare the six digits. If they match, click **Confirm (`숫자가 같아요 · 연결`)** on both Macs.
+4. Wait for **Sharing clipboard (`클립보드 공유 중`)**. Copy new text or an image, then press `⌘V` on the other Mac.
 
-If the list is empty, find the address under **Direct connection (`직접 연결`)** on the other Mac. Enter it through **Connect by address (`주소로 연결…`)**. Then compare the digits as described above.
+The Macs reconnect automatically next time. To replace a saved pairing, click **Connect another Mac (`다른 Mac 연결`)** on each previously paired Mac. This opens new-pairing discovery for two minutes. Confirming a new Mac replaces the previous pairing.
+
+If no Mac appears, open **Mac not visible? (`Mac이 보이지 않나요?`)**. Enter the other Mac's displayed address through **Connect by address (`주소로 연결…`)**, then compare the digits.
 
 ## Use the menu bar
 
@@ -60,7 +57,7 @@ The first time you close the window, NearClip asks whether to quit or stay in th
 
 To copy a screenshot directly to the clipboard, press `⌃⇧⌘4`.
 
-NearClip does **not** transfer Finder files, share a mouse or keyboard, or keep clipboard history. Pairing a new Mac replaces the previous pairing. Version 0.3.0 targets two-Mac use.
+NearClip does **not** transfer Finder files, share a mouse or keyboard, or keep clipboard history. Version 0.3.1 targets two-Mac use.
 
 Clipboard content is encrypted in transit. See [Security](SECURITY.md) for the trust model and limits, and [Validation](docs/VALIDATION.md) for completed tests.
 

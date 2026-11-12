@@ -16,14 +16,15 @@ These steps follow [Apple's app-opening instructions](https://support.apple.com/
 
 1. Run NearClip 0.3 or later on both Macs.
 2. Allow NearClip under **System Settings → Privacy & Security → Local Network**, if that setting is available on your macOS version.
-3. Click **Find again (`다시 찾기`)**.
-4. If discovery still fails, use the address shown under **Direct connection (`직접 연결`)** on the other Mac.
+3. If a Mac has a saved pairing, click **Connect another Mac (`다른 Mac 연결`)** to make it available for a new pairing.
+4. Click **Find again (`다시 찾기`)**.
+5. If discovery still fails, open **Mac not visible? (`Mac이 보이지 않나요?`)** on both Macs. Enter one Mac's displayed address through **Connect by address (`주소로 연결…`)** on the other.
 
 Guest Wi-Fi, client isolation, some VPNs, and firewalls can block traffic between devices. Check the network policy if direct connection also fails. Use the address currently shown in the app; its pairing port can change after a restart.
 
 ## Connected, but paste does not work
 
-1. Check that the state is **CONNECTED**, not **PAUSED**.
+1. Check that the state is **Sharing clipboard (`클립보드 공유 중`)**, not **Paused (`공유가 일시 정지됐어요`)**.
 2. Copy a short line of plain text after the connection is established.
 3. Paste it into a text editor on the other Mac.
 4. Use **Send now (`지금 보내기`)** to resend the current clipboard if needed.
@@ -32,7 +33,7 @@ NearClip skips clipboard entries marked as confidential or transient by their so
 
 ## Connection fails after sleep or a network change
 
-NearClip tries to reconnect after wake. If the saved address is no longer valid and discovery is blocked, pair again with the current address. **Find again (`다시 찾기`)** restarts networking.
+NearClip tries to reconnect after wake. If the saved address is no longer valid and discovery is blocked, pair again with the current address. The menu-bar command **Find connection again (`연결 다시 찾기`)** restarts networking without opening new pairing.
 
 ## Start at login does not work
 

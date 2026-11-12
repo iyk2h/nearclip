@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.1 — 2026-11-12
+
+- Replace the nearby-device picker with named device rows and individual Connect buttons.
+- Separate first-use discovery from daily sharing. Show saved-device identity and offline reconnection state.
+- Close new-pairing discovery after approval. Require an explicit, two-minute invitation to replace a saved pairing.
+- Put address entry and permission help behind a disclosure. Keep pause, send, and Quit easy to reach.
+- Reduce window size in daily use and refine native light/dark styling.
+- Document 13 design references and update the English setup guide.
+
+
 ## 0.3.0 — Public beta
 
 - Add a visible Quit button and standard Command-Q / Command-W shortcuts.

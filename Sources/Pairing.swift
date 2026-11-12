@@ -184,6 +184,8 @@ final class NearbyPairing {
     var onEnded: (() -> Void)?
     var busy: Bool { active != nil }
     var syncPort: UInt16?
+    var invitationDeadline: Date?
+    private var accepting: Bool { running && (invitationDeadline.map { Date() < $0 } ?? true) }
     var onListening: ((UInt16) -> Void)?
     var onRoute: ((DirectPeer) -> Void)?
     private let discovery: Bool
@@ -194,10 +196,15 @@ final class NearbyPairing {
         self.timer = timer; RunLoop.main.add(timer, forMode: .common)
     }
     func stop() {
+        endDiscovery()
+        active?.close(); active = nil
+    }
+    // Close the unauthenticated entry point while allowing an approved handshake to drain.
+    func endDiscovery() {
         running = false; timer?.invalidate(); timer = nil
         listener?.stateUpdateHandler = nil; listener?.cancel(); listener = nil
         browser?.stateUpdateHandler = nil; browser?.cancel(); browser = nil
-        active?.close(); active = nil; candidates = []; onCandidates?([])
+        candidates = []; onCandidates?([])
     }
     private func openServices() {
         guard running else { return }
@@ -208,7 +215,7 @@ final class NearbyPairing {
                 for c in name { if (shortName + String(c)).utf8.count > 20 { break }; shortName.append(c) }
                 if discovery { server.service = NWListener.Service(name: "pair-" + shortName + "#" + device, type: Self.serviceType) }
                 server.newConnectionHandler = { [weak self] connection in
-                    guard let self, self.running, self.active == nil, Date().timeIntervalSince(self.lastIncoming) > 8 else { connection.cancel(); return }
+                    guard let self, self.accepting, self.active == nil, Date().timeIntervalSince(self.lastIncoming) > 8 else { connection.cancel(); return }
                     self.lastIncoming = Date(); self.attach(connection)
                 }
                 server.stateUpdateHandler = { [weak self, weak server] state in
@@ -258,11 +265,11 @@ final class NearbyPairing {
         return "주변 Mac 검색에 실패했어요. 로컬 네트워크 권한을 확인한 뒤 ‘다시 찾기’를 눌러주세요. (\(error))"
     }
     func connect(device: String) {
-        guard running, active == nil, let candidate = candidates.first(where: { $0.device == device }) else { return }
+        guard accepting, active == nil, let candidate = candidates.first(where: { $0.device == device }) else { return }
         attach(NWConnection(to: candidate.endpoint, using: LocalTransport.parameters()), expected: device)
     }
     func connectDirect(host: String, port: UInt16, expected: String? = nil) {
-        guard running, active == nil, let port = NWEndpoint.Port(rawValue: port), !host.isEmpty else { return }
+        guard accepting, active == nil, let port = NWEndpoint.Port(rawValue: port), !host.isEmpty else { return }
         attach(NWConnection(host: NWEndpoint.Host(host), port: port, using: LocalTransport.parameters()), expected: expected)
     }
     func cancel() { active?.close() }

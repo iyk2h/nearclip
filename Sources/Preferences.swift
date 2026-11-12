@@ -28,3 +28,16 @@ struct ConnectionAddress: Equatable {
 enum CloseBehavior: Int {
     case ask = 0, keepRunning = 1, quit = 2
 }
+
+// Discovery is open on first use. A trusted setup requires an explicit invitation.
+// Re-authenticating an existing peer must not cancel an invitation the user opened.
+struct PairingAccess {
+    private(set) var hasTrustedPeer: Bool
+    init(hasTrustedPeer: Bool) { self.hasTrustedPeer = hasTrustedPeer }
+    private var invited = false
+    var isOpen: Bool { !hasTrustedPeer || invited }
+    mutating func open() { invited = true }
+    mutating func close() { invited = false }
+    mutating func didPair() { hasTrustedPeer = true; invited = false }
+    mutating func didAuthenticate() { hasTrustedPeer = true }
+}
