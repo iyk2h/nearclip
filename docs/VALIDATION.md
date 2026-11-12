@@ -16,7 +16,7 @@ The previous two-service discovery had failed under the installed app identity. 
 
 Added direct pairing addresses and authenticated reconnect-port exchange. Saved routes are created only after both confirmations. Simultaneous connections select the same physical connection. Shutdown clears sessions. Stale discovery callbacks are ignored after restart.
 
-The regression suite passed **75 checks**, including real local TCP, image fidelity, framing limits, tampering, replay, pause, numeric pairing, address parsing, direct pairing, direct transfer, and shutdown. A separate diagnostic inside the actual packaged app passed Bonjour pairing, encrypted synthetic transfer, and connection cleanup.
+The regression suite passed **75 checks** locally and on GitHub-hosted macOS 15 Apple Silicon and Intel runners, including real local TCP, image fidelity, framing limits, tampering, replay, pause, numeric pairing, address parsing, direct pairing, direct transfer, and shutdown. A separate diagnostic inside the actual packaged app passed Bonjour pairing, encrypted synthetic transfer, and connection cleanup.
 
 ## Iteration 3: UI and distribution
 
@@ -31,8 +31,10 @@ The final screens were rendered and visually inspected:
 
 These screenshots use synthetic state and do not prove a remote Mac is connected. Native accessibility inspection found labeled buttons and tabs. Full VoiceOver, contrast, and keyboard traversal audits were not completed.
 
+Both CI jobs passed tests, universal compilation, architecture checks, and signature verification: [CI run](https://github.com/iyk2h/nearclip/actions/runs/43161137680).
+
 The universal binary includes arm64 and x86_64. The package has an ad-hoc signature. A DMG, ZIP, and checksums are provided. No valid Developer ID signing identity was available, so this release is not notarized.
 
 ## Remaining physical-device checks
 
-The earlier 0.2 build was used successfully on two physical Macs. The 0.3 changes have local integration and packaged diagnostics coverage, but have not yet been verified across two physical Macs. Check sleep/wake, router changes, VPN behavior, Intel runtime, and login startup before calling this a stable release.
+The earlier 0.2 build was used successfully on two physical Macs. The 0.3 changes have local integration and packaged diagnostics coverage, but have not yet been verified across two physical Macs. Check sleep/wake, router changes, VPN behavior, the Intel GUI, and login startup before calling this a stable release.
