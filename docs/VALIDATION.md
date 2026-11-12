@@ -1,4 +1,4 @@
-# 0.4.0 validation
+# 0.4.1 validation
 
 Validated locally on macOS 15.7.2, Apple Silicon. File and mouse sharing are experimental. No claim of successful physical two-Mac mouse control is made.
 
@@ -20,13 +20,13 @@ Coverage includes:
 
 The packaged app passed Bonjour discovery and numeric pairing, encrypted synthetic clipboard transfer, a streamed file with digest verification, encrypted layout exchange, and session cleanup under its actual bundle identity.
 
-The preview-mode lifecycle diagnostic passed **17 checks**, including menu-bar Quit, Command-Q, pause/resume, sharing/settings navigation, input default-off state, pause revoking input control, pairing controls, stable window geometry, hide/reopen, and termination.
+The preview-mode lifecycle diagnostic passed **25 checks**, including menu-bar Quit, Command-Q, pause/resume, sharing/settings navigation, input default-off state, pause revoking input control, pairing controls, stable window geometry, hide/reopen, and termination. Arrangement checks exercise AppKit drag events without posting system input: no publication before drop, dragging either card updates a synthetic peer, clicks preserve order, Escape and outside drops cancel, the accessible swap action synchronizes, and disconnects cancel editing.
 
 These are same-Mac synthetic tests. They do not replace physical-device input testing.
 
 ## UI review
 
-Light and dark sharing screens were rendered and inspected. Connection and settings screens were also checked after adding the Sharing tab. The previews use synthetic device names and no real connection.
+Light, dark, and disconnected sharing screens were rendered and inspected. Connection and settings screens were also checked after adding the Sharing tab. The previews use synthetic device names and no real connection.
 
 - [Sharing, light appearance](sharing.png)
 - [Sharing, dark appearance](sharing-dark.png)

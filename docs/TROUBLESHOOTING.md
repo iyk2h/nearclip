@@ -40,7 +40,7 @@ NearClip tries to reconnect after wake. If the saved address is no longer valid 
 1. Use NearClip 0.4 or later on both Macs.
 2. Open Sharing (`공유`) and enable Mouse sharing (`마우스 공유 켜기`) on both.
 3. Allow NearClip in **System Settings → Privacy & Security → Accessibility** and **Input Monitoring**. Return to the app and enable sharing again. A restart may be needed after changing input permissions.
-4. Set the other Mac's position on one Mac. Both screens receive the layout.
+4. In 0.4.1 or later, drag the monitor cards into the correct left-to-right order. Both Macs receive the layout. End remote mouse control before rearranging.
 5. Push against the outer edge briefly with no mouse buttons or modifier keys held. A boundary between this Mac's own monitors does not hand off.
 
 Press `⌃⌥Esc` to stop mouse sharing. Typing stays local and returns mouse control. Re-enable sharing after a pause, disconnect, or app restart. A slow network or a large clipboard frame can trigger the watchdog and return control; this behavior fails safely but can interrupt use.

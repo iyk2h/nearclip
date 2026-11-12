@@ -15,8 +15,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var fileCancel: NSButton!
     private var revealButton: NSButton!
     private var mouseToggle: NSButton!
-    private var sidePicker = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let layoutLabel = NSTextField(wrappingLabelWithString: "연결한 Mac의 화면 배치를 여기서 정해요.")
+    private let arrangement = ScreenArrangementView(frame: .zero)
+    private var swapScreens: NSButton!
+    private let arrangementHint = NSTextField(wrappingLabelWithString: "화면을 드래그해 실제 Mac의 좌우 순서에 맞춰주세요.")
     private let mouseHint = NSTextField(wrappingLabelWithString: "양쪽에서 마우스 공유를 켜주세요.")
     private let fileLabel = NSTextField(wrappingLabelWithString: "파일 하나를 선택하면 상대가 저장 위치를 정해요.")
     private let fileProgress = NSProgressIndicator()
@@ -319,10 +320,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         ], spacing: 12)
         connect.view = inset(column([discoveryView, trustedView], spacing: 0))
         let sharing = NSTabViewItem(identifier: "sharing"); sharing.label = "공유"
-        sidePicker.addItems(withTitles: ["왼쪽", "오른쪽"]); sidePicker.selectItem(at: 1)
-        sidePicker.target = self; sidePicker.action = #selector(changeSide)
-        sidePicker.setAccessibilityLabel("상대 Mac의 화면 위치")
-        layoutLabel.font = .systemFont(ofSize: 14, weight: .semibold); layoutLabel.maximumNumberOfLines = 2
+        arrangement.heightAnchor.constraint(equalToConstant: 164).isActive = true
+        arrangement.onCommit = { [weak self] side in
+            guard let self, self.featurePeer?.features.contains(SharingFeature.mouse) == true, !self.mouse.active else { return }
+            self.mouse.setSide(side)
+        }
+        swapScreens = button("순서 바꾸기", action: #selector(swapScreenOrder))
+        swapScreens.controlSize = .small
+        swapScreens.setAccessibilityLabel("두 Mac의 화면 순서 바꾸기")
+        arrangementHint.font = .systemFont(ofSize: 11); arrangementHint.textColor = .secondaryLabelColor
+        arrangementHint.maximumNumberOfLines = 2
         mouseToggle = NSButton(checkboxWithTitle: "마우스 공유 켜기", target: self, action: #selector(toggleMouse))
         mouseHint.font = .systemFont(ofSize: 11); mouseHint.textColor = .secondaryLabelColor
         fileButton = button("파일 보내기…", action: #selector(sendFile))
@@ -333,9 +340,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         fileProgress.isIndeterminate = false; fileProgress.minValue = 0; fileProgress.maxValue = 1
         fileProgress.style = .bar; fileProgress.isHidden = true
         sharing.view = inset(column([
-            label("화면 배치", size: 13, weight: .semibold), layoutLabel,
-            row([label("상대 Mac 위치", size: 12), sidePicker, flexible(NSView())]),
-            label("한쪽에서 바꾸면 양쪽에 반영돼요. 화면 끝으로 밀면 넘어가요.", size: 11, color: .secondaryLabelColor),
+            row([flexible(label("화면 배치", size: 13, weight: .semibold)), swapScreens]),
+            arrangement, arrangementHint,
             mouseToggle, mouseHint,
             row([button("손쉬운 사용", action: #selector(accessibilitySettings)), button("입력 모니터링", action: #selector(inputSettings)), flexible(NSView())]),
             separator(), label("파일 전송", size: 13, weight: .semibold),
@@ -585,7 +591,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard let tabView, let window else { return }
         let settings = tabView.selectedTabViewItem?.identifier as? String == "settings"
         let sharing = tabView.selectedTabViewItem?.identifier as? String == "sharing"
-        let height: CGFloat = sharing ? (fileProgress.isHidden ? 304 : 326) : settings ? 250 : (access.isOpen ? (advanced ? 342 : 228) : 108)
+        let height: CGFloat = sharing ? (fileProgress.isHidden ? 414 : 436) : settings ? 250 : (access.isOpen ? (advanced ? 342 : 228) : 108)
         tabHeight.constant = height
         window.contentView?.layoutSubtreeIfNeeded()
         let contentHeight = ceil(mainStack.fittingSize.height + 44)
@@ -678,6 +684,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         try? mouse.setEnabled(true); toggleSharing()
         require(!mouse.enabled && !enabled, "global pause revokes mouse capture")
         toggleSharing()
+        // Exercise arrangement gestures through AppKit events without posting
+        // system input. A synthetic peer verifies the actual layout callbacks.
+        let other = MouseSharing(local: "arrangement-peer", native: false)
+        other.setPeer(device)
+        let originalSend = mouse.send
+        mouse.send = { [weak other] _, packet, reply in other?.receive(packet, from: self.device); reply(true) }
+        updateFeaturePeer([ConnectedPeer(device: "arrangement-peer", name: "Test Mac", connection: UUID(), features: Set(SharingFeature.supported))])
+        mouse.setSide(.right)
+        let left = CGPoint(x: arrangement.bounds.midX - 110, y: 60)
+        let right = CGPoint(x: arrangement.bounds.midX + 110, y: 60)
+        func gesture(_ type: NSEvent.EventType, _ point: CGPoint) {
+            let location = arrangement.convert(point, to: nil)
+            let event = NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 0)!
+            switch type {
+            case .leftMouseDown: arrangement.mouseDown(with: event)
+            case .leftMouseDragged: arrangement.mouseDragged(with: event)
+            default: arrangement.mouseUp(with: event)
+            }
+        }
+        let beforeDrag = mouse.layout
+        gesture(.leftMouseDown, right); gesture(.leftMouseDragged, left)
+        require(mouse.layout == beforeDrag && other.layout == beforeDrag, "drag preview does not publish a layout")
+        gesture(.leftMouseUp, left)
+        require(mouse.side == .left && other.side == .right && mouse.layout == other.layout, "dropping peer card updates both Mac layouts")
+        let afterDrop = mouse.layout
+        gesture(.leftMouseDown, right); gesture(.leftMouseUp, right)
+        require(mouse.layout == afterDrop, "clicking a monitor does not rearrange it")
+        gesture(.leftMouseDown, right); gesture(.leftMouseDragged, left)
+        let escape = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)!
+        arrangement.keyDown(with: escape); gesture(.leftMouseUp, left)
+        require(mouse.layout == afterDrop, "Escape cancels a pending arrangement")
+        gesture(.leftMouseDown, right); gesture(.leftMouseDragged, left); gesture(.leftMouseUp, CGPoint(x: -20, y: 60))
+        require(mouse.layout == afterDrop, "dropping outside the canvas keeps the layout")
+        gesture(.leftMouseDown, right); gesture(.leftMouseDragged, left); gesture(.leftMouseUp, left)
+        require(mouse.side == .right && mouse.layout == other.layout, "dragging this Mac also updates both layouts")
+        swapScreens.performClick(nil)
+        require(mouse.side == .left && mouse.layout == other.layout, "accessible swap button updates both Mac layouts")
+        gesture(.leftMouseDown, right); gesture(.leftMouseDragged, left)
+        updateFeaturePeer([])
+        gesture(.leftMouseUp, left)
+        require(mouse.layout == nil && !swapScreens.isEnabled, "disconnect cancels arrangement editing")
+        mouse.send = originalSend
         showSettings(); require(tabView.selectedTabViewItem?.identifier as? String == "settings", "settings navigation")
         access = PairingAccess(hasTrustedPeer: true); refresh()
         require(!access.isOpen && discoveryView.isHidden, "trusted peer hides new pairing controls")
@@ -747,7 +795,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func help() {
         let dialog = NSAlert(); dialog.messageText = "두 Mac에서 NearClip을 켜두세요"
         dialog.informativeText = "① 두 Mac 모두 NearClip 0.3 이상을 켜고 같은 Wi-Fi 또는 LAN에 연결하세요.\n② 한쪽에서 상대 Mac 옆의 ‘연결’을 누르세요.\n③ 양쪽 화면의 6자리 숫자가 같으면 두 Mac에서 모두 연결을 누르세요. 숫자를 전달하거나 입력할 필요 없어요.\n④ 연결됨이 표시되면 새로 복사한 텍스트나 이미지를 다른 Mac에 붙여넣으세요.\n\n권한 요청이 나오면 ‘로컬 네트워크’와 ‘다른 앱에서 붙여넣기’를 허용하세요. 거부했다면 시스템 설정 → 개인정보 보호 및 보안에서 변경할 수 있어요.\n\n텍스트와 실제 이미지 클립보드를 지원해요. Finder의 파일 복사는 지원하지 않아요. 이미지는 20MB·4천만 화소까지예요.\n\n연결 전·일시 정지 중 복사한 내용은 자동 전송하지 않아요. 필요하면 ‘지금 보내기’를 누르세요. 암호 관리자가 비공개로 표시한 내용은 공유하지 않아요.\n\n설정에서 연결 해제를 누르면 기존 연결이 끊어져요. 회사·게스트 Wi-Fi에서 기기 간 통신을 막으면 연결할 수 없어요."
-        dialog.informativeText += "\n\n공유 탭에서 파일을 보내거나 화면 배치를 정할 수 있어요. 마우스 공유는 양쪽에서 직접 켜야 해요. 화면 가장자리로 밀어 이동하고 ⌃⌥Esc로 즉시 끄세요. 키보드 입력은 이 Mac에 남아요. 파일은 상대가 저장 위치를 선택해야 전송돼요."
+        dialog.informativeText += "\n\n공유 탭에서 파일을 보내거나 두 Mac 화면을 드래그해 좌우 순서를 정할 수 있어요. 배치는 양쪽에 반영돼요. 마우스 공유는 양쪽에서 직접 켜야 해요. 화면 가장자리로 밀어 이동하고 ⌃⌥Esc로 즉시 끄세요. 키보드 입력은 이 Mac에 남아요. 파일은 상대가 저장 위치를 선택해야 전송돼요."
         dialog.addButton(withTitle: "확인"); dialog.runModal()
     }
     private func alert(_ message: String) {
@@ -793,19 +841,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let supportsFiles = featurePeer?.features.contains(SharingFeature.files) == true
         let supportsMouse = featurePeer?.features.contains(SharingFeature.mouse) == true
         fileButton.isEnabled = enabled && supportsFiles && !files.busy
-        sidePicker.isEnabled = supportsMouse && !mouse.active
+        swapScreens.isEnabled = supportsMouse && !mouse.active
         mouseToggle.isEnabled = enabled && supportsMouse
         mouseToggle.state = mouse.enabled ? .on : .off
-        sidePicker.selectItem(at: mouse.side == .left ? 0 : 1)
-        let name = featurePeer?.name ?? "상대 Mac"
-        layoutLabel.stringValue = mouse.side == .right ? "이 Mac   ↔   " + name : name + "   ↔   이 Mac"
+        arrangement.update(peerID: supportsMouse ? featurePeer?.connection.uuidString : nil,
+                           localName: preview ? "My MacBook" : deviceName,
+                           peerName: featurePeer?.name ?? "상대 Mac", side: mouse.side,
+                           editable: supportsMouse && !mouse.active)
+        arrangementHint.stringValue = mouse.active ? "마우스 제어를 끝낸 뒤 배치를 바꿀 수 있어요. ⌃⌥Esc로 공유를 끄세요." : "화면을 드래그해 실제 Mac의 좌우 순서에 맞춰주세요. 양쪽에 자동 반영돼요."
         if !supportsMouse { mouseHint.stringValue = "두 Mac 모두 0.4 이상으로 연결하면 사용할 수 있어요." }
         else if !mouse.enabled { mouseHint.stringValue = "양쪽에서 켜주세요. 이동·클릭·스크롤을 공유해요. 긴급 해제: ⌃⌥Esc" }
         else if !mouse.remoteEnabled { mouseHint.stringValue = "이 Mac은 준비됐어요. 상대 Mac에서도 마우스 공유를 켜주세요." }
         else { mouseHint.stringValue = "준비됐어요. 가장자리로 밀어 이동하세요. ⌃⌥Esc는 공유를 꺼요." }
         menuMouseStop?.isEnabled = mouse.enabled
     }
-    @objc private func changeSide() { mouse.setSide(sidePicker.indexOfSelectedItem == 0 ? .left : .right) }
+    @objc private func swapScreenOrder() {
+        guard featurePeer?.features.contains(SharingFeature.mouse) == true, !mouse.active else { return }
+        mouse.setSide(mouse.side.opposite)
+    }
     @objc private func toggleMouse() {
         do { try mouse.setEnabled(mouseToggle.state == .on) }
         catch {

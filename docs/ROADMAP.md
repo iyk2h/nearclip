@@ -5,7 +5,7 @@
 - Text and image clipboard sync between Macs.
 - Explicit, recipient-approved single-file transfer.
 - Opt-in mouse movement, clicks, and scrolling across a screen edge.
-- Shared horizontal device layout, set from either Mac.
+- Drag-to-arrange monitor cards for shared left-to-right Mac order, set from either Mac.
 
 ## Next validation work
 
@@ -22,7 +22,7 @@ The current app and binaries are macOS-only. No Windows release date is set.
 - English interface.
 - Keyboard sharing with separate opt-in and held-key cleanup.
 - File batches, folders, resumable transfers, and drag-and-drop sending.
-- Vertical screen layout and richer monitor arrangement.
+- Individual display placement, vertical arrangement, and alignment between displays.
 - Separate interactive/bulk network channels if latency testing justifies them.
 
 ## Naming

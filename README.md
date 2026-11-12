@@ -4,9 +4,9 @@
 
 NearClip is a native macOS menu bar app for two Macs on the same local network. Different Apple accounts are supported. No account, cloud service, or third-party runtime is required.
 
-[**Download for macOS**](https://github.com/iyk2h/nearclip/releases/tag/v0.4.0) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Development](docs/DEVELOPMENT.md) · [Roadmap](docs/ROADMAP.md)
+[**Download for macOS**](https://github.com/iyk2h/nearclip/releases/tag/v0.4.1) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Development](docs/DEVELOPMENT.md) · [Roadmap](docs/ROADMAP.md)
 
-> **Experimental public beta.** Version 0.4.0 is not notarized by Apple. Mouse and file sharing have automated coverage, but have not yet been validated on two physical Macs. The interface is Korean; this guide includes the button labels.
+> **Experimental public beta.** Version 0.4.1 is not notarized by Apple. Mouse and file sharing have automated coverage, but have not yet been validated on two physical Macs. The interface is Korean; this guide includes the button labels.
 
 ![NearClip sharing controls](docs/sharing.png)
 
@@ -15,7 +15,7 @@ NearClip is a native macOS menu bar app for two Macs on the same local network. 
 Use macOS 13 or later. Apple Silicon and Intel are supported. On both Macs:
 
 1. Quit the previous NearClip, if it is running.
-2. Download `NearClip-0.4.0-macOS.dmg` from the [release page](https://github.com/iyk2h/nearclip/releases/tag/v0.4.0).
+2. Download `NearClip-0.4.1-macOS.dmg` from the [release page](https://github.com/iyk2h/nearclip/releases/tag/v0.4.1).
 3. Open the DMG and drag **NearClip** to **Applications**.
 4. Open NearClip and allow local network access when macOS asks.
 
@@ -39,17 +39,17 @@ Copies made before connection or while paused are not sent automatically. Use **
 
 ## Mouse and screen layout
 
-Both Macs need 0.4 or later.
+Use 0.4.1 or later for the graphical arrangement controls. Mouse sharing works with a paired Mac running 0.4 or later.
 
 1. Open **Sharing (`공유`)**.
-2. Set **Other Mac position (`상대 Mac 위치`)** to **Left (`왼쪽`)** or **Right (`오른쪽`)**. The other Mac receives the matching layout automatically.
+2. Drag either monitor card to match the Macs' physical left-to-right order. Release it to apply the same order on both Macs. You can also use **Swap order (`순서 바꾸기`)**.
 3. Enable **Mouse sharing (`마우스 공유 켜기`)** on both Macs.
 4. Allow **Accessibility (`손쉬운 사용`)** and **Input Monitoring (`입력 모니터링`)** in System Settings if requested. Then enable mouse sharing again.
 5. Push the cursor against the configured outer edge to cross to the other Mac. Return through the edge where it entered.
 
 **Press `⌃⌥Esc` to disable mouse sharing and reclaim control.** Local mouse input on the receiving Mac also reclaims control. A lost connection releases held buttons and returns control. Re-enable sharing after a disconnect, pause, or app restart.
 
-Movement, left/right/middle clicks, dragging within the receiving Mac, and scrolling are supported. Keyboard input stays on the local Mac and ends remote mouse control. This version does not drag files across the screen boundary. Horizontal screen placement is supported; vertical placement is not yet included.
+Movement, left/right/middle clicks, dragging within the receiving Mac, and scrolling are supported. Keyboard input stays on the local Mac and ends remote mouse control. This version does not drag files across the screen boundary. Each card represents one Mac, including its attached displays. This version sets horizontal Mac order; individual monitor placement and vertical arrangements are not included. Press Escape while dragging to cancel. End remote mouse control before changing the arrangement.
 
 ## Files
 

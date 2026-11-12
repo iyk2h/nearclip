@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.1 — 2026-11-12
+
+- Replace the left/right menu with draggable monitor cards for the two paired Macs.
+- Apply a completed drop to both Macs through the existing authenticated layout protocol.
+- Add a keyboard-accessible Swap order button and cancel incomplete drags on Escape, connection changes, or remote layout changes.
+- Keep arrangement edits unavailable during remote mouse control.
+- Show connection state, identify this Mac, and update the English setup guide.
+
 ## 0.4.0 — 2026-11-12
 
 - Add explicit single-file transfer, up to 2 GiB, with recipient acceptance, progress, cancellation, checksums, and safe saving.

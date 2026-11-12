@@ -67,6 +67,7 @@ Tag the tested commit, then attach the packages and checksums to a GitHub prerel
 | `Transport.swift` | Authenticated clipboard sessions and reconnect |
 | `Preferences.swift` | Address parsing, saved route model, and pairing access policy |
 | `SharingProtocol.swift` | Portable file/mouse message schema and layout state |
+| `ScreenArrangementView.swift` | Draggable Mac arrangement canvas and keyboard alternative |
 | `MouseGeometry.swift` | Display edge and position calculations |
 | `MouseSharing.swift` | Input session state and macOS event adapter |
 | `FileTransfer.swift` | Transfer state, background I/O, and safe destination commit |
