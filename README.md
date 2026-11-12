@@ -4,18 +4,18 @@
 
 NearClip is a native macOS menu bar app for two Macs on the same local network. Different Apple accounts are supported. No account, cloud service, or third-party runtime is required.
 
-[**Download for macOS**](https://github.com/iyk2h/nearclip/releases/tag/v0.4.1) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Development](docs/DEVELOPMENT.md) · [Roadmap](docs/ROADMAP.md)
+[**Download for macOS**](https://github.com/iyk2h/nearclip/releases/tag/v0.4.2) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Development](docs/DEVELOPMENT.md) · [Roadmap](docs/ROADMAP.md)
 
-> **Experimental public beta.** Version 0.4.1 is not notarized by Apple. Mouse and file sharing have automated coverage, but have not yet been validated on two physical Macs. The interface is Korean; this guide includes the button labels.
+> **Experimental public beta.** Version 0.4.2 is not notarized by Apple. Mouse and file sharing have automated coverage, but have not yet been validated on two physical Macs. The interface is Korean; this guide includes the button labels.
 
-![NearClip sharing controls](docs/sharing.png)
+![NearClip main screen](docs/connected.png)
 
 ## Install
 
 Use macOS 13 or later. Apple Silicon and Intel are supported. On both Macs:
 
 1. Quit the previous NearClip, if it is running.
-2. Download `NearClip-0.4.1-macOS.dmg` from the [release page](https://github.com/iyk2h/nearclip/releases/tag/v0.4.1).
+2. Download `NearClip-0.4.2-macOS.dmg` from the [release page](https://github.com/iyk2h/nearclip/releases/tag/v0.4.2).
 3. Open the DMG and drag **NearClip** to **Applications**.
 4. Open NearClip and allow local network access when macOS asks.
 
@@ -39,21 +39,29 @@ Copies made before connection or while paused are not sent automatically. Use **
 
 ## Mouse and screen layout
 
-Use 0.4.1 or later for the graphical arrangement controls. Mouse sharing works with a paired Mac running 0.4 or later.
+Use 0.4.2 or later for the graphical arrangement controls. Mouse sharing works with a paired Mac running 0.4 or later.
 
-1. Open **Sharing (`공유`)**.
+1. On the main screen, expand **Screen arrangement and permissions (`화면 배치 · 권한`)** below the connected Mac.
 2. Drag either monitor card to match the Macs' physical left-to-right order. Release it to apply the same order on both Macs. You can also use **Swap order (`순서 바꾸기`)**.
-3. Enable **Mouse sharing (`마우스 공유 켜기`)** on both Macs.
-4. Allow **Accessibility (`손쉬운 사용`)** and **Input Monitoring (`입력 모니터링`)** in System Settings if requested. Then enable mouse sharing again.
+3. Enable **Mouse sharing (`마우스 공유 켜기`)** on both Macs. This expands setup automatically. You can collapse setup while sharing stays on.
+4. Allow the missing permissions shown in the app. The app checks again when you return from System Settings. Then enable sharing again. Restart only if macOS requires it or the permission still has not taken effect.
 5. Push the cursor against the configured outer edge to cross to the other Mac. Return through the edge where it entered.
 
 **Press `⌃⌥Esc` to disable mouse sharing and reclaim control.** Local mouse input on the receiving Mac also reclaims control. A lost connection releases held buttons and returns control. Re-enable sharing after a disconnect, pause, or app restart.
 
 Movement, left/right/middle clicks, dragging within the receiving Mac, and scrolling are supported. Keyboard input stays on the local Mac and ends remote mouse control. This version does not drag files across the screen boundary. Each card represents one Mac, including its attached displays. This version sets horizontal Mac order; individual monitor placement and vertical arrangements are not included. Press Escape while dragging to cancel. End remote mouse control before changing the arrangement.
 
+NearClip does not change Apple Universal Control settings. If another Apple device also takes the pointer, use the **Apple mouse sharing help (`Apple 마우스 공유와 겹치나요?`)** button in the expanded setup.
+
+## Apple clipboard relay
+
+**Settings (`설정`) → Prevent Apple relay of received clipboard (`받은 클립보드의 Apple 기기 재공유 막기`)** is on by default. NearClip marks new received clipboard items for this Mac only, using Apple's [`currentHostOnly`](https://developer.apple.com/documentation/appkit/nspasteboard/contentsoptions/currenthostonly) option.
+
+This does not block copies made in other apps, content already shared, or a manual re-copy. It does not turn off iCloud or Handoff. For a system-wide change, use the Apple clipboard settings guide inside the app. Turning off Handoff also affects other Continuity features. See [troubleshooting](docs/TROUBLESHOOTING.md#apple-clipboard-or-mouse-sharing-overlaps).
+
 ## Files
 
-1. Open **Sharing → Send file (`파일 보내기…`)** and select one file.
+1. Click **Send file (`파일 보내기…`)** below the mouse controls and select one file.
 2. On the other Mac, choose a destination and click **Receive (`받기`)**.
 3. Wait for completion. Use **Show in Finder (`Finder에서 보기`)** to locate the received file.
 

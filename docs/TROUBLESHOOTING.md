@@ -38,9 +38,9 @@ NearClip tries to reconnect after wake. If the saved address is no longer valid 
 ## Mouse sharing does not start
 
 1. Use NearClip 0.4 or later on both Macs.
-2. Open Sharing (`공유`) and enable Mouse sharing (`마우스 공유 켜기`) on both.
-3. Allow NearClip in **System Settings → Privacy & Security → Accessibility** and **Input Monitoring**. Return to the app and enable sharing again. A restart may be needed after changing input permissions.
-4. In 0.4.1 or later, drag the monitor cards into the correct left-to-right order. Both Macs receive the layout. End remote mouse control before rearranging.
+2. On the main screen, enable Mouse sharing (`마우스 공유 켜기`) on both. Setup expands below the checkbox.
+3. Allow NearClip in **System Settings → Privacy & Security → Accessibility** and **Input Monitoring**. Return to the app; it checks permissions again. Use **Check again (`다시 확인`)** if needed, then enable sharing. Arrange screens and change app options without restarting. Restart the app only if macOS requires it or granted permissions still have not taken effect.
+4. Expand **Screen arrangement and permissions (`화면 배치 · 권한`)**, then drag the monitor cards into the correct left-to-right order. Both Macs receive the layout. End remote mouse control before rearranging.
 5. Push against the outer edge briefly with no mouse buttons or modifier keys held. A boundary between this Mac's own monitors does not hand off.
 
 Press `⌃⌥Esc` to stop mouse sharing. Typing stays local and returns mouse control. Re-enable sharing after a pause, disconnect, or app restart. A slow network or a large clipboard frame can trigger the watchdog and return control; this behavior fails safely but can interrupt use.
@@ -68,3 +68,17 @@ The existing pairing secret is preserved. For a new pairing, use 0.3 or later on
 Quit the app, then move it from Applications to the Trash. To revoke the old pairing first, select **Settings (`설정`) → Forget connection (`연결 해제…`)**. This replaces the old secret with a new random secret and removes the saved peer address.
 
 To remove the remaining Keychain item, use Keychain Access to delete the item with service name `local.nearclip.pairing.v1`.
+
+## Repeated Keychain password requests
+
+A dialog naming `local.nearclip.pairing.v1` asks permission to read the saved pairing secret. Enter the Mac login Keychain password in the macOS dialog. **Always Allow** approves later access by the same trusted app; **Allow** approves the current access only. Never send your password in an issue or chat. See [Apple's Keychain access guide](https://support.apple.com/en-ge/guide/keychain-access/kyca1243/mac).
+
+These beta builds use ad-hoc signatures. A rebuilt app can require approval again even after an earlier version was trusted. Stable Developer ID signing is still needed for release continuity. NearClip does not weaken Keychain access rules or move the secret into an unprotected settings file.
+
+## Apple clipboard or mouse sharing overlaps
+
+NearClip's default relay protection applies to new clipboard content it receives. It uses Apple's current-host-only option. It cannot prevent another app's copies from using Universal Clipboard, retract content already shared, or block a manual re-copy. Changing this option affects future receives without rewriting your current clipboard.
+
+To disable Apple clipboard sharing for this Mac, go to **System Settings → General → AirDrop & Handoff** (or **AirDrop & Continuity**) and turn off **Allow Handoff between this Mac and your iCloud devices**. This also affects app handoff and other Continuity features. NearClip does not toggle the system setting automatically. [Apple Handoff guide](https://support.apple.com/en-mt/102426).
+
+Universal Control requires the same Apple Account on the participating devices. If it is also moving your pointer, open **System Settings → Displays → Advanced** and temporarily turn off **Allow your pointer and keyboard to move between any nearby Mac or iPad** while testing NearClip. This is separate from the Accessibility/Input Monitoring permission check. A permission error does not establish a Universal Control conflict. [Apple Universal Control guide](https://support.apple.com/en-gb/102459).

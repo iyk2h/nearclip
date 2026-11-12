@@ -24,6 +24,7 @@ Files use bounded chunks, receiver acknowledgments, and final size/SHA-256 verif
 
 ## Data handling
 
+- New received clipboard items use Apple’s current-host-only option by default to prevent their onward Universal Clipboard sharing. This setting does not control other apps’ copies, already-shared content, or manual re-copying. No system Handoff setting is changed.
 - Clipboard content stays in memory and the system clipboard. NearClip does not keep clipboard history or send telemetry. Accepted file content is written to the recipient-selected location.
 - macOS preferences store the device ID, logical clock, settings, approved peer name, reconnect address, and shared screen layout. These values are not pairing secrets.
 - Bonjour exposes a device name, device ID, service port, and a group discovery hint on the local network. These are not secret.

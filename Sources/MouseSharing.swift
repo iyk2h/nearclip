@@ -1,6 +1,27 @@
 import AppKit
 import ApplicationServices
 
+struct MousePermissions {
+    let accessibility: Bool
+    let posting: Bool
+    let monitoring: Bool
+    var granted: Bool { accessibility && posting && monitoring }
+    var missing: [String] {
+        var items: [String] = []
+        if !accessibility { items.append("손쉬운 사용") }
+        else if !posting { items.append("손쉬운 사용의 입력 제어") }
+        if !monitoring { items.append("입력 모니터링") }
+        return items
+    }
+    var statusText: String {
+        let control = accessibility && posting ? "허용됨" : accessibility ? "입력 제어 확인 필요" : "허용 필요"
+        return "손쉬운 사용: \(control) · 입력 모니터링: \(monitoring ? "허용됨" : "허용 필요")\n설정에서 돌아오면 다시 확인해요. 반영됐으면 바로 켤 수 있어요."
+    }
+    var explanation: String {
+        "\(missing.joined(separator: " · ")) 권한을 확인해 주세요. 설정에서 허용한 뒤 다시 켜세요. macOS가 재실행을 요구할 때만 앱을 다시 여세요."
+    }
+}
+
 // The state machine is also exercised with native=false: no event taps, cursor
 // movement, accessibility prompts or generated system input are used in tests.
 final class MouseSharing {
@@ -65,14 +86,25 @@ final class MouseSharing {
         self.layout = layout; onLayout?(layout)
         emit(MousePacket(kind: .layout, layout: layout)); onChange?()
     }
-    static var permissionsGranted: Bool { AXIsProcessTrusted() && CGPreflightPostEventAccess() && CGPreflightListenEventAccess() }
+    static var permissions: MousePermissions {
+        MousePermissions(accessibility: AXIsProcessTrusted(), posting: CGPreflightPostEventAccess(), monitoring: CGPreflightListenEventAccess())
+    }
+    static var permissionsGranted: Bool { permissions.granted }
     static func requestPermissions() {
-        _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
-        _ = CGRequestListenEventAccess()
+        let current = permissions
+        // Request only the missing permission, from an explicit enable action.
+        if !current.accessibility {
+            _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
+        } else if !current.posting {
+            _ = CGRequestPostEventAccess()
+        } else if !current.monitoring {
+            _ = CGRequestListenEventAccess()
+        }
     }
     func setEnabled(_ value: Bool) throws {
         if value && native {
-            guard Self.permissionsGranted else { throw ClipError.invalid("마우스 공유에는 손쉬운 사용과 입력 모니터링 권한이 필요해요. 허용한 뒤 다시 켜주세요.") }
+            let current = Self.permissions
+            guard current.granted else { throw ClipError.invalid(current.explanation) }
             try installTap()
         }
         if !value { endSession(); removeTap() }

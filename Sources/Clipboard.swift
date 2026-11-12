@@ -44,7 +44,7 @@ enum ClipboardCodec {
         return nil
     }
 
-    static func write(_ payload: ClipPayload, to board: NSPasteboard, id: UUID) throws {
+    static func write(_ payload: ClipPayload, to board: NSPasteboard, id: UUID, preventAppleRelay: Bool = true) throws {
         try payload.validate()
         let item = NSPasteboardItem()
         if payload.type == "public.png" {
@@ -60,7 +60,9 @@ enum ClipboardCodec {
         }
         item.setString(id.uuidString, forType: remoteMarker)
         item.setString("local.nearclip.app", forType: .init("org.nspasteboard.source"))
-        board.clearContents()
+        // Scope only this received item. Do not change system Handoff settings
+        // or rewrite content copied by other apps.
+        board.prepareForNewContents(with: preventAppleRelay ? [.currentHostOnly] : [])
         guard board.writeObjects([item]) else { throw ClipError.invalid("클립보드에 쓸 수 없어요.") }
     }
 }
@@ -70,6 +72,7 @@ final class ClipboardSync {
     let device: String
     var onLocal: ((ClipMessage) -> Void)?
     var onActivity: ((String) -> Void)?
+    var preventAppleRelay = true
     var connected = false { didSet { if !oldValue && connected { baseline() } } }
     var enabled = true { didSet { baseline() } }
     private(set) var clock: UInt64 = 0
@@ -122,7 +125,7 @@ final class ClipboardSync {
         observe(clock: message.stamp.counter)
         if let current, message.stamp <= current { return false }
         do {
-            try ClipboardCodec.write(message.payload, to: board, id: message.id)
+            try ClipboardCodec.write(message.payload, to: board, id: message.id, preventAppleRelay: preventAppleRelay)
             current = message.stamp; baseline()
             onActivity?("\(message.payload.label) 받음 · \(Self.time())")
             return true

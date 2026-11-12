@@ -111,6 +111,12 @@ func fileTransferTests() throws {
 }
 
 func mouseSharingTests() throws {
+    let permissionStates = (0..<8).map { MousePermissions(accessibility: $0 & 1 != 0, posting: $0 & 2 != 0, monitoring: $0 & 4 != 0) }
+    try Check.that(permissionStates.enumerated().allSatisfy { $0.element.granted == ($0.offset == 7) }, "input permission gate requires all three approvals")
+    try Check.that(permissionStates[3].missing == ["입력 모니터링"], "permission guidance identifies missing input monitoring")
+    try Check.that(permissionStates[5].missing == ["손쉬운 사용의 입력 제어"], "permission guidance distinguishes event posting from accessibility trust")
+    try Check.that(permissionStates[7].missing.isEmpty, "fully authorized input has no missing permission")
+
     let a = MouseSharing(local: "A", native: false), b = MouseSharing(local: "B", native: false)
     defer { a.stop(); b.stop(); a.send = nil; b.send = nil }
     var messages: [(Bool, MousePacket)] = []

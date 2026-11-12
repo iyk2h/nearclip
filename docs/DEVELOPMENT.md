@@ -42,7 +42,7 @@ build/NearClip.app/Contents/MacOS/NearClip --smoke-test
 build/NearClip.app/Contents/MacOS/NearClip --lifecycle-smoke
 ```
 
-The first checks Bonjour, encrypted clipboard/file transfer, and shared layout under the actual app identity. The second checks menu entries, sharing/settings navigation, pause/resume, input consent, hiding/reopening, stable geometry, and quit cleanup. Both exit when complete. Tests create native mouse event objects but never post them, install real input hooks, move the system cursor, or request input permissions.
+The first checks Bonjour, encrypted clipboard/file transfer, and shared layout under the actual app identity. The second checks menu entries, inline mouse/settings expansion, pause/resume, input consent, hiding/reopening, stable geometry, and quit cleanup. Both exit when complete. Render and diagnostic modes keep their windows offscreen and use accessory activation so they do not occupy the Dock or steal focus. Tests create native mouse event objects but never post them, install real input hooks, move the system cursor, or request input permissions.
 
 ## Release
 

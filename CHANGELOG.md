@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.2 — 2026-11-12
+
+- Combine connection, mouse sharing, and file transfer on one screen.
+- Expand or collapse screen arrangement and permissions below the mouse toggle; keep settings inline.
+- Show missing input permissions separately and check again when the app becomes active. Request only the missing permission from an explicit enable action.
+- Default new received clipboard items to Apple current-host-only scope, with an option to allow Apple relay. This does not block other apps or change Handoff settings.
+- Add Keychain and Apple Continuity guidance with explicit limitations.
+- Keep automated diagnostics offscreen and out of the Dock.
+
 ## 0.4.1 — 2026-11-12
 
 - Replace the left/right menu with draggable monitor cards for the two paired Macs.
