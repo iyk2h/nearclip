@@ -26,7 +26,7 @@ The final light and dark previews cover nearby devices, a connected Mac, a saved
 
 ## Packaged diagnostics
 
-The packaged Bonjour pairing, encrypted synthetic transfer, and session cleanup diagnostics passed. The lifecycle diagnostic passed 13 checks, including pause/resume, settings, opening and closing new pairing, menu-bar-only operation, reopening, and quit. Run them as described in [Development](DEVELOPMENT.md#bundled-diagnostics).
+The packaged Bonjour pairing, encrypted synthetic transfer, and session cleanup diagnostics passed. The lifecycle diagnostic passed 14 checks, including pause/resume, settings, opening and closing new pairing, menu-bar-only operation, reopening, quit, and stable window geometry across repeated status updates. Run them as described in [Development](DEVELOPMENT.md#bundled-diagnostics).
 
 ## Distribution and remaining checks
 

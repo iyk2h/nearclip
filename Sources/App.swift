@@ -30,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var advancedButton: NSButton!
     private var advanced = false
     private var tabHeight: NSLayoutConstraint!
+    private var mainStack: NSStackView!
     private var peerLabel = NSTextField(labelWithString: "")
     private var peerDetail = NSTextField(wrappingLabelWithString: "")
     private let pairingHint = NSTextField(wrappingLabelWithString: "")
@@ -312,6 +313,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         tabHeight = tabView.heightAnchor.constraint(equalToConstant: 250); tabHeight.isActive = true
         let footer = row([button("도움말", action: #selector(help)), label("v" + version + " · beta", size: 10, color: .secondaryLabelColor), flexible(NSView()), button("종료  ⌘Q", action: #selector(quit))])
         let stack = column([heading, statusCard, tabView, separator(), footer], spacing: 18)
+        mainStack = stack
         stack.translatesAutoresizingMaskIntoConstraints = false; root.addSubview(stack)
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
@@ -520,7 +522,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let settings = tabView.selectedTabViewItem?.identifier as? String == "settings"
         let height: CGFloat = settings ? 250 : (access.isOpen ? (advanced ? 342 : 228) : 108)
         tabHeight.constant = height
-        let contentHeight = height + (sharingActions.isHidden ? 270 : 316)
+        window.contentView?.layoutSubtreeIfNeeded()
+        let contentHeight = ceil(mainStack.fittingSize.height + 44)
         if abs((window.contentView?.bounds.height ?? 0) - contentHeight) > 1 {
             var frame = window.frame
             let newHeight = window.frameRect(forContentRect: NSRect(x: 0, y: 0, width: 560, height: contentHeight)).height
@@ -608,6 +611,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         require(!access.isOpen && discoveryView.isHidden, "trusted peer hides new pairing controls")
         openDiscovery(); require(access.isOpen && !discoveryView.isHidden, "explicit action opens new pairing")
         cancelDiscovery(); require(!access.isOpen && discoveryView.isHidden, "cancel closes new pairing")
+        let stableFrame = window.frame
+        for _ in 0..<10 { refresh() }
+        require(window.frame == stableFrame, "repeated status updates keep window position and size stable")
         closeBehavior = .keepRunning
         require(windowShouldClose(window), "close can keep menu bar running")
         window.orderOut(nil)
