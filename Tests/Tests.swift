@@ -343,6 +343,7 @@ func directPairingTests() throws {
 struct TestMain {
     static func main() {
         do {
+            try sharingProtocolTests(); try fileTransferTests(); try mouseSharingTests(); try mouseAdapterTests(); try featureNetworkTests(); try legacyCapabilityTests()
             try expiredInvitationTests(); try pairingAccessTests(); try addressTests(); try directPairingTests(); try cryptoTests(); try clipboardTests(); try networkTests(); try discoveryTests(); try numericPairingTests()
             print("\nAll \(Check.count) checks passed. General clipboard was not accessed.")
         } catch {

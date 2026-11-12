@@ -13,7 +13,11 @@ final class PeerLink {
     private(set) var authenticated = false
     private(set) var closed = false
     private var cipher: SessionCipher?
+    private let advertisedFeatures: [String]
     private var sending = false
+    private var featureQueue: [(Data, (Bool) -> Void)] = []
+    private(set) var features: Set<String> = []
+    var onFeature: ((PeerLink, FeaturePacket) -> Void)?
     private var pendingClip: ClipMessage?
     private var lastReceived = Date()
     private let created = Date()
@@ -24,7 +28,8 @@ final class PeerLink {
     var onClock: ((UInt64) -> Void)?
 
     init(connection: NWConnection, secret: SymmetricKey, device: String, name: String,
-         endpointKey: String? = nil, expectedDevice: String? = nil) {
+         endpointKey: String? = nil, expectedDevice: String? = nil, advertisedFeatures: [String] = SharingFeature.supported) {
+        self.advertisedFeatures = advertisedFeatures
         self.connection = connection; self.secret = secret
         self.local = Hello.make(device: device, name: name)
         self.endpointKey = endpointKey; self.expectedDevice = expectedDevice
@@ -45,6 +50,8 @@ final class PeerLink {
     func close() {
         guard !closed else { return }
         closed = true; authenticated = false; pendingClip = nil
+        let queued = featureQueue; featureQueue = []
+        queued.forEach { $0.1(false) }
         connection.stateUpdateHandler = nil
         connection.cancel()
         onClose?(self)
@@ -90,7 +97,7 @@ final class PeerLink {
             remote = hello
             let cipher = try SessionCipher(secret: secret, local: local, remote: hello)
             self.cipher = cipher
-            try sendFrame(cipher.seal(kind: "ready", clock: clockProvider?() ?? 0))
+            try sendFrame(cipher.seal(kind: "ready", clock: clockProvider?() ?? 0, features: advertisedFeatures))
             return
         }
         guard let cipher else { throw ClipError.invalid("연결을 확인할 수 없어요.") }
@@ -98,6 +105,7 @@ final class PeerLink {
         if !authenticated {
             guard message.kind == "ready", message.clip == nil else { throw ClipError.invalid("연결 인증에 실패했어요.") }
             if let clock = message.clock { onClock?(clock) }
+            features = Set((message.features ?? []).prefix(8)).intersection(advertisedFeatures)
             authenticated = true; onReady?(self)
             return
         }
@@ -106,6 +114,11 @@ final class PeerLink {
             guard let clip = message.clip, clip.stamp.device == remote?.device else { throw ClipError.invalid("보낸 기기를 확인할 수 없어요.") }
             try clip.payload.validate()
             onClip?(self, clip)
+        case "feature":
+            guard let data = message.data else { throw ClipError.invalid("공유 데이터가 없어요.") }
+            let packet = try FeaturePacket.decode(data)
+            guard features.contains(packet.feature) else { throw ClipError.invalid("지원하지 않는 공유 기능이에요.") }
+            onFeature?(self, packet)
         case "ping": break
         default: throw ClipError.invalid("지원하지 않는 메시지예요.")
         }
@@ -115,8 +128,26 @@ final class PeerLink {
         pendingClip = message
         flush()
     }
+    func sendFeature(_ packet: FeaturePacket, completion: @escaping (Bool) -> Void) {
+        guard authenticated, !closed, features.contains(packet.feature), featureQueue.count < 32,
+              let data = try? packet.encoded() else { completion(false); return }
+        featureQueue.append((data, completion)); flush()
+    }
     private func flush() {
-        guard !sending, !closed, authenticated, let cipher, let clip = pendingClip else { return }
+        guard !sending, !closed, authenticated, let cipher else { return }
+        if !featureQueue.isEmpty {
+            let (data, reply) = featureQueue.removeFirst(); sending = true
+            do {
+                let frame = try Framing.encode(cipher.seal(kind: "feature", data: data))
+                connection.send(content: frame, completion: .contentProcessed { [weak self] error in
+                    guard let self else { reply(false); return }
+                    self.sending = false; reply(error == nil && !self.closed)
+                    if error != nil { self.close() } else { self.flush() }
+                })
+            } catch { sending = false; reply(false); close() }
+            return
+        }
+        guard let clip = pendingClip else { return }
         pendingClip = nil; sending = true
         do {
             try sendFrame(cipher.seal(kind: "clip", clip: clip)) { [weak self] in
@@ -158,6 +189,8 @@ final class LocalTransport {
     private var directPeer: DirectPeer?
     private var directAttempts = 0
     var onPeers: (([String]) -> Void)?
+    var onPeerDetails: (([ConnectedPeer]) -> Void)?
+    var onFeature: ((String, FeaturePacket) -> Void)?
     var onClip: ((ClipMessage) -> Void)?
     var onStatus: ((String) -> Void)?
     var onListening: ((NWEndpoint.Port) -> Void)?
@@ -290,10 +323,23 @@ final class LocalTransport {
             }
             self.publishPeers()
         }
+        link.onFeature = { [weak self] link, packet in
+            if let peer = link.remote?.device { self?.onFeature?(peer, packet) }
+        }
         link.onClip = { [weak self] _, clip in self?.onClip?(clip) }
         link.onClose = { [weak self] link in self?.links.removeValue(forKey: link.id); self?.publishPeers() }
         link.start()
     }
-    private func publishPeers() { onPeers?(links.values.filter(\.authenticated).compactMap { $0.remote?.name }.sorted()) }
+    private func publishPeers() {
+        let peers = links.values.filter(\.authenticated).compactMap { link -> ConnectedPeer? in
+            guard let remote = link.remote else { return nil }
+            return ConnectedPeer(device: remote.device, name: remote.name, connection: link.id, features: link.features)
+        }
+        onPeers?(peers.map(\.name).sorted()); onPeerDetails?(peers)
+    }
+    func sendFeature(_ packet: FeaturePacket, to peer: String, completion: @escaping (Bool) -> Void = { _ in }) {
+        guard let link = links.values.first(where: { $0.authenticated && $0.remote?.device == peer }) else { completion(false); return }
+        link.sendFeature(packet, completion: completion)
+    }
     func send(_ message: ClipMessage) { for link in links.values where link.authenticated { link.send(message) } }
 }

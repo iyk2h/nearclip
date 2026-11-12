@@ -22,7 +22,7 @@ bash test.sh
 
 Tests use temporary pasteboards and local TCP connections. They do not read or write the general clipboard. Run them in a macOS GUI session with access to local networking and the pasteboard service. Network-restricted sandboxes can block integration tests.
 
-The suite covers text and image round trips, concurrent copies, pause, reconnection, framing limits, authentication, replay, numeric pairing, direct pairing, address validation, and shutdown. Intel builds are compiled; runtime tests depend on the host architecture.
+The suite covers text and image round trips, concurrent copies, pause, reconnection, framing limits, authentication, replay, numeric pairing, direct pairing, address validation, shutdown, file consent/integrity/cleanup, screen layout convergence, mouse handoff, watchdog return, and legacy capability negotiation. Intel builds are compiled; runtime tests depend on the host architecture.
 
 ## Preview
 
@@ -31,7 +31,7 @@ build/NearClip.app/Contents/MacOS/NearClip --preview --light
 build/NearClip.app/Contents/MacOS/NearClip --render-preview /tmp/nearclip.png --dark --settings
 ```
 
-Preview mode uses sample UI state. It does not access the Keychain, general clipboard, or network. Use `--nearby`, `--connected`, `--offline`, `--paused`, or `--advanced` for other states. Combine `--connected --paused` to show a paused saved connection.
+Preview mode uses sample UI state. It does not access the Keychain, general clipboard, or network. Use `--sharing --connected` for the file/mouse page. Use `--nearby`, `--connected`, `--offline`, `--paused`, or `--advanced` for other states. Combine `--connected --paused` to show a paused saved connection.
 
 ## Bundled diagnostics
 
@@ -42,7 +42,7 @@ build/NearClip.app/Contents/MacOS/NearClip --smoke-test
 build/NearClip.app/Contents/MacOS/NearClip --lifecycle-smoke
 ```
 
-The first checks Bonjour under the actual app identity. The second checks menu entries, pause/resume, settings navigation, hiding/reopening, and quit cleanup. Both exit when complete.
+The first checks Bonjour, encrypted clipboard/file transfer, and shared layout under the actual app identity. The second checks menu entries, sharing/settings navigation, pause/resume, input consent, hiding/reopening, stable geometry, and quit cleanup. Both exit when complete. Tests create native mouse event objects but never post them, install real input hooks, move the system cursor, or request input permissions.
 
 ## Release
 
@@ -66,5 +66,9 @@ Tag the tested commit, then attach the packages and checksums to a GitHub prerel
 | `Pairing.swift` | Discovery and two-sided numeric pairing |
 | `Transport.swift` | Authenticated clipboard sessions and reconnect |
 | `Preferences.swift` | Address parsing, saved route model, and pairing access policy |
+| `SharingProtocol.swift` | Portable file/mouse message schema and layout state |
+| `MouseGeometry.swift` | Display edge and position calculations |
+| `MouseSharing.swift` | Input session state and macOS event adapter |
+| `FileTransfer.swift` | Transfer state, background I/O, and safe destination commit |
 
 Pairing and clipboard discovery share `_nearclip._tcp`. Pairing advertisements start with `pair-`; clipboard advertisements start with a group hint. Both peers can dial directly, so duplicate connections use a deterministic device-ID order.

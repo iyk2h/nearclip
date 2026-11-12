@@ -1,26 +1,30 @@
 # Roadmap
 
-These are proposed directions, not features included in the current release. They do not have release dates.
+## Available in the 0.4 experimental beta
 
-## 1. Make clipboard sharing dependable
+- Text and image clipboard sync between Macs.
+- Explicit, recipient-approved single-file transfer.
+- Opt-in mouse movement, clicks, and scrolling across a screen edge.
+- Shared horizontal device layout, set from either Mac.
 
-- Verify two physical Macs through sleep, wake, network changes, and long sessions.
-- Improve discovery errors and reconnection feedback.
-- Add an English interface.
-- Sign and notarize release builds when a Developer ID identity is available.
+## Next validation work
 
-## 2. Add explicit file transfer
+Test two physical Macs across sleep, lock/unlock, disconnects, display scaling, multiple monitors, secure input, slow networks, long transfers, and input-permission changes. Validate Intel GUI behavior and accessibility. Sign and notarize builds when a Developer ID identity is available.
 
-Start with a **Send file** action for the paired Mac. Show the file name and size before transfer. Let the recipient choose whether to accept it and where to save it. Show progress, cancel, and failure states.
+## Windows support
 
-Do not send a Finder selection automatically because it was copied. Keep file transfer separate from automatic text and image sharing. Validate received paths, avoid silent overwrite, and use bounded streaming for large files.
+Add a Windows client that uses the [same protocol](SHARING-PROTOCOL.md). First validate cross-language transcript, key-derivation, and encryption fixtures. Then implement Windows discovery, credential storage, clipboard formats, safe file saving, monitor geometry, input capture, and input injection. Test Mac ↔ Windows in both directions.
 
-## 3. Explore mouse and keyboard sharing
+The current app and binaries are macOS-only. No Windows release date is set.
 
-Let users arrange their two screens and opt into moving control across a screen edge. Provide an immediate escape shortcut that returns control to the local Mac. Handle lost connections, sleep, permission changes, and different display scales.
+## Later features
 
-This needs a separate input-control design. Clipboard pairing alone must not silently grant input control. Start with two Macs; wider platform support is a later decision.
+- English interface.
+- Keyboard sharing with separate opt-in and held-key cleanup.
+- File batches, folders, resumable transfers, and drag-and-drop sending.
+- Vertical screen layout and richer monitor arrangement.
+- Separate interactive/bulk network channels if latency testing justifies them.
 
 ## Naming
 
-NearClip describes the current clipboard app. A broader name can be considered before file or input sharing ships. A rename must preserve the bundle identity, Keychain access, settings, and upgrade path.
+A broader name can be considered as the product expands. Preserve the bundle identity, Keychain access, saved pairing, and settings through any rename.

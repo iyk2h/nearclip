@@ -35,6 +35,22 @@ NearClip skips clipboard entries marked as confidential or transient by their so
 
 NearClip tries to reconnect after wake. If the saved address is no longer valid and discovery is blocked, pair again with the current address. The menu-bar command **Find connection again (`연결 다시 찾기`)** restarts networking without opening new pairing.
 
+## Mouse sharing does not start
+
+1. Use NearClip 0.4 or later on both Macs.
+2. Open Sharing (`공유`) and enable Mouse sharing (`마우스 공유 켜기`) on both.
+3. Allow NearClip in **System Settings → Privacy & Security → Accessibility** and **Input Monitoring**. Return to the app and enable sharing again. A restart may be needed after changing input permissions.
+4. Set the other Mac's position on one Mac. Both screens receive the layout.
+5. Push against the outer edge briefly with no mouse buttons or modifier keys held. A boundary between this Mac's own monitors does not hand off.
+
+Press `⌃⌥Esc` to stop mouse sharing. Typing stays local and returns mouse control. Re-enable sharing after a pause, disconnect, or app restart. A slow network or a large clipboard frame can trigger the watchdog and return control; this behavior fails safely but can interrupt use.
+
+## File transfer fails
+
+Use Send file (`파일 보내기…`), then choose a destination on the recipient. Finder Copy does not send files automatically. Send one regular file up to 2 GiB; compress folders first. Symbolic links are not sent.
+
+Choose a new destination name. NearClip does not replace existing files, even if the save dialog offers replacement. Use a local Mac folder if an external/network volume does not support the required safe-save operations or quarantine attributes. Keep the source file unchanged during transfer. Cancellation, disconnect, timeout, and digest failure remove the partial file during normal operation. A process crash can leave a private `.nearclip-*.part` file in the selected folder.
+
 ## Start at login does not work
 
 Move NearClip to Applications and open it again. Check **System Settings → General → Login Items** for an approval request.

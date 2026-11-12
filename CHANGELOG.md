@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0 — 2026-11-12
+
+- Add explicit single-file transfer, up to 2 GiB, with recipient acceptance, progress, cancellation, checksums, and safe saving.
+- Add opt-in mouse movement, clicking, dragging within the remote Mac, and scrolling across an outer screen edge.
+- Synchronize left/right screen layout between the paired Macs.
+- Add Control–Option–Escape, local takeover, heartbeats, held-button cleanup, and input consent revocation on disconnect.
+- Keep file I/O off the input run loop and bound transfer queues.
+- Negotiate features through the authenticated channel while retaining clipboard-only peer support.
+- Document the portable message format and remaining work for a Windows client.
+- Mark mouse/file features experimental until physical two-Mac validation is complete.
+
+
 ## 0.3.1 — 2026-11-12
 
 - Replace the nearby-device picker with named device rows and individual Connect buttons.

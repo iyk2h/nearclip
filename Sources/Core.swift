@@ -124,6 +124,8 @@ struct Envelope: Codable {
     let kind: String // ready, clip, ping
     let clip: ClipMessage?
     let clock: UInt64?
+    var features: [String]? = nil
+    var data: Data? = nil
 }
 
 // Fresh nonces bind every connection to a new key. Directional keys and monotonic
@@ -146,9 +148,9 @@ final class SessionCipher {
         incoming = HKDF<SHA256>.deriveKey(inputKeyMaterial: secret, salt: salt,
             info: Data(("NearClip sender:" + remote.device).utf8), outputByteCount: 32)
     }
-    func seal(kind: String, clip: ClipMessage? = nil, clock: UInt64? = nil) throws -> Data {
+    func seal(kind: String, clip: ClipMessage? = nil, clock: UInt64? = nil, features: [String]? = nil, data: Data? = nil) throws -> Data {
         sendSequence += 1
-        let plain = try JSONEncoder().encode(Envelope(sequence: sendSequence, kind: kind, clip: clip, clock: clock))
+        let plain = try JSONEncoder().encode(Envelope(sequence: sendSequence, kind: kind, clip: clip, clock: clock, features: features, data: data))
         guard let sealed = try AES.GCM.seal(plain, using: outgoing).combined else { throw ClipError.invalid("암호화하지 못했어요.") }
         return sealed
     }
