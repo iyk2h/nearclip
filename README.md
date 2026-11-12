@@ -1,66 +1,71 @@
 # NearClip
 
-**이 Mac에서 복사하고, 다른 Mac에서 붙여넣으세요.**
+**Copy on one Mac. Paste on the other.**
 
-NearClip은 같은 네트워크의 두 Mac에서 텍스트와 이미지를 공유하는 메뉴 막대 앱입니다. Apple 계정이 달라도 사용할 수 있습니다. 계정 가입이나 클라우드 서버는 필요하지 않습니다.
+NearClip is a native macOS menu bar app. It shares text and images between two Macs on the same local network. The Macs can use different Apple accounts. No account, cloud service, or third-party runtime is required.
 
-[**macOS 앱 다운로드**](https://github.com/iyk2h/nearclip/releases/tag/v0.3.0) · [문제 해결](docs/TROUBLESHOOTING.md) · [개발 안내](docs/DEVELOPMENT.md)
+[**Download for macOS**](https://github.com/iyk2h/nearclip/releases/tag/v0.3.0) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Development](docs/DEVELOPMENT.md) · [Roadmap](docs/ROADMAP.md)
 
-![NearClip 연결 화면](docs/connection.png)
+![NearClip connection screen](docs/connection.png)
 
-## 설치
+> **Public beta.** Version 0.3.0 is not notarized by Apple. The app interface is currently in Korean. The steps below include the button labels shown in the app.
 
-두 Mac에서 각각 아래 단계를 실행하세요. macOS 13 이상이 필요합니다. Apple Silicon과 Intel을 지원합니다.
+## Install
 
-1. [다운로드 페이지](https://github.com/iyk2h/nearclip/releases/tag/v0.3.0)에서 `NearClip-0.3.0-macOS.dmg`를 받으세요.
-2. DMG 파일을 여세요.
-3. `NearClip`을 `Applications` 폴더로 드래그하세요.
-4. 응용 프로그램 폴더에서 `NearClip`을 여세요.
-5. 로컬 네트워크 접근 요청을 허용하세요.
+Use macOS 13 or later. Apple Silicon and Intel are supported. Complete these steps on both Macs.
 
-> **0.3.0은 공증되지 않은 공개 베타입니다.** macOS가 실행을 막으면 [첫 실행 안내](docs/TROUBLESHOOTING.md#첫-실행이-차단돼요)를 확인하세요. 보안 기능을 끄는 터미널 명령은 필요하지 않습니다.
+1. Download `NearClip-0.3.0-macOS.dmg` from the [release page](https://github.com/iyk2h/nearclip/releases/tag/v0.3.0).
+2. Open the DMG file.
+3. Drag **NearClip** to **Applications**.
+4. Open **NearClip** from Applications.
+5. Allow local network access when macOS asks.
 
-## 두 Mac 연결
+If macOS blocks the first launch, follow the [first-launch instructions](docs/TROUBLESHOOTING.md#macos-blocks-the-first-launch).
 
-1. 두 Mac을 같은 Wi-Fi 또는 유선 네트워크에 연결하세요.
-2. 두 Mac에서 NearClip을 실행하세요.
-3. 한쪽 Mac의 **연결** 탭에서 상대 Mac을 선택하세요.
-4. **연결**을 누르세요.
-5. 양쪽 화면의 6자리 숫자가 같은지 확인하세요.
-6. 숫자가 같으면 양쪽에서 **숫자가 같아요 · 연결**을 누르세요.
-7. 연결 상태를 확인한 뒤 텍스트나 이미지를 새로 복사하세요.
-8. 다른 Mac에서 `⌘V`를 누르세요.
+## Connect the Macs
 
-목록이 비어 있으면 상대 Mac의 **직접 연결**에 표시된 주소를 **주소로 연결**에 입력하세요. 이후 숫자를 확인하는 과정은 같습니다.
+1. Connect both Macs to the same Wi-Fi or wired network.
+2. Open NearClip on both Macs.
+3. On one Mac, open **Connection (`연결`)**.
+4. Select the other Mac from the list.
+5. Click **Connect (`연결`)**.
+6. Compare the six digits on both screens.
+7. If they match, click **Confirm (`숫자가 같아요 · 연결`)** on both Macs.
+8. Wait for **CONNECTED**.
+9. Copy new text or an image, then press `⌘V` on the other Mac.
 
-## 실행과 종료
+If the list is empty, find the address under **Direct connection (`직접 연결`)** on the other Mac. Enter it through **Connect by address (`주소로 연결…`)**. Then compare the digits as described above.
 
-Mac 상단 메뉴 막대의 클립보드 아이콘을 누르면 상태와 명령이 표시됩니다.
+## Use the menu bar
 
-| 원하는 동작 | 누를 항목 |
+Click the clipboard icon in the macOS menu bar to open NearClip or control sharing.
+
+| Action | Control |
 | --- | --- |
-| 창 열기 | 메뉴 막대 → **NearClip 열기…** |
-| 공유 잠시 중단 | **공유 일시 정지** |
-| 공유 재개 | **공유 다시 시작** |
-| 앱 완전히 종료 | **NearClip 종료** 또는 `⌘Q` |
-| 창 닫기 동작 변경 | **설정** → **창을 닫으면** |
-| 로그인 시 자동 실행 | **설정** → **로그인할 때 NearClip 시작** |
-| 저장된 연결 삭제 | **설정** → **연결 해제…** |
+| Pause sending and receiving | `공유 일시 정지` |
+| Resume sharing | `공유 다시 시작` |
+| Send the current clipboard | `지금 보내기` |
+| Quit the app | `NearClip 종료` or `⌘Q` while NearClip is active |
+| Choose what happens when the window closes | Settings (`설정`) → `창을 닫으면` |
+| Start at login | Settings → `로그인할 때 NearClip 시작` |
+| Forget the paired Mac | Settings → `연결 해제…` |
 
-처음 창을 닫으면 앱을 종료할지, 메뉴 막대에 남길지 묻습니다. **이 선택 기억하기**를 선택하면 다음부터 같은 동작을 합니다.
+The first time you close the window, NearClip asks whether to quit or stay in the menu bar. Select `이 선택 기억하기` to save your choice. Quitting stops sharing. Closing the window can keep sharing active if you choose that option.
 
-## 공유 범위
+## What it shares
 
-- 일반 텍스트와 이미지 클립보드를 공유합니다. Finder에서 복사한 파일은 전송하지 않습니다.
-- 이미지는 한 번에 20MB, 4천만 화소까지 지원합니다.
-- 연결 전이나 일시정지 중에 복사한 내용은 자동으로 보내지 않습니다.
-- 스크린샷을 바로 복사하려면 `⌃⇧⌘4`를 누르세요.
-- 새 Mac과 연결하면 기존 연결을 교체합니다. 0.3.0은 두 Mac 사용을 대상으로 합니다.
+- Plain text and image clipboard content.
+- Images up to 20 MiB and 40 million pixels.
+- New copies made after connection or resume. Earlier copies are not sent automatically.
 
-전송 내용은 암호화합니다. 클립보드 기록은 저장하지 않습니다. 보안 설계와 제한은 [SECURITY.md](SECURITY.md)에 설명되어 있습니다.
+To copy a screenshot directly to the clipboard, press `⌃⇧⌘4`.
 
-## 기여
+NearClip does **not** transfer Finder files, share a mouse or keyboard, or keep clipboard history. Pairing a new Mac replaces the previous pairing. Version 0.3.0 targets two-Mac use.
 
-문제를 발견하면 [이슈](https://github.com/iyk2h/nearclip/issues)를 남겨주세요. macOS 버전, NearClip 버전, 재현 단계를 포함하세요. 개인 클립보드 내용이나 연결 비밀값은 올리지 마세요.
+Clipboard content is encrypted in transit. See [Security](SECURITY.md) for the trust model and limits, and [Validation](docs/VALIDATION.md) for completed tests.
+
+## Report a problem
+
+Open an [issue](https://github.com/iyk2h/nearclip/issues). Include your macOS version, NearClip version, and steps to reproduce the problem. Do not include private clipboard content or pairing secrets.
 
 [MIT License](LICENSE)

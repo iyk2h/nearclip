@@ -1,52 +1,53 @@
-# 문제 해결
+# Troubleshooting
 
-## 첫 실행이 차단돼요
+## macOS blocks the first launch
 
-현재 배포본은 Apple Developer ID 서명과 공증이 없는 공개 베타입니다. GitHub 공식 릴리스에서 받은 파일인지 먼저 확인하세요.
+The current beta has an ad-hoc signature. It does not have an Apple Developer ID signature or notarization. First check that you downloaded it from this repository's release page.
 
-1. 응용 프로그램 폴더에서 NearClip을 한 번 실행하세요.
-2. **시스템 설정 → 개인정보 보호 및 보안**을 여세요.
-3. NearClip 차단 안내 옆의 **확인 없이 열기**를 누르세요. macOS 버전에 따라 이름이 다를 수 있습니다.
-4. 표시된 실행 확인창에서 **열기**를 누르세요.
+1. Try to open NearClip from Applications.
+2. Open **System Settings → Privacy & Security**.
+3. Find the NearClip warning.
+4. Click **Open Anyway**.
+5. Confirm **Open** in the next dialog.
 
-이 절차는 [Apple의 앱 실행 안내](https://support.apple.com/en-us/102445)를 따릅니다.
+These steps follow [Apple's app-opening instructions](https://support.apple.com/en-us/102445). Do not disable Gatekeeper or SIP. If an administrator manages your Mac or the option is unavailable, ask the administrator for help.
 
-이 항목이 없거나 회사 관리 정책으로 차단되면 관리자에게 문의하세요. Gatekeeper나 SIP를 끄지 마세요.
+## The other Mac is not listed
 
-## 다른 Mac이 안 보여요
+1. Run NearClip 0.3 or later on both Macs.
+2. Allow NearClip under **System Settings → Privacy & Security → Local Network**, if that setting is available on your macOS version.
+3. Click **Find again (`다시 찾기`)**.
+4. If discovery still fails, use the address shown under **Direct connection (`직접 연결`)** on the other Mac.
 
-1. 양쪽에서 NearClip 0.3 이상을 실행하세요.
-2. 양쪽의 **시스템 설정 → 개인정보 보호 및 보안 → 로컬 네트워크**에서 NearClip을 허용하세요. macOS 버전에 따라 이 설정이 없을 수 있습니다.
-3. NearClip의 **다시 찾기**를 누르세요.
-4. 계속 비어 있으면 상대 화면의 **직접 연결**에 표시된 주소로 연결하세요.
+Guest Wi-Fi, client isolation, some VPNs, and firewalls can block traffic between devices. Check the network policy if direct connection also fails. Use the address currently shown in the app; its pairing port can change after a restart.
 
-게스트 Wi-Fi, 기기 격리가 설정된 공유기, 일부 VPN과 방화벽은 Mac 사이의 통신을 막습니다. 주소 연결도 실패하면 해당 네트워크 정책을 확인하세요. 앱을 재시작하면 연결용 주소의 포트가 달라질 수 있으므로 현재 표시된 주소를 사용하세요.
+## Connected, but paste does not work
 
-## 연결됐는데 붙여넣기가 안 돼요
+1. Check that the state is **CONNECTED**, not **PAUSED**.
+2. Copy a short line of plain text after the connection is established.
+3. Paste it into a text editor on the other Mac.
+4. Use **Send now (`지금 보내기`)** to resend the current clipboard if needed.
 
-1. **공유 중**인지 확인하세요. 일시정지 상태라면 공유를 재개하세요.
-2. 연결된 뒤 짧은 일반 텍스트를 새로 복사하세요.
-3. 다른 Mac의 텍스트 편집기에 붙여넣으세요.
-4. 현재 클립보드를 다시 보내려면 **지금 보내기**를 누르세요.
+NearClip skips clipboard entries marked as confidential or transient by their source app. It also skips file references and images over its limits. Transfer errors appear in the status panel.
 
-암호 관리자가 비공개로 표시한 항목은 보내지 않습니다. 파일 복사와 지원 용량을 넘는 이미지는 보내지 않습니다. 전송 오류는 상태 카드에 표시됩니다.
+## Connection fails after sleep or a network change
 
-## 잠자기나 네트워크 변경 후 연결이 끊겨요
+NearClip tries to reconnect after wake. If the saved address is no longer valid and discovery is blocked, pair again with the current address. **Find again (`다시 찾기`)** restarts networking.
 
-NearClip은 깨어나면 연결을 다시 찾습니다. 이전 IP 주소를 사용할 수 없고 자동 검색도 막힌 경우, 현재 주소로 다시 연결하세요. **다시 찾기**로 네트워크 연결을 재시작할 수도 있습니다.
+## Start at login does not work
 
-## 로그인 시 실행을 켤 수 없어요
+Move NearClip to Applications and open it again. Check **System Settings → General → Login Items** for an approval request.
 
-NearClip을 응용 프로그램 폴더로 옮긴 뒤 다시 실행하세요. **시스템 설정 → 일반 → 로그인 항목**에서 허용이 필요한지 확인하세요.
+## Upgrade from 0.2
 
-## 0.2에서 업데이트해요
+1. Quit the old NearClip on both Macs.
+2. Replace both apps with version 0.3.
+3. Open the new apps.
 
-1. 양쪽의 이전 NearClip을 완전히 종료하세요.
-2. 양쪽의 앱을 0.3 버전으로 교체하세요.
-3. 새 버전을 실행하세요.
+The existing pairing secret is preserved. For a new pairing, use 0.3 or later on both Macs. The new discovery and address exchange are not compatible with the 0.2 pairing flow.
 
-기존 연결 비밀값은 유지합니다. 새 연결은 양쪽 모두 0.3 이상을 사용하세요. 새 검색 방식과 주소 교환은 0.2의 새 연결 과정과 호환되지 않습니다.
+## Remove NearClip
 
-## 앱을 제거해요
+Quit the app, then move it from Applications to the Trash. To revoke the old pairing first, select **Settings (`설정`) → Forget connection (`연결 해제…`)**. This replaces the old secret with a new random secret and removes the saved peer address.
 
-앱을 종료한 뒤 응용 프로그램 폴더의 NearClip을 휴지통으로 옮기세요. 연결 정보도 지우려면 제거 전에 **설정 → 연결 해제**를 실행하세요. 이 동작은 기존 비밀값을 새로운 무작위 값으로 교체합니다. 남은 키체인 항목까지 제거하려면 키체인 접근에서 서비스 이름 `local.nearclip.pairing.v1`을 찾아 삭제하세요.
+To remove the remaining Keychain item, use Keychain Access to delete the item with service name `local.nearclip.pairing.v1`.
