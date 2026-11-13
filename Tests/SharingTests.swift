@@ -178,6 +178,7 @@ func mouseSharingTests() throws {
     }
     try enter()
     try Check.that(a.mode == .controlling && b.mode == .receiving, "edge dwell and handshake transfer control")
+    try Check.that(a.maintenanceInterval! < 0.01 && b.maintenanceInterval == 0.1, "high-frequency maintenance runs only on the controlling sender")
     _ = a.localMove(point: .zero, dx: -20, dy: 0, now: now); now = now.addingTimeInterval(0.01); a.tick(now: now); pump()
     try Check.that(a.mode == .controlling && b.mode == .receiving, "reverse jitter immediately after entry does not bounce control back")
     a.endSession(); pump(); try enter()
@@ -195,6 +196,7 @@ func mouseSharingTests() throws {
     try Check.that(released == [0] && b.mode == .local, "disconnect releases all remotely held buttons")
     now = now.addingTimeInterval(3); a.tick(now: now)
     try Check.that(a.mode == .local, "missing heartbeat restores local control")
+    try Check.that(a.maintenanceInterval == 1, "return to local control restores the low-frequency permission watchdog")
     try Check.that(a.lastEndReason == .timeout && !a.endedByPeer, "watchdog records the local timeout reason")
     try Check.that(!b.enabled, "disconnect removes input capture for the lost peer")
     b.setPeer("A", savedLayout: a.layout); try b.setEnabled(true); try a.setEnabled(true); pump(); try enter()
@@ -297,7 +299,28 @@ func mousePacingTests() throws {
     moves = sent.filter { $0.action == .move }
     try Check.that(moves.suffix(2).map(\.flags) == [0, 0x20000] && moves.suffix(2).map(\.dx) == [2, 3],
                    "movement batching does not merge across modifier changes")
+    var pendingReplies: [(Bool) -> Void] = []
+    mouse.send = { _, packet, reply in
+        sent.append(packet)
+        if packet.action == .move { pendingReplies.append(reply) } else { reply(true) }
+    }
+    sent = []; now = now.addingTimeInterval(0.02)
+    _ = mouse.localMove(point: .zero, dx: 1, dy: 0, now: now)
+    for step in 1...100 {
+        let sample = now.addingTimeInterval(Double(step) / 1000)
+        _ = mouse.localMove(point: .zero, dx: 1, dy: 0, now: sample); mouse.tick(now: sample)
+    }
+    try Check.that(sent.filter { $0.action == .move }.count == 1 && pendingReplies.count == 1,
+                   "slow transport holds only one normal movement packet instead of filling its queue")
+    pendingReplies.removeFirst()(true)
+    now = now.addingTimeInterval(0.11); mouse.tick(now: now)
+    try Check.that(sent.last?.dx == 100, "accumulated movement drains after transport becomes writable")
+    _ = mouse.localMove(point: .zero, dx: 2, dy: 0, now: now.addingTimeInterval(0.001))
+    _ = mouse.localButton(action: .down, button: 0)
+    try Check.that(sent.suffix(2).map(\.action) == [.move, .down], "click ordering is preserved even with movement in flight")
     mouse.endSession(); now = now.addingTimeInterval(2); try enter()
+    pendingReplies.forEach { $0(false) }
+    try Check.that(mouse.mode == .controlling, "late failed movement completion cannot end a newer control session")
     let count = sent.count
     mouse.secureInputEnabled = { true }
     _ = mouse.localMove(point: .zero, dx: 20, dy: 0, now: now)

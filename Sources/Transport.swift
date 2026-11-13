@@ -1,8 +1,17 @@
 import Foundation
 import Network
 import CryptoKit
+import OSLog
 
 final class PeerLink {
+    enum CloseReason: String { case stopped, networkFailure, invalidFrame, peerClosed, handshakeTimeout, idleTimeout, duplicate }
+    private let logger = Logger(subsystem: "dev.nearclip.mac", category: "transport")
+    private let createdAt = ProcessInfo.processInfo.systemUptime
+    private var peakQueueDepth = 0
+    private var maxQueueWaitMS = 0.0
+    private var lastSlowQueueLog = -Double.infinity
+    private let clipboardEncodingQueue = DispatchQueue(label: "dev.nearclip.clipboard-encoding", qos: .userInitiated)
+    private let decodingQueue = DispatchQueue(label: "dev.nearclip.frame-decoding", qos: .userInitiated)
     let id = UUID()
     let connection: NWConnection
     let local: Hello
@@ -15,7 +24,7 @@ final class PeerLink {
     private var cipher: SessionCipher?
     private let advertisedFeatures: [String]
     private var sending = false
-    private var featureQueue: [(Data, (Bool) -> Void)] = []
+    private var featureQueue: [(Data, (Bool) -> Void, TimeInterval)] = []
     private(set) var features: Set<String> = []
     var onFeature: ((PeerLink, FeaturePacket) -> Void)?
     private var pendingClip: ClipMessage?
@@ -40,15 +49,16 @@ final class PeerLink {
             switch state {
             case .ready:
                 do { try self.sendFrame(JSONEncoder().encode(self.local)); self.readFrame() }
-                catch { self.close() }
-            case .failed, .cancelled: self.close()
+                catch { self.close(.invalidFrame) }
+            case .failed, .cancelled: self.close(.networkFailure)
             default: break
             }
         }
         connection.start(queue: .main)
     }
-    func close() {
+    func close(_ reason: CloseReason = .stopped) {
         guard !closed else { return }
+        logger.notice("connection_close reason=\(reason.rawValue, privacy: .public) authenticated=\(self.authenticated, privacy: .public) peak_queue=\(self.peakQueueDepth, privacy: .public) max_queue_wait_ms=\(Int(self.maxQueueWaitMS), privacy: .public)")
         closed = true; authenticated = false; pendingClip = nil
         let queued = featureQueue; featureQueue = []
         queued.forEach { $0.1(false) }
@@ -61,7 +71,7 @@ final class PeerLink {
         let data = try Framing.encode(body)
         connection.send(content: data, completion: .contentProcessed { [weak self] error in
             guard let self, !self.closed else { return }
-            if error != nil { self.close() } else { completion?() }
+            if error != nil { self.close(.networkFailure) } else { completion?() }
         })
     }
     private func readExactly(_ size: Int, partial: Data = Data(), completion: @escaping (Data) -> Void) {
@@ -72,7 +82,7 @@ final class PeerLink {
             var all = partial
             if let data { all.append(data) }
             if all.count == size { completion(all) }
-            else if error != nil || complete { self.close() }
+            else if error != nil || complete { self.close(error == nil ? .peerClosed : .networkFailure) }
             else { self.readExactly(size, partial: all, completion: completion) }
         }
     }
@@ -82,11 +92,30 @@ final class PeerLink {
             do {
                 let count = try Framing.length(header, limit: self.authenticated ? Framing.maxFrame : 4096)
                 self.readExactly(count) { [weak self] body in
-                    guard let self else { return }
-                    do { try self.handle(body); self.lastReceived = Date(); self.readFrame() }
-                    catch { self.close() }
+                    self?.processFrame(body)
                 }
-            } catch { self.close() }
+            } catch { self.close(.invalidFrame) }
+        }
+    }
+    private func processFrame(_ data: Data) {
+        // Small input frames keep their direct path. Only one frame is decoded
+        // at a time, so async bulk decoding cannot reorder receive sequences.
+        guard authenticated, data.count > 256 * 1024, let cipher else {
+            do { try handle(data); lastReceived = Date(); readFrame() }
+            catch { close(.invalidFrame) }
+            return
+        }
+        decodingQueue.async { [weak self] in
+            let start = ProcessInfo.processInfo.systemUptime
+            let result = Result { try cipher.open(data) }
+            let elapsedMS = Int((ProcessInfo.processInfo.systemUptime - start) * 1000)
+            DispatchQueue.main.async {
+                guard let self, !self.closed else { return }
+                if elapsedMS >= 16 { self.logger.notice("frame_decode_slow elapsed_ms=\(elapsedMS, privacy: .public)") }
+                do {
+                    try self.handleMessage(result.get()); self.lastReceived = Date(); self.readFrame()
+                } catch { self.close(.invalidFrame) }
+            }
         }
     }
     private func handle(_ data: Data) throws {
@@ -107,8 +136,12 @@ final class PeerLink {
             if let clock = message.clock { onClock?(clock) }
             features = Set((message.features ?? []).prefix(8)).intersection(advertisedFeatures)
             authenticated = true; onReady?(self)
+            logger.notice("connection_ready elapsed_ms=\(Int((ProcessInfo.processInfo.systemUptime - self.createdAt) * 1000), privacy: .public)")
             return
         }
+        try handleMessage(message)
+    }
+    private func handleMessage(_ message: Envelope) throws {
         switch message.kind {
         case "clip":
             guard let clip = message.clip, clip.stamp.device == remote?.device else { throw ClipError.invalid("보낸 기기를 확인할 수 없어요.") }
@@ -129,37 +162,60 @@ final class PeerLink {
         flush()
     }
     func sendFeature(_ packet: FeaturePacket, completion: @escaping (Bool) -> Void) {
+        if featureQueue.count >= 32 { logger.error("send_queue_full depth=32") }
         guard authenticated, !closed, features.contains(packet.feature), featureQueue.count < 32,
               let data = try? packet.encoded() else { completion(false); return }
-        featureQueue.append((data, completion)); flush()
+        featureQueue.append((data, completion, ProcessInfo.processInfo.systemUptime))
+        peakQueueDepth = max(peakQueueDepth, featureQueue.count); flush()
     }
     private func flush() {
         guard !sending, !closed, authenticated, let cipher else { return }
         if !featureQueue.isEmpty {
-            let (data, reply) = featureQueue.removeFirst(); sending = true
+            let (data, reply, queuedAt) = featureQueue.removeFirst(); sending = true
+            let uptime = ProcessInfo.processInfo.systemUptime
+            let waitMS = (uptime - queuedAt) * 1000
+            maxQueueWaitMS = max(maxQueueWaitMS, waitMS)
+            if waitMS >= 50, uptime - lastSlowQueueLog >= 5 {
+                lastSlowQueueLog = uptime
+                logger.notice("send_queue_slow wait_ms=\(Int(waitMS), privacy: .public) remaining=\(self.featureQueue.count, privacy: .public)")
+            }
             do {
                 let frame = try Framing.encode(cipher.seal(kind: "feature", data: data))
                 connection.send(content: frame, completion: .contentProcessed { [weak self] error in
                     guard let self else { reply(false); return }
                     self.sending = false; reply(error == nil && !self.closed)
-                    if error != nil { self.close() } else { self.flush() }
+                    if error != nil { self.close(.networkFailure) } else { self.flush() }
                 })
-            } catch { sending = false; reply(false); close() }
+            } catch { sending = false; reply(false); close(.invalidFrame) }
             return
         }
         guard let clip = pendingClip else { return }
         pendingClip = nil; sending = true
-        do {
-            try sendFrame(cipher.seal(kind: "clip", clip: clip)) { [weak self] in
-                guard let self else { return }
-                self.sending = false; self.flush()
+        // 'sending' remains true until delivery completes. No other outbound
+        // cipher operation can run during preparation, preserving sequence order.
+        clipboardEncodingQueue.async { [weak self] in
+            let start = ProcessInfo.processInfo.systemUptime
+            let result = Result { try Framing.encode(cipher.seal(kind: "clip", clip: clip)) }
+            let elapsedMS = Int((ProcessInfo.processInfo.systemUptime - start) * 1000)
+            DispatchQueue.main.async {
+                guard let self, !self.closed else { return }
+                if elapsedMS >= 16 { self.logger.notice("clipboard_prepare_slow elapsed_ms=\(elapsedMS, privacy: .public)") }
+                switch result {
+                case .success(let frame):
+                    self.connection.send(content: frame, completion: .contentProcessed { [weak self] error in
+                        guard let self, !self.closed else { return }
+                        self.sending = false
+                        if error != nil { self.close(.networkFailure) } else { self.flush() }
+                    })
+                case .failure: self.sending = false; self.close(.invalidFrame)
+                }
             }
-        } catch { close() }
+        }
     }
     func tick() {
         guard !closed else { return }
         if (!authenticated && Date().timeIntervalSince(created) > 12) || Date().timeIntervalSince(lastReceived) > 90 {
-            close(); return
+            close(authenticated ? .idleTimeout : .handshakeTimeout); return
         }
         guard authenticated, !sending, let cipher else { return }
         sending = true
@@ -167,7 +223,7 @@ final class PeerLink {
             try sendFrame(cipher.seal(kind: "ping")) { [weak self] in
                 guard let self else { return }; self.sending = false; self.flush()
             }
-        } catch { close() }
+        } catch { close(.invalidFrame) }
     }
 }
 
@@ -318,8 +374,8 @@ final class LocalTransport {
             if let existing = self.links.values.first(where: { $0.id != link.id && $0.authenticated && $0.remote?.device == link.remote?.device }) {
                 // Both devices select the same physical connection when they dial at once.
                 let preferOutgoing = self.device < (link.remote?.device ?? "")
-                if (link.expectedDevice != nil) == preferOutgoing { existing.close() }
-                else { link.close(); return }
+                if (link.expectedDevice != nil) == preferOutgoing { existing.close(.duplicate) }
+                else { link.close(.duplicate); return }
             }
             self.publishPeers()
         }

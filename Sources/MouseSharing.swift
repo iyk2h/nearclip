@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Carbon
+import OSLog
 
 struct MousePermissions {
     let accessibility: Bool
@@ -68,11 +69,22 @@ final class MouseSharing {
     private var pendingX: Double = 0
     private var pendingY: Double = 0
     private var pendingFlags: UInt64 = 0
+    private var movesInFlight = 0
     private var lastMoveObserved = Date.distantPast
     private static let moveInterval = 1.0 / 120
     private var tap: CFMachPort?
     private var runSource: CFRunLoopSource?
     private var timer: Timer?
+    private let logger = Logger(subsystem: "dev.nearclip.mac", category: "input")
+    private var controlStarted: TimeInterval?
+    private var sentMoves = 0
+    private var receivedMoves = 0
+    private var lastTick: TimeInterval?
+    private var maxTimerDelayMS = 0.0
+    var maintenanceInterval: TimeInterval? {
+        guard enabled else { return nil }
+        return mode == .controlling ? Self.moveInterval : mode == .local ? 1 : 0.1
+    }
     private var hiddenOn: CGDirectDisplayID?
     private var lastPermissionCheck = Date.distantPast
     private static let marker: Int64 = 0x4E434C4950
@@ -146,10 +158,12 @@ final class MouseSharing {
     // Suspend capture, not the user's choice. Consent is scoped to this peer
     // and this app run; a new device or an explicit stop never inherits it.
     func suspend(_ reason: Suspension) {
+        if native { logger.notice("input_suspend reason=\(String(describing: reason), privacy: .public)") }
         suspensions.insert(reason); try? applyEnabled(false)
     }
     func resume(_ reason: Suspension) {
         suspensions.remove(reason); restoreIfReady(); onChange?()
+        if native { logger.notice("input_resume reason=\(String(describing: reason), privacy: .public) ready=\(self.enabled, privacy: .public)") }
     }
     private func restoreIfReady() {
         guard !enabled, suspensions.isEmpty, let peer, peer == requestedPeer else { return }
@@ -165,12 +179,23 @@ final class MouseSharing {
         }
         if !value { endSession(reason: .disabled); removeTap(); localHeldKeys = [] }
         enabled = value; edgeSince = nil; cooldown = Date().addingTimeInterval(0.7)
-        if value, native, timer == nil {
-            let timer = Timer(timeInterval: Self.moveInterval, repeats: true) { [weak self] _ in self?.tick() }
-            self.timer = timer; RunLoop.main.add(timer, forMode: .common)
-        }
-        if !value { timer?.invalidate(); timer = nil }
+        updateTimer()
+        if native { logger.notice("input_enabled value=\(value, privacy: .public)") }
         advertise(); onChange?()
+    }
+    private func updateTimer() {
+        guard native else { return }
+        guard let interval = maintenanceInterval else { timer?.invalidate(); timer = nil; lastTick = nil; return }
+        guard timer?.timeInterval != interval else { return }
+        timer?.invalidate(); lastTick = nil
+        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in self?.tick() }
+        self.timer = timer; RunLoop.main.add(timer, forMode: .common)
+    }
+    private func beganControl() {
+        controlStarted = ProcessInfo.processInfo.systemUptime
+        sentMoves = 0; receivedMoves = 0; maxTimerDelayMS = 0
+        updateTimer()
+        if native { logger.notice("control_begin role=\(self.mode.rawValue, privacy: .public)") }
     }
     func stop() { try? setEnabled(false) }
     private func advertise() { emit(MousePacket(kind: .availability, enabled: enabled, keyboardEnabled: enabled && keyboardSupported)) }
@@ -198,6 +223,7 @@ final class MouseSharing {
                 emit(MousePacket(kind: .deny, token: packet.token)); return
             }
             token = packet.token; mode = .receiving; position = point; entryRect = rect; entrySide = side
+            beganControl()
             returnArmed = false; returnEdgeSince = nil; lastReturnPush = nil
             lastEndReason = nil
             lastHeard = now; lastBeat = .distantPast
@@ -210,6 +236,7 @@ final class MouseSharing {
         case .accepted:
             guard mode == .requesting else { return }
             mode = .controlling; lastBeat = .distantPast
+            beganControl()
             if native {
                 let id = CGMainDisplayID()
                 if CGDisplayHideCursor(id) == .success { hiddenOn = id }
@@ -236,7 +263,7 @@ final class MouseSharing {
             return false
         }
         if mode == .controlling {
-            if pendingFlags != flags & 0x1E0000 { flushMove() }
+            if pendingFlags != flags & 0x1E0000 { flushMove(force: true) }
             let idle = now.timeIntervalSince(lastMoveObserved)
             lastMoveObserved = now
             pendingX = max(-4096, min(4096, pendingX + dx)); pendingY = max(-4096, min(4096, pendingY + dy)); pendingFlags = flags & 0x1E0000
@@ -260,13 +287,15 @@ final class MouseSharing {
         guard now.timeIntervalSince(edgeSince!) >= 0.15 else { return false }
         origin = ScreenGeometry.clamp(point, to: rect, inset: 24); originRect = rect
         token = UUID(); mode = .requesting; edgeSince = nil; lastHeard = now; lastEndReason = nil
+        updateTimer()
+        if native { logger.notice("control_request") }
         emit(MousePacket(kind: .enter, token: token, side: side.opposite, fraction: ScreenGeometry.fraction(point.y, in: rect)))
         onChange?(); return false
     }
     func localButton(action: MousePacket.Action, button: Int, clicks: Int = 1, flags: UInt64 = 0) -> Bool {
         if mode == .receiving || mode == .requesting { endSession(reason: .localButton); return false }
         guard enabled, mode == .controlling else { return false }
-        flushMove()
+        flushMove(force: true)
         emit(MousePacket(kind: .input, token: token, action: action, button: button, clicks: max(1, min(3, clicks)), flags: flags & 0x1E0000))
         return true
     }
@@ -291,7 +320,7 @@ final class MouseSharing {
         if mode == .receiving || mode == .requesting { endSession(reason: .localKeyboard); return false }
         guard mode == .controlling else { return false }
         guard keyboardActive else { endSession(reason: .localKeyboard); return false }
-        flushMove()
+        flushMove(force: true)
         guard let token, let peer, mode == .controlling, let sendKeyboard else { endSession(reason: .sendFailed); return true }
         let packet = KeyboardPacket(token: token, action: action, keyCode: keyCode, flags: flags & KeyboardPacket.allowedFlags, isRepeat: isRepeat)
         guard (try? packet.validate()) != nil else { endSession(reason: .localKeyboard); return false }
@@ -323,6 +352,11 @@ final class MouseSharing {
         if native { postKeyboard(packet) }
     }
     func tick(now: Date = Date()) {
+        if active {
+            let uptime = ProcessInfo.processInfo.systemUptime
+            if let lastTick { maxTimerDelayMS = max(maxTimerDelayMS, max(0, uptime - lastTick - (maintenanceInterval ?? 0)) * 1000) }
+            lastTick = uptime
+        }
         if native, now.timeIntervalSince(lastPermissionCheck) > 1 {
             lastPermissionCheck = now
             if enabled && !Self.permissionsGranted { emergencyStop(); return }
@@ -335,15 +369,22 @@ final class MouseSharing {
             lastBeat = now; emit(MousePacket(kind: .heartbeat, token: token))
         }
     }
-    private func flushMove() {
-        guard mode == .controlling, pendingX != 0 || pendingY != 0 else { return }
+    private func flushMove(force: Bool = false) {
+        guard mode == .controlling, force || movesInFlight == 0, pendingX != 0 || pendingY != 0 else { return }
         let dx = pendingX, dy = pendingY; pendingX = 0; pendingY = 0
-        emit(MousePacket(kind: .input, token: token, action: .move, dx: dx, dy: dy, flags: pendingFlags))
+        sentMoves += 1
+        movesInFlight += 1
+        let session = token
+        emit(MousePacket(kind: .input, token: token, action: .move, dx: dx, dy: dy, flags: pendingFlags)) { [weak self] _ in
+            guard let self, self.token == session else { return }
+            self.movesInFlight = max(0, self.movesInFlight - 1)
+        }
     }
     private func apply(_ packet: MousePacket, now: Date) {
         guard let action = packet.action else { return }
         switch action {
         case .move:
+            receivedMoves += 1
             let next = CGPoint(x: position.x + packet.dx, y: position.y + packet.dy)
             let atReturnEdge = entrySide == .left ? next.x <= entryRect.minX + 1 && packet.dx < 0 : next.x >= entryRect.maxX - 1 && packet.dx > 0
             // Entry is only four points inside the screen. Do not interpret a
@@ -373,8 +414,14 @@ final class MouseSharing {
     }
     func endSession(notify: Bool = true, fraction: Double? = nil, reason: MouseEndReason = .stopped, byPeer: Bool = false) {
         let old = mode, oldToken = token
+        if old != .local, native {
+            let duration = Int((ProcessInfo.processInfo.systemUptime - (controlStarted ?? ProcessInfo.processInfo.systemUptime)) * 1000)
+            logger.notice("control_end role=\(old.rawValue, privacy: .public) reason=\(reason.rawValue, privacy: .public) peer_ended=\(byPeer, privacy: .public) duration_ms=\(duration, privacy: .public) sent_moves=\(self.sentMoves, privacy: .public) received_moves=\(self.receivedMoves, privacy: .public) max_timer_delay_ms=\(Int(self.maxTimerDelayMS), privacy: .public)")
+        }
+        controlStarted = nil; sentMoves = 0; receivedMoves = 0; maxTimerDelayMS = 0
         if old != .local { lastEndReason = reason; endedByPeer = byPeer }
-        mode = .local; token = nil; pendingX = 0; pendingY = 0; edgeSince = nil
+        mode = .local; token = nil; pendingX = 0; pendingY = 0; edgeSince = nil; movesInFlight = 0
+        updateTimer()
         lastMoveObserved = .distantPast
         returnArmed = false; returnEdgeSince = nil; lastReturnPush = nil
         cooldown = Date().addingTimeInterval(0.7)
@@ -404,10 +451,11 @@ final class MouseSharing {
         if notify, let oldToken { emit(MousePacket(kind: .leave, token: oldToken, fraction: fraction, endReason: reason.rawValue)) }
         if old != .local { onChange?() }
     }
-    private func emit(_ packet: MousePacket) {
-        guard let peer, let send else { return }
+    private func emit(_ packet: MousePacket, completion: ((Bool) -> Void)? = nil) {
+        guard let peer, let send else { completion?(false); return }
         let session = token
         send(peer, packet) { [weak self] success in
+            completion?(success)
             guard let self, !success, self.peer == peer, self.token == session else { return }
             self.endSession(notify: false, reason: .sendFailed)
         }
@@ -458,7 +506,7 @@ final class MouseSharing {
         case .scrollWheel:
             if mode == .receiving { endSession(reason: .localScroll) }
             if mode == .controlling {
-                flushMove()
+                flushMove(force: true)
                 let x = Double(event.getIntegerValueField(.scrollWheelEventPointDeltaAxis2))
                 let y = Double(event.getIntegerValueField(.scrollWheelEventPointDeltaAxis1))
                 let phase = Int(event.getIntegerValueField(.scrollWheelEventScrollPhase))

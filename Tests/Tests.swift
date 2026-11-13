@@ -156,6 +156,19 @@ func networkTests() throws {
     try Check.that(observedClock == 800, "authenticated handshake clock synchronization")
     try Check.that(receivedText, "real TCP multi-megabyte Unicode transfer with frame reassembly")
     try Check.that(receivedImage, "real TCP reverse-direction PNG transfer")
+    let savedClipHandler = b.onClip
+    var order: [String] = []
+    let bulk = ClipMessage(id: UUID(), stamp: ClipStamp(counter: 803, device: idA), payload: ClipPayload(type: "public.utf8-plain-text", data: Data(repeating: 65, count: ClipPayload.maxBytes)))
+    b.onClip = { clip in if clip.id == bulk.id && clip.payload == bulk.payload { order.append("clip") } }
+    b.onFeature = { _, packet in if packet.mouse?.kind == .availability { order.append("input") } }
+    let enqueueStart = ProcessInfo.processInfo.systemUptime
+    a.send(bulk)
+    print("METRIC: 20 MiB clipboard send() return_ms=\((ProcessInfo.processInfo.systemUptime - enqueueStart) * 1000)")
+    a.sendFeature(FeaturePacket(mouse: MousePacket(kind: .availability, enabled: false)), to: idB)
+    waitFor({ order.count == 2 }, seconds: 15)
+    try Check.that(order == ["clip", "input"], "background clipboard preparation preserves encrypted ordering with queued input")
+    b.onClip = savedClipHandler; b.onFeature = nil
+    a.send(bulk) // Closing during encoding must not deliver this on a new connection.
     a.stop(); b.stop(); receivedText = false; receivedImage = false; didSend = false
     a.start(); b.start()
     let retryDeadline = Date().addingTimeInterval(15)

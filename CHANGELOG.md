@@ -2,6 +2,9 @@
 
 ## Unreleased — 0.4.3 test build
 
+- Build 15 moves bulk clipboard preparation and large-frame decoding off the input thread, bounds ordinary movement in flight, and reduces idle input maintenance to 1 Hz.
+- Add content-free input/transport diagnostic logs and a scoped collection script. See the measured [runtime review](docs/PERFORMANCE-REVIEW.md) for evidence and remaining bottlenecks.
+
 - Build 14 sends the first mouse sample immediately, batches continuous movement at the existing 120 Hz target, and flushes movement before clicks or modifier changes. Reuse the native event source for received pointer events.
 - Keep the main status and menu status stable during pointer handoffs. Keep the edge indicator; do not show a diagnostic line for a normal edge return.
 

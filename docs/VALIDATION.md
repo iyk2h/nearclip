@@ -4,7 +4,7 @@ Validated locally on macOS 15.7.2, Apple Silicon. File and mouse sharing are exp
 
 ## Automated regression suite
 
-**270 checks passed locally for build 14.** The suite uses synthetic identities, temporary files, and separate pasteboards. It does not read or write the general clipboard, install input hooks, post mouse events, move the user's cursor, or request input permissions.
+**277 checks passed locally for build 15.** The suite uses synthetic identities, temporary files, and separate pasteboards. It does not read or write the general clipboard, install input hooks, post mouse events, move the user's cursor, or request input permissions.
 
 On November 13, a physical handoff reached the receiving Mac, then ended with `returnEdge`. A new test reproduced an immediate return from a reverse delta at the four-point entry inset and failed against build 11. Build 12 requires inward travel before return and a sustained outward push. Tests cover both directions, interrupted pushes, and fresh-session reset. The build passed the packaged lifecycle checks and mutual signing-identity verification against build 11. After installing build 12 on the receiving Mac, its UI showed active remote control and the user confirmed controlling it from the other Mac. A later observation showed an edge return. Accessibility and Input Monitoring remained granted across the build 11 to 12 replacement; a Keychain access prompt still required user approval. The origin of the unexpected reverse delta has not been established. Reverse-direction handoff, sustained keyboard/shortcut use, and the full physical matrix below remain unverified.
 
@@ -24,7 +24,11 @@ Build 13 adds synthetic checks for sleep/lock overlap, same-peer reconnect, expl
 
 Build 14 adds deterministic timing tests: immediate first/after-idle movement, 1000 Hz burst coalescing, final-sample delivery, click ordering, modifier boundaries, and Secure Event Input during immediate dispatch. These establish scheduling behavior; they do not measure physical pointer latency or smoothness over Wi-Fi.
 
+Build 15 tests cover movement backpressure, click ordering with queued movement, late-completion isolation, adaptive maintenance intervals, and encrypted ordering between a 20 MiB background-prepared clipboard and queued input. Local synthetic timing and remaining limits are documented in [the runtime review](PERFORMANCE-REVIEW.md).
+
 ## Packaged application diagnostics
+
+Build 15 passed 34 packaged lifecycle checks, its signed-bundle Bonjour/clipboard/file/layout smoke test, and signing-identity verification against build 14. After installation, the saved peer reconnected and input permissions remained granted. The live diagnostic log recorded a 41.7-second receiving-control session ending at the return edge. Keychain approval still required a user action. Physical bulk-transfer smoothness and sleep/wake remain pending.
 
 Build 14 passed 34 packaged lifecycle checks and mutual signing-identity verification against build 13. After installation, the main window showed build 14, both native input permissions granted, and both peers ready. Keychain access still prompted and the user approved it. The unchanged header during live handoffs and physical smoothness comparison have not yet been confirmed by the user.
 

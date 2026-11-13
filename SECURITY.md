@@ -41,3 +41,7 @@ The 0.4.3 test build uses a persistent local certificate. Its private key stays 
 ## Reporting
 
 Do not put secrets or exploit details in public issues. Use the repository's private vulnerability reporting feature when available. If it is unavailable, open an issue that requests a private contact method and omits sensitive details.
+
+## Local diagnostics
+
+Build 15 records fixed control/connection reason codes, counts, queue waits, and processing durations in the local macOS unified log. Input content, pointer coordinates, clipboard data, names, network addresses, file paths, and pairing secrets are not included in these application diagnostic messages. The collection script reads only these categories and does not upload them. This does not control what macOS itself records in its own diagnostic categories.
