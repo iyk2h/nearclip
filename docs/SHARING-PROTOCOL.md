@@ -68,13 +68,13 @@ Only horizontal left/right arrangement is supported in 0.4. The operating system
 
 ## Mouse control
 
-`availability` advertises explicit local opt-in. It is separate from capability support. Both peers must opt in. Opt-in is not saved across app restarts. Losing the peer revokes local input consent.
+`availability` advertises explicit local opt-in. It is separate from capability support. Both peers must opt in. Opt-in is not saved across app restarts. Losing the peer stops capture and ends its input session. The current test build retains opt-in for that same peer in memory, so temporary reconnect and wake can restore readiness after all sleep/lock/session suspension reasons clear. Explicit stop, pause, a different peer, and new pairing clear it.
 
 1. Push against the configured outer edge for at least 150 ms with no buttons or modifiers held.
 2. Send `enter` with a fresh UUID `token`, the receiver's entry `side`, and vertical `fraction` from 0 to 1.
 3. The receiver accepts only when enabled, idle, and outside the short handoff cooldown. It replies `accepted`, or `deny`.
 4. Only after acceptance does the sender suppress its local mouse events.
-5. `input` carries `move`, `down`, `up`, or `scroll`. Each input must name the active token. Deltas are finite and bounded to ±4096; buttons are left/right/middle. Only Shift, Control, Option, and Command modifier bits are allowed.
+5. `input` carries `move`, `down`, `up`, or `scroll`. Each input must name the active token. Deltas are finite and bounded to ±4096; buttons are left/right/middle. Only Shift, Control, Option, and Command modifier bits are allowed. Scroll packets may include optional `scrollPhase` (0, 1, 2, 4, 8, or 128) and `momentumPhase` (0–3); only scroll input may carry them. Older peers omit or ignore these fields.
 6. Moves are coalesced at 60 Hz. Button transitions flush pending moves first. Input packets remain ordered within the encrypted TCP stream.
 7. Moving back over the entry edge with no button held sends `leave`, including normalized height. The original Mac restores its cursor inside the edge.
 

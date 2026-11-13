@@ -27,6 +27,10 @@ struct MousePermissions {
 // movement, accessibility prompts or generated system input are used in tests.
 final class MouseSharing {
     enum Mode: String { case local, requesting, controlling, receiving }
+    enum Suspension: Hashable { case sleep, displaySleep, inactiveSession, screenLock }
+    private var suspensions: Set<Suspension> = []
+    private var requestedPeer: String?
+    var sharingRequested: Bool { requestedPeer != nil || enabled }
     private(set) var mode: Mode = .local
     private(set) var enabled = false
     private(set) var remoteEnabled = false
@@ -93,7 +97,8 @@ final class MouseSharing {
         if native { secureInputEnabled = { IsSecureEventInputEnabled() } }
     }
     func setPeer(_ peer: String?, savedLayout: ScreenLayout? = nil, supportsKeyboard: Bool = false) {
-        if self.peer != peer && enabled { try? setEnabled(false) }
+        if self.peer != peer && enabled { try? applyEnabled(false) }
+        if let peer, requestedPeer != peer { requestedPeer = nil }
         endSession(notify: false, reason: .connectionChanged); self.peer = peer; remoteEnabled = false
         keyboardSupported = supportsKeyboard; remoteKeyboardEnabled = false
         if let peer {
@@ -102,6 +107,7 @@ final class MouseSharing {
             advertise()
             emit(MousePacket(kind: .layout, layout: layout))
         } else { layout = nil }
+        restoreIfReady()
         onChange?()
     }
     func setSide(_ side: ScreenSide) {
@@ -129,6 +135,27 @@ final class MouseSharing {
         }
     }
     func setEnabled(_ value: Bool) throws {
+        if value, !suspensions.isEmpty { throw ClipError.invalid("잠자기나 잠금이 끝나면 입력 공유를 다시 사용할 수 있어요.") }
+        if !value { requestedPeer = nil }
+        try applyEnabled(value)
+        if value { requestedPeer = peer }
+        onChange?()
+    }
+    // Suspend capture, not the user's choice. Consent is scoped to this peer
+    // and this app run; a new device or an explicit stop never inherits it.
+    func suspend(_ reason: Suspension) {
+        suspensions.insert(reason); try? applyEnabled(false)
+    }
+    func resume(_ reason: Suspension) {
+        suspensions.remove(reason); restoreIfReady(); onChange?()
+    }
+    private func restoreIfReady() {
+        guard !enabled, suspensions.isEmpty, let peer, peer == requestedPeer else { return }
+        // No permission prompts during wake/reconnect. A failed permission
+        // check leaves input off until the user can correct it.
+        try? applyEnabled(true)
+    }
+    private func applyEnabled(_ value: Bool) throws {
         if value && native {
             let current = Self.permissions
             guard current.granted else { throw ClipError.invalid(current.explanation) }
@@ -137,7 +164,7 @@ final class MouseSharing {
         if !value { endSession(reason: .disabled); removeTap(); localHeldKeys = [] }
         enabled = value; edgeSince = nil; cooldown = Date().addingTimeInterval(0.7)
         if value, native, timer == nil {
-            let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in self?.tick() }
+            let timer = Timer(timeInterval: 1.0 / 120, repeats: true) { [weak self] _ in self?.tick() }
             self.timer = timer; RunLoop.main.add(timer, forMode: .common)
         }
         if !value { timer?.invalidate(); timer = nil }
@@ -424,7 +451,11 @@ final class MouseSharing {
                 flushMove()
                 let x = Double(event.getIntegerValueField(.scrollWheelEventPointDeltaAxis2))
                 let y = Double(event.getIntegerValueField(.scrollWheelEventPointDeltaAxis1))
-                emit(MousePacket(kind: .input, token: token, action: .scroll, dx: max(-4096, min(4096, x)), dy: max(-4096, min(4096, y)), flags: flags)); return nil
+                let phase = Int(event.getIntegerValueField(.scrollWheelEventScrollPhase))
+                let momentum = Int(event.getIntegerValueField(.scrollWheelEventMomentumPhase))
+                emit(MousePacket(kind: .input, token: token, action: .scroll, dx: max(-4096, min(4096, x)), dy: max(-4096, min(4096, y)), flags: flags,
+                                 scrollPhase: [0, 1, 2, 4, 8, 128].contains(phase) ? phase : 0,
+                                 momentumPhase: (0...3).contains(momentum) ? momentum : 0)); return nil
             }
         default: break
         }
@@ -453,6 +484,8 @@ final class MouseSharing {
         let source = CGEventSource(stateID: .privateState)
         if packet.action == .scroll {
             event = CGEvent(scrollWheelEvent2Source: source, units: .pixel, wheelCount: 2, wheel1: Int32(packet.dy), wheel2: Int32(packet.dx), wheel3: 0)
+            if let phase = packet.scrollPhase { event?.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(phase)) }
+            if let momentum = packet.momentumPhase { event?.setIntegerValueField(.scrollWheelEventMomentumPhase, value: Int64(momentum)) }
         } else {
             let type: CGEventType
             if packet.action == .down { type = packet.button == 0 ? .leftMouseDown : (packet.button == 1 ? .rightMouseDown : .otherMouseDown) }

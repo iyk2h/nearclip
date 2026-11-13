@@ -4,7 +4,7 @@ Validated locally on macOS 15.7.2, Apple Silicon. File and mouse sharing are exp
 
 ## Automated regression suite
 
-**237 checks passed locally for build 12.** The suite uses synthetic identities, temporary files, and separate pasteboards. It does not read or write the general clipboard, install input hooks, post mouse events, move the user's cursor, or request input permissions.
+**261 checks passed locally for build 13.** The suite uses synthetic identities, temporary files, and separate pasteboards. It does not read or write the general clipboard, install input hooks, post mouse events, move the user's cursor, or request input permissions.
 
 On November 13, a physical handoff reached the receiving Mac, then ended with `returnEdge`. A new test reproduced an immediate return from a reverse delta at the four-point entry inset and failed against build 11. Build 12 requires inward travel before return and a sustained outward push. Tests cover both directions, interrupted pushes, and fresh-session reset. The build passed the packaged lifecycle checks and mutual signing-identity verification against build 11. After installing build 12 on the receiving Mac, its UI showed active remote control and the user confirmed controlling it from the other Mac. A later observation showed an edge return. Accessibility and Input Monitoring remained granted across the build 11 to 12 replacement; a Keychain access prompt still required user approval. The origin of the unexpected reverse delta has not been established. Reverse-direction handoff, sustained keyboard/shortcut use, and the full physical matrix below remain unverified.
 
@@ -20,7 +20,11 @@ Coverage includes:
 - Default-off input control, edge dwell/acceptance, normalized entry height, stale-token rejection, held-button cleanup, missing-heartbeat return, reverse-edge return, emergency stop, physical-input takeover, and click/late-acceptance races.
 - Multiple local displays, negative monitor origins, and native Core Graphics event construction. Constructed events are inspected but never posted.
 
+Build 13 adds synthetic checks for sleep/lock overlap, same-peer reconnect, explicit-stop persistence, held-input cleanup, stale-token rejection after wake, peer replacement, and scroll/momentum phase transport. The 120 Hz timer is a scheduling target, not a measured end-to-end rate. Physical sleep/wake recovery, bidirectional control, and scrolling feel still require user testing with both Macs updated.
+
 ## Packaged application diagnostics
+
+Build 13 passed 34 packaged lifecycle checks, including overlapping sleep/lock callbacks and explicit-stop behavior. It also passed mutual signing-identity verification against build 12. After installation on this Mac, Accessibility and Input Monitoring remained granted, the saved peer reconnected, and both peers reported input readiness. A real sleep/wake cycle and a build-13 peer update remain unverified.
 
 The final signed 0.4.3 bundle passed Bonjour discovery and numeric pairing, encrypted synthetic clipboard transfer, a streamed file with digest verification, encrypted layout exchange, and session cleanup under its actual bundle identity on November 13, 2026.
 

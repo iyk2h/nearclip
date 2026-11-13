@@ -157,10 +157,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let center = NSWorkspace.shared.notificationCenter
             center.addObserver(self, selector: #selector(willSleep), name: NSWorkspace.willSleepNotification, object: nil)
             center.addObserver(self, selector: #selector(didWake), name: NSWorkspace.didWakeNotification, object: nil)
-            center.addObserver(self, selector: #selector(stopInput), name: NSWorkspace.screensDidSleepNotification, object: nil)
-            center.addObserver(self, selector: #selector(stopInput), name: NSWorkspace.sessionDidResignActiveNotification, object: nil)
-            NotificationCenter.default.addObserver(self, selector: #selector(stopInput), name: NSApplication.didChangeScreenParametersNotification, object: nil)
-            DistributedNotificationCenter.default().addObserver(self, selector: #selector(stopInput), name: NSNotification.Name("com.apple.screenIsLocked"), object: nil)
+            center.addObserver(self, selector: #selector(displaySlept), name: NSWorkspace.screensDidSleepNotification, object: nil)
+            center.addObserver(self, selector: #selector(displayWoke), name: NSWorkspace.screensDidWakeNotification, object: nil)
+            center.addObserver(self, selector: #selector(sessionDeactivated), name: NSWorkspace.sessionDidResignActiveNotification, object: nil)
+            center.addObserver(self, selector: #selector(sessionActivated), name: NSWorkspace.sessionDidBecomeActiveNotification, object: nil)
+            NotificationCenter.default.addObserver(self, selector: #selector(displaysChanged), name: NSApplication.didChangeScreenParametersNotification, object: nil)
+            DistributedNotificationCenter.default().addObserver(self, selector: #selector(screenLocked), name: NSNotification.Name("com.apple.screenIsLocked"), object: nil)
+            DistributedNotificationCenter.default().addObserver(self, selector: #selector(screenUnlocked), name: NSNotification.Name("com.apple.screenIsUnlocked"), object: nil)
         } catch {
             alert(error.localizedDescription)
             NSApp.terminate(nil)
@@ -249,6 +252,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return box
     }
     private var version: String { Foundation.Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev" }
+    private var buildNumber: String { Foundation.Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "dev" }
     private func symbol(_ name: String, size: CGFloat = 24) -> NSImageView {
         let view = NSImageView()
         view.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(.init(pointSize: size, weight: .regular))
@@ -394,7 +398,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             bodyContent.widthAnchor.constraint(equalTo: bodyScroll.contentView.widthAnchor)
         ])
         bodyHeight = bodyScroll.heightAnchor.constraint(equalToConstant: 260); bodyHeight.isActive = true
-        let footer = row([button("도움말", action: #selector(help)), label("v" + version + " · beta", size: 10, color: .secondaryLabelColor), flexible(NSView()), button("종료  ⌘Q", action: #selector(quit))])
+        let footer = row([button("도움말", action: #selector(help)), label("v" + version + " · build " + buildNumber + " · beta", size: 10, color: .secondaryLabelColor), flexible(NSView()), button("종료  ⌘Q", action: #selector(quit))])
         let stack = column([heading, statusCard, bodyScroll, separator(), footer], spacing: 18)
         mainStack = stack
         stack.translatesAutoresizingMaskIntoConstraints = false; root.addSubview(stack)
@@ -467,7 +471,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         pairing.onPaired = { [weak self] code, name in
             guard let self else { return }
             do {
-                try KeyStore.save(code); self.code = code; self.sync.resetSession()
+                try KeyStore.save(code); self.mouse.stop(); self.code = code; self.sync.resetSession()
                 UserDefaults.standard.set(try self.pendingRoute.map { try JSONEncoder().encode($0) }, forKey: "directPeer")
                 self.pendingRoute = nil
                 self.pairedName = name; UserDefaults.standard.set(name, forKey: "pairedMacName")
@@ -682,7 +686,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func newCode() {
         guard !preview else { return }
         do {
-            let incoming = try PairCode.create(); try KeyStore.save(incoming); code = incoming
+            let incoming = try PairCode.create(); try KeyStore.save(incoming); mouse.stop(); code = incoming
             UserDefaults.standard.removeObject(forKey: "directPeer"); pendingRoute = nil
             pairedName = nil; UserDefaults.standard.removeObject(forKey: "pairedMacName")
             access = PairingAccess(hasTrustedPeer: false); discoveryDeadline?.invalidate()
@@ -703,8 +707,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         refresh()
     }
     @objc private func retry() { restartTransport(); pairing?.stop(); hasLocalAddress = false; if access.isOpen { pairing?.start() }; refresh() }
-    @objc private func willSleep() { mouse?.stop(); files.cancel(); sync?.stop(); transport?.stop(); pairing?.stop(); sync?.connected = false }
-    @objc private func didWake() { sync?.baseline(); sync?.start(); restartTransport(); if access.isOpen { pairing?.start() } }
+    @objc private func willSleep() { mouse?.suspend(.sleep); files.cancel(); sync?.stop(); transport?.stop(); pairing?.stop(); sync?.connected = false }
+    @objc private func didWake() { sync?.baseline(); sync?.start(); restartTransport(); mouse?.resume(.sleep); if access.isOpen { pairing?.start() } }
+    @objc private func displaySlept() { mouse?.suspend(.displaySleep) }
+    @objc private func displayWoke() { mouse?.resume(.displaySleep) }
+    @objc private func sessionDeactivated() { mouse?.suspend(.inactiveSession) }
+    @objc private func sessionActivated() { mouse?.resume(.inactiveSession) }
+    @objc private func screenLocked() { mouse?.suspend(.screenLock) }
+    @objc private func screenUnlocked() { mouse?.resume(.screenLock) }
+    @objc private func displaysChanged() { mouse?.endSession(reason: .layoutChanged) }
     @objc private func copyAddress() {
         guard !preview, hasLocalAddress else { return }
         NSPasteboard.general.clearContents()
@@ -737,6 +748,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let originalSend = mouse.send
         mouse.send = { [weak other] _, packet, reply in other?.receive(packet, from: self.device); reply(true) }
         updateFeaturePeer([ConnectedPeer(device: "arrangement-peer", name: "Test Mac", connection: UUID(), features: Set(SharingFeature.supported))])
+        try? mouse.setEnabled(true)
+        displaySlept(); screenLocked(); sessionDeactivated(); willSleep()
+        require(!mouse.enabled && mouseToggle.state == .on, "sleep stops capture while the sharing checkbox retains the choice")
+        didWake(); displayWoke(); sessionActivated()
+        require(!mouse.enabled, "wake callbacks cannot resume before screen unlock")
+        screenUnlocked()
+        require(mouse.enabled, "unlock callback restores input readiness for the same peer")
+        displaySlept(); stopInput(); displayWoke()
+        require(!mouse.enabled && mouseToggle.state == .off, "explicit stop while suspended stays off after wake")
         mouse.setSide(.right)
         let left = CGPoint(x: arrangement.bounds.midX - 110, y: 60)
         let right = CGPoint(x: arrangement.bounds.midX + 110, y: 60)
@@ -921,20 +941,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         swapScreens.isEnabled = supportsMouse && !mouse.active
         mouseToggle.isEnabled = enabled && supportsMouse
         mouseToggle.title = mouse.keyboardSupported || !supportsMouse ? "마우스·키보드 공유 켜기" : "마우스 공유 켜기"
-        mouseToggle.state = mouse.enabled ? .on : .off
+        mouseToggle.state = mouse.sharingRequested ? .on : .off
         arrangement.update(peerID: supportsMouse ? featurePeer?.connection.uuidString : nil,
                            localName: preview ? "My MacBook" : deviceName,
                            peerName: featurePeer?.name ?? "상대 Mac", side: mouse.side,
                            editable: supportsMouse && !mouse.active)
         arrangementHint.stringValue = mouse.active ? "마우스 제어를 끝낸 뒤 배치를 바꿀 수 있어요. ⌃⌥Esc로 공유를 끄세요." : "화면을 드래그해 실제 Mac의 좌우 순서에 맞춰주세요. 양쪽에 자동 반영돼요."
-        if !supportsMouse { mouseHint.stringValue = "두 Mac 모두 0.4 이상으로 연결하면 사용할 수 있어요." }
+        if mouse.sharingRequested && !mouse.enabled { mouseHint.stringValue = "입력 공유 대기 중 · 잠금 해제 후 같은 Mac에 연결되면 자동으로 다시 켜져요." }
+        else if !supportsMouse { mouseHint.stringValue = "두 Mac 모두 0.4 이상으로 연결하면 사용할 수 있어요." }
         else if !mouse.enabled { mouseHint.stringValue = mouseSetupError ?? (mouse.keyboardSupported ? "양쪽에서 켜면 커서와 키보드가 함께 이동해요. 긴급 해제: ⌃⌥Esc" : "키보드 공유는 상대 Mac도 0.4.3 이상이어야 해요. 마우스만 공유할 수 있어요.") }
         else if !mouse.remoteEnabled { mouseHint.stringValue = "이 Mac은 준비됐어요. 상대 Mac에서도 마우스 공유를 켜주세요." }
         else {
             mouseHint.stringValue = "준비됐어요. 가장자리로 밀어 이동하세요. ⌃⌥Esc는 공유를 꺼요."
             if !mouse.active, let message = mouse.lastEndMessage { mouseHint.stringValue += "\n" + message }
         }
-        menuMouseStop?.isEnabled = mouse.enabled
+        menuMouseStop?.isEnabled = mouse.sharingRequested
     }
     @objc private func swapScreenOrder() {
         guard featurePeer?.features.contains(SharingFeature.mouse) == true, !mouse.active else { return }

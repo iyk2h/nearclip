@@ -127,7 +127,14 @@ struct MousePacket: Codable {
     // Optional for compatibility with mouse-v1 peers released before 0.4.3.
     var endReason: String? = nil
     var keyboardEnabled: Bool? = nil
+    var scrollPhase: Int? = nil
+    var momentumPhase: Int? = nil
     func validate() throws {
+        if scrollPhase != nil || momentumPhase != nil {
+            guard kind == .input, action == .scroll,
+                  [0, 1, 2, 4, 8, 128].contains(scrollPhase ?? 0),
+                  (0...3).contains(momentumPhase ?? 0) else { throw ClipError.invalid("잘못된 스크롤 상태예요.") }
+        }
         if let endReason, kind != .leave || endReason.utf8.count > 64 {
             throw ClipError.invalid("잘못된 마우스 종료 사유예요.")
         }

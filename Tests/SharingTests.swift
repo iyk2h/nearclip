@@ -30,6 +30,20 @@ func sharingProtocolTests() throws {
     let legacy = try JSONDecoder().decode(MousePacket.self, from: Data("{\"kind\":\"leave\",\"token\":\"00000000-0000-0000-0000-000000000001\",\"dx\":0,\"dy\":0,\"button\":0,\"clicks\":1,\"flags\":0}".utf8))
     try legacy.validate()
     try Check.that(legacy.endReason == nil, "older peers can omit the optional handoff reason")
+    try Check.that(legacy.scrollPhase == nil && legacy.momentumPhase == nil, "older peers can omit scroll phase metadata")
+    for (phase, momentum) in [(1, 0), (2, 0), (4, 0), (8, 0), (128, 0), (0, 1), (0, 2), (0, 3)] {
+        let scroll = MousePacket(kind: .input, token: UUID(), action: .scroll, dx: 0, dy: 0, scrollPhase: phase, momentumPhase: momentum)
+        let decoded = try FeaturePacket.decode(FeaturePacket(mouse: scroll).encoded()).mouse!
+        let event = MouseSharing.makeEvent(decoded, at: .zero, pressed: [])
+        try Check.that(event?.getIntegerValueField(.scrollWheelEventScrollPhase) == Int64(phase) &&
+                       event?.getIntegerValueField(.scrollWheelEventMomentumPhase) == Int64(momentum),
+                       "scroll begin/change/end and momentum survive transport and native event construction, including zero-delta boundaries")
+    }
+    for bad in [MousePacket(kind: .input, token: UUID(), action: .scroll, scrollPhase: 99),
+                MousePacket(kind: .input, token: UUID(), action: .scroll, momentumPhase: -1),
+                MousePacket(kind: .input, token: UUID(), action: .move, scrollPhase: 1)] {
+        try Check.rejects("reject unsupported scroll phase fields") { try bad.validate() }
+    }
     try Check.rejects("bound untrusted handoff reason length") {
         try MousePacket(kind: .leave, token: UUID(), endReason: String(repeating: "x", count: 65)).validate()
     }
@@ -182,7 +196,7 @@ func mouseSharingTests() throws {
     now = now.addingTimeInterval(3); a.tick(now: now)
     try Check.that(a.mode == .local, "missing heartbeat restores local control")
     try Check.that(a.lastEndReason == .timeout && !a.endedByPeer, "watchdog records the local timeout reason")
-    try Check.that(!b.enabled, "disconnect revokes input consent for the lost peer")
+    try Check.that(!b.enabled, "disconnect removes input capture for the lost peer")
     b.setPeer("A", savedLayout: a.layout); try b.setEnabled(true); try a.setEnabled(true); pump(); try enter()
     _ = a.localMove(point: .zero, dx: 40, dy: 0, now: now); a.tick(now: now); pump()
     _ = a.localMove(point: .zero, dx: -80, dy: 0, now: now); a.tick(now: now); pump()
@@ -236,6 +250,49 @@ func mouseSharingTests() throws {
     try Check.that(internalEdge == nil, "local multi-display seams do not hand off remotely")
     let entry = ScreenGeometry.entry(side: .left, fraction: 0.25, displays: [CGRect(x: -1600, y: -100, width: 1600, height: 1000), CGRect(x: 0, y: 0, width: 1000, height: 600)])!
     try Check.that(entry.0.x == -1596 && entry.0.y == 150, "support negative display origins and normalized height")
+}
+
+func mouseResumeTests() throws {
+    let mouse = MouseSharing(local: "A", native: false)
+    defer { mouse.stop() }
+    mouse.setPeer("B", supportsKeyboard: true)
+    try mouse.setEnabled(true)
+    mouse.receive(MousePacket(kind: .availability, enabled: true, keyboardEnabled: true), from: "B")
+    let token = UUID(), now = Date().addingTimeInterval(2)
+    mouse.receive(MousePacket(kind: .enter, token: token, side: .left, fraction: 0.5), from: "B", now: now)
+    var buttonsReleased: Set<Int> = [], keysReleased: Set<Int> = []
+    mouse.onRelease = { buttonsReleased = $0 }; mouse.onKeysReleased = { keysReleased = $0 }
+    mouse.receive(MousePacket(kind: .input, token: token, action: .down), from: "B", now: now)
+    mouse.receiveKeyboard(KeyboardPacket(token: token, action: .down, keyCode: 0), from: "B", now: now)
+    mouse.suspend(.sleep)
+    try Check.that(!mouse.enabled && mouse.sharingRequested && mouse.mode == .local && buttonsReleased == [0] && keysReleased == [0],
+                   "sleep removes capture and releases held input while retaining the peer-specific choice")
+    mouse.suspend(.screenLock); mouse.suspend(.displaySleep); mouse.suspend(.inactiveSession)
+    mouse.setPeer(nil); mouse.setPeer("B", supportsKeyboard: true)
+    mouse.resume(.sleep); mouse.resume(.displaySleep); mouse.resume(.inactiveSession)
+    try Check.that(!mouse.enabled && mouse.sharingRequested, "reconnect and wake cannot resume while the screen remains locked")
+    try Check.rejects("manual enable cannot bypass a suspended session") { try mouse.setEnabled(true) }
+    mouse.resume(.screenLock)
+    try Check.that(mouse.enabled && mouse.mode == .local && !mouse.remoteEnabled, "unlock restores readiness, never the old control session or peer opt-in")
+    var inputCount = 0; mouse.onInput = { _, _ in inputCount += 1 }
+    mouse.receive(MousePacket(kind: .input, token: token, action: .move, dx: 1), from: "B")
+    try Check.that(inputCount == 0, "pre-sleep input token cannot control the resumed Mac")
+    mouse.setPeer(nil)
+    try Check.that(!mouse.enabled && mouse.sharingRequested, "temporary network loss preserves requested sharing without capturing input")
+    mouse.setPeer("B", supportsKeyboard: true)
+    try Check.that(mouse.enabled, "same authenticated peer reconnect restores requested sharing")
+    mouse.suspend(.sleep); mouse.emergencyStop(); mouse.resume(.sleep)
+    mouse.setPeer(nil); mouse.setPeer("B")
+    try Check.that(!mouse.enabled && !mouse.sharingRequested, "explicit emergency stop stays off after wake and reconnect")
+    try mouse.setEnabled(true); mouse.setPeer(nil); mouse.setPeer("C")
+    try Check.that(!mouse.enabled && !mouse.sharingRequested, "a different peer does not inherit input consent")
+    mouse.setPeer("B")
+    try Check.that(!mouse.enabled, "returning to the old peer after replacement does not revive consent")
+    try mouse.setEnabled(true); mouse.suspend(.sleep); mouse.resume(.sleep)
+    mouse.suspend(.sleep); mouse.resume(.sleep)
+    try Check.that(mouse.enabled, "repeated sleep cycles preserve the selected sharing state")
+    mouse.stop(); mouse.setPeer(nil); mouse.setPeer("B")
+    try Check.that(!mouse.enabled && !mouse.sharingRequested, "pause and shutdown stop clear the resume choice")
 }
 
 func featureNetworkTests() throws {

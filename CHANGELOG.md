@@ -2,6 +2,9 @@
 
 ## Unreleased — 0.4.3 test build
 
+- Build 13 keeps peer-specific sharing enabled across sleep and temporary disconnection. Resume only after unlock/session restoration; explicit stop and emergency stop remain off.
+- Target 120 Hz cursor batching, preserve trackpad scroll/momentum phases, and display the build number to distinguish test packages. Native three-/four-finger system gestures remain unsupported.
+
 - Show a click-through vertical edge bar while crossing, then a thin control marker.
 - Share keyboard input during accepted handoffs, after both peers opt in and negotiate support. Release held keys on return, timeout, and stop.
 - Stop input when macOS Secure Event Input is active; never forward the emergency chord.
