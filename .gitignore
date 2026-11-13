@@ -6,3 +6,8 @@ build/
 *.app/
 *.dSYM/
 module-cache/
+*.p12
+*.pfx
+*.key
+*.pem
+*.keychain-db

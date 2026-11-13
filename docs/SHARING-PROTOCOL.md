@@ -1,6 +1,6 @@
 # Sharing protocol and Windows path
 
-Protocol additions in NearClip 0.4.0. This document describes the current implementation, not a Windows client release. A Windows port requires its own clipboard, file-system, input, permissions, and packaging adapters, plus interoperability tests.
+File/mouse protocol additions in 0.4.0; keyboard capability in 0.4.3. This document describes the current implementation, not a Windows client release. A Windows port requires its own clipboard, file-system, input, permissions, and packaging adapters, plus interoperability tests.
 
 ## Boundaries
 
@@ -25,12 +25,12 @@ A cross-language implementation must reproduce the transcript bytes exactly, inc
 The encrypted `ready` envelope adds an optional `features` array:
 
 ```json
-["files-v1", "mouse-v1"]
+["files-v1", "mouse-v1", "keyboard-v1"]
 ```
 
 A peer without these capabilities continues to exchange clipboard messages. Never send a feature packet unless the authenticated peer advertised that capability. Missing features mean unsupported, not implicit consent.
 
-A `feature` envelope has a Base64 `data` field. Its decoded value is UTF-8 JSON with exactly one key: `file` or `mouse`. Feature JSON is limited to 128 KiB. The transport queues at most 32 feature packets. File I/O accepts at most eight queued packets and cancels an overloaded transfer.
+A `feature` envelope has a Base64 `data` field. Its decoded value is UTF-8 JSON with exactly one key: `file`, `mouse`, or `keyboard`. Feature JSON is limited to 128 KiB. The transport queues at most 32 feature packets. File I/O accepts at most eight queued packets and cancels an overloaded transfer.
 
 ## File transfer
 
@@ -78,11 +78,21 @@ Only horizontal left/right arrangement is supported in 0.4. The operating system
 6. Moves are coalesced at 60 Hz. Button transitions flush pending moves first. Input packets remain ordered within the encrypted TCP stream.
 7. Moving back over the entry edge with no button held sends `leave`, including normalized height. The original Mac restores its cursor inside the edge.
 
-Each active peer sends a heartbeat every 500 ms. A request times out after one second; an active session times out after two seconds without authenticated session traffic. Leaving, disconnecting, permission loss, or cancellation releases all remotely held buttons. Local physical input on the recipient reclaims control. Typing remains local and ends remote mouse control.
+Each active peer sends a heartbeat every 500 ms. A request times out after one second; an active session times out after two seconds without authenticated session traffic. Leaving, disconnecting, permission loss, or cancellation releases all remotely held buttons. Local physical input on the recipient reclaims control. With a peer that lacks keyboard capability, typing remains local and ends remote mouse control. Zero-delta receiver mouse events do not reclaim control. A `leave` can include an optional bounded `endReason` code; unknown codes use a generic message.
 
 On macOS, Control–Option–Escape disables mouse sharing. Capture uses a session event tap; generated events carry a marker to avoid recapture. The app requests Accessibility and Input Monitoring only when the user enables mouse sharing. It also stops input on sleep, session deactivation, and the available screen-lock notification. Permission, lock-screen, and secure-input behavior still require physical-device validation.
 
 Files and mouse messages currently share the clipboard TCP channel. Small file chunks limit blocking, but a large clipboard frame or a slow link can delay mouse traffic. The watchdog returns control instead of keeping the source captured indefinitely. Separate interactive and bulk channels are a possible follow-up after physical latency measurements.
+
+## Keyboard control (0.4.3)
+
+The `keyboard-v1` feature is separate from `mouse-v1`. The mouse `availability` packet carries optional `keyboardEnabled`; missing means false. Keyboard input requires negotiated capability, opt-in on both peers, an accepted mouse session, and the same UUID token. Pairing or capability support alone does not permit input.
+
+A keyboard packet carries `token`, `action` (`down`, `up`, or `modifiers`), macOS virtual `keyCode` (0–127), `flags`, and `isRepeat`. Only Caps Lock, Shift, Control, Option, Command, numeric-pad, and Fn flag bits are accepted. Modifier events must use a known modifier key code. Repeat is allowed only for a held ordinary key-down. Stale-session and wrong-peer events are discarded. Pending mouse motion flushes before keyboard transitions so a click and following text remain ordered.
+
+The sender suppresses a forwarded key locally. The receiver uses its own input language. Leaving, timeout, disconnect, pause, and emergency stop release remote keys and modifiers. Physical keyboard input on the receiver ends control. Control–Option–Escape is consumed locally and is never sent. Secure Event Input stops control rather than being disabled. Media keys, Touch ID, and automatic input-language synchronization are not included.
+
+These key codes are macOS-specific. A Windows adapter needs an explicit key-code mapping and interoperability tests; it must not interpret these values as Windows virtual keys directly.
 
 ## Platform API references
 
@@ -90,3 +100,5 @@ Files and mouse messages currently share the clipboard TCP channel. Small file c
 - [Apple: cursor positioning](https://developer.apple.com/documentation/coregraphics/cgwarpmousecursorposition(_:))
 - [Apple: event posting permission](https://developer.apple.com/documentation/coregraphics/cgpreflightposteventaccess())
 - [Apple: input monitoring permission](https://developer.apple.com/documentation/coregraphics/cgpreflightlisteneventaccess())
+
+- [Apple: keyboard event construction](https://developer.apple.com/documentation/coregraphics/cgevent/init(keyboardeventsource:virtualkey:keydown:))

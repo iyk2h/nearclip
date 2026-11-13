@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 out="${1:-build}"
 version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Info.plist)
-bash build.sh "$out"
+NEARCLIP_REQUIRE_STABLE_SIGNING=1 bash build.sh "$out"
 mkdir -p "$out/dmg-stage"
 ditto "$out/NearClip.app" "$out/dmg-stage/NearClip.app"
 ln -sfn /Applications "$out/dmg-stage/Applications"

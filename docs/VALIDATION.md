@@ -1,10 +1,12 @@
-# 0.4.2 validation
+# 0.4.3 local test build validation
 
 Validated locally on macOS 15.7.2, Apple Silicon. File and mouse sharing are experimental. No claim of successful physical two-Mac mouse control is made.
 
 ## Automated regression suite
 
-**153 checks passed locally.** The suite uses synthetic identities, temporary files, and separate pasteboards. It does not read or write the general clipboard, install input hooks, post mouse events, move the user's cursor, or request input permissions.
+**230 checks passed locally.** The suite uses synthetic identities, temporary files, and separate pasteboards. It does not read or write the general clipboard, install input hooks, post mouse events, move the user's cursor, or request input permissions.
+
+The new zero-movement receiver test failed against 0.4.2 and passes after the fix. Each handoff scenario now asserts that control was accepted before testing its return path. Leftward and rightward handoffs, zero-movement events, vertical local takeover, return reasons, and the optional reason field's wire compatibility are covered. The keyboard tests also cover explicit consent, capability negotiation, repeat and modifier events, stale tokens, held-key cleanup, timeout, local takeover, secure input, emergency stop, and encrypted TCP delivery. The physical report of an immediate return and real keyboard typing still need confirmation with this build.
 
 Coverage includes:
 
@@ -18,15 +20,15 @@ Coverage includes:
 
 ## Packaged application diagnostics
 
-The packaged app passed Bonjour discovery and numeric pairing, encrypted synthetic clipboard transfer, a streamed file with digest verification, encrypted layout exchange, and session cleanup under its actual bundle identity.
+The final signed 0.4.3 bundle passed Bonjour discovery and numeric pairing, encrypted synthetic clipboard transfer, a streamed file with digest verification, encrypted layout exchange, and session cleanup under its actual bundle identity on November 13, 2026.
 
-The preview-mode lifecycle diagnostic passed **29 checks**, including menu-bar Quit, Command-Q, pause/resume, inline mouse/settings expansion, input default-off state, pause revoking input control, pairing controls, stable window geometry, hide/reopen, and termination. Arrangement checks exercise AppKit drag events without posting system input: no publication before drop, dragging either card updates a synthetic peer, clicks preserve order, Escape and outside drops cancel, the accessible swap action synchronizes, and disconnects cancel editing.
+The final signed keyboard/edge-bar bundle passed **30 lifecycle checks** without installing input hooks, including the click-through, nonactivating indicator and menu-bar Quit, Command-Q, pause/resume, inline mouse/settings expansion, input default-off state, pause revoking input control, pairing controls, stable window geometry, hide/reopen, and termination. Arrangement checks exercise AppKit drag events without posting system input: no publication before drop, dragging either card updates a synthetic peer, clicks preserve order, Escape and outside drops cancel, the accessible swap action synchronizes, and disconnects cancel editing.
 
 These are same-Mac synthetic tests. They do not replace physical-device input testing.
 
 ## UI review
 
-Light, dark, and disconnected sharing screens were rendered and inspected. The compact main screen and expanded settings were also checked after removing the tabs. The previews use synthetic device names and no real connection.
+The linked 0.4.2 light, dark, and disconnected sharing screens were rendered and inspected. The compact main screen and expanded settings were also checked after removing the tabs. The previews use synthetic device names and no real connection. The 0.4.3 change adds a return-reason line, keyboard controls, and an edge bar; these images have not been refreshed for those changes.
 
 - [Sharing, light appearance](sharing.png)
 - [Sharing, dark appearance](sharing-dark.png)
@@ -37,7 +39,7 @@ The [reference review](DESIGN-REFERENCES.md) explains the earlier UI direction. 
 
 ## Distribution
 
-The build script produces one arm64/x86_64 app. Packages have an ad-hoc signature and are not notarized. CI runs regression tests, universal compilation, and signature checks on Apple Silicon and Intel hosts. Release notes link the corresponding run.
+The build script produces one arm64/x86_64 app. The final 0.4.3 package uses a persistent self-signed certificate and is not notarized. Signing completed after approval. Two builds with different bundle versions and the final package satisfy each other’s designated code requirement. Retention of Accessibility/Input Monitoring on a physical upgrade still requires a user check. CI runs regression tests, universal compilation, and signature checks on Apple Silicon and Intel hosts. Release notes link the corresponding run.
 
 ## Required physical-device checks
 

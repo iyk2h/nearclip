@@ -13,10 +13,5 @@ xcrun lipo -create "$out/NearClip-arm64" "$out/NearClip-x86_64" -output "$out/Ne
 cp Info.plist "$out/NearClip.app/Contents/Info.plist"
 xcrun swift -module-cache-path "$out/module-cache" scripts/make-icon.swift "$out/AppIcon.iconset"
 xcrun iconutil -c icns "$out/AppIcon.iconset" -o "$out/NearClip.app/Contents/Resources/AppIcon.icns"
-if [[ -n "${SIGNING_IDENTITY:-}" ]]; then
-  codesign --force --options runtime --timestamp --sign "$SIGNING_IDENTITY" "$out/NearClip.app"
-else
-  codesign --force --sign - --identifier dev.nearclip.mac "$out/NearClip.app"
-fi
-codesign --verify --deep --strict "$out/NearClip.app"
+bash scripts/sign-app.sh "$out/NearClip.app"
 echo "Built $out/NearClip.app"

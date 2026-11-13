@@ -10,6 +10,7 @@ final class DeviceList: NSStackView { override var isFlipped: Bool { true } }
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let files = FileTransfer()
     private var mouse: MouseSharing!
+    private let edgeIndicator = ControlEdgeIndicator()
     private var featurePeer: ConnectedPeer?
     private var fileButton: NSButton!
     private var fileCancel: NSButton!
@@ -100,7 +101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.setActivationPolicy(headlessDiagnostics ? .accessory : .regular)
         if CommandLine.arguments.contains("--light") { NSApp.appearance = NSAppearance(named: .aqua) }
         if CommandLine.arguments.contains("--dark") { NSApp.appearance = NSAppearance(named: .darkAqua) }
-        if !preview, let bundleID = Bundle.main.bundleIdentifier,
+        if !preview, let bundleID = Foundation.Bundle.main.bundleIdentifier,
            let existing = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
             .first(where: { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }) {
             existing.activate(options: [.activateAllWindows]); NSApp.terminate(nil); return
@@ -188,7 +189,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         menuSend = item("지금 클립보드 보내기", #selector(sendNow), menu: menu)
         menuToggle = item("공유 일시 정지", #selector(toggleSharing), menu: menu)
         item("파일·마우스 공유…", #selector(showSharing), menu: menu)
-        menuMouseStop = item("마우스 공유 끄기  ⌃⌥Esc", #selector(stopInput), menu: menu)
+        menuMouseStop = item("마우스·키보드 공유 끄기  ⌃⌥Esc", #selector(stopInput), menu: menu)
         item("연결 다시 찾기", #selector(retry), menu: menu)
         menu.addItem(.separator())
         item("설정…", #selector(showSettings), menu: menu, key: ",")
@@ -247,7 +248,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         ])
         return box
     }
-    private var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev" }
+    private var version: String { Foundation.Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev" }
     private func symbol(_ name: String, size: CGFloat = 24) -> NSImageView {
         let view = NSImageView()
         view.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(.init(pointSize: size, weight: .regular))
@@ -339,7 +340,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         swapScreens.setAccessibilityLabel("두 Mac의 화면 순서 바꾸기")
         arrangementHint.font = .systemFont(ofSize: 11); arrangementHint.textColor = .secondaryLabelColor
         arrangementHint.maximumNumberOfLines = 2
-        mouseToggle = NSButton(checkboxWithTitle: "마우스 공유 켜기", target: self, action: #selector(toggleMouse))
+        mouseToggle = NSButton(checkboxWithTitle: "마우스·키보드 공유 켜기", target: self, action: #selector(toggleMouse))
         mouseHint.font = .systemFont(ofSize: 11); mouseHint.textColor = .secondaryLabelColor
         fileButton = button("파일 보내기…", action: #selector(sendFile))
         fileCancel = button("전송 취소", action: #selector(cancelFile)); fileCancel.isHidden = true
@@ -436,7 +437,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if CommandLine.arguments.contains("--sharing") { mouseDetailsExpanded = true }
         if !peers.isEmpty {
             featurePeer = ConnectedPeer(device: "B0000000-0000-0000-0000-000000000001", name: peers[0], connection: UUID(), features: Set(SharingFeature.supported))
-            mouse.setPeer(featurePeer!.device)
+            mouse.setPeer(featurePeer!.device, supportsKeyboard: true)
         }
         if CommandLine.arguments.contains("--light") { NSApp.appearance = NSAppearance(named: .aqua) }
         if CommandLine.arguments.contains("--dark") { NSApp.appearance = NSAppearance(named: .darkAqua) }
@@ -538,6 +539,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     else if file.kind == .offer { self.transport?.sendFeature(FeaturePacket(file: FilePacket(kind: .cancel, id: file.id)), to: peer) }
                 }
                 if let mouse = packet.mouse { self.mouse.receive(mouse, from: peer) }
+                if let keyboard = packet.keyboard { self.mouse.receiveKeyboard(keyboard, from: peer) }
             }
             transport.onClip = { [weak self] clip in self?.sync.receive(clip) }
             transport.onStatus = { [weak self] note in self?.networkNote = note; self?.refresh() }
@@ -582,8 +584,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             (view as? NSStackView)?.arrangedSubviews.compactMap { $0 as? NSButton }.forEach { $0.isEnabled = !busy }
         }
         updateSharingUI()
-        if mouse?.mode == .controlling { statusLabel.stringValue = "상대 Mac 마우스 제어 중"; activityLabel.stringValue = "돌아오려면 반대쪽 끝으로 이동하세요. 긴급 해제: ⌃⌥Esc" }
-        if mouse?.mode == .receiving { statusLabel.stringValue = "다른 Mac의 마우스로 제어 중"; activityLabel.stringValue = "이 Mac의 마우스를 움직이면 제어가 돌아와요. 긴급 해제: ⌃⌥Esc" }
+        if mouse?.mode == .controlling { statusLabel.stringValue = mouse.keyboardActive ? "상대 Mac 마우스·키보드 제어 중" : "상대 Mac 마우스 제어 중"; activityLabel.stringValue = "돌아오려면 반대쪽 끝으로 이동하세요. 긴급 해제: ⌃⌥Esc" }
+        if mouse?.mode == .receiving { statusLabel.stringValue = "다른 Mac에서 제어 중"; activityLabel.stringValue = "이 Mac의 마우스나 키보드를 쓰면 제어가 돌아와요. 긴급 해제: ⌃⌥Esc" }
         updateWindowSize()
         menuStatus?.title = statusLabel.stringValue
         menuToggle?.title = enabled ? "공유 일시 정지" : "공유 다시 시작"
@@ -714,6 +716,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             print("PASS: " + text)
         }
         require(statusItem.menu?.items.contains(where: { $0.action == #selector(quit) }) == true, "menu bar exposes quit")
+        require(edgeIndicator.isNonInteractive, "edge indicator cannot take keyboard focus or intercept clicks")
         require(NSApp.mainMenu?.items.first?.submenu?.items.contains(where: { $0.keyEquivalent == "q" }) == true, "Command-Q is installed in app menu")
         toggleSharing(); require(!enabled && statusLabel.stringValue.contains("일시 정지"), "pause updates visible state")
         toggleSharing(); require(enabled, "resume updates sharing state")
@@ -845,7 +848,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func help() {
         let dialog = NSAlert(); dialog.messageText = "두 Mac에서 NearClip을 켜두세요"
         dialog.informativeText = "① 두 Mac 모두 NearClip 0.3 이상을 켜고 같은 Wi-Fi 또는 LAN에 연결하세요.\n② 한쪽에서 상대 Mac 옆의 ‘연결’을 누르세요.\n③ 양쪽 화면의 6자리 숫자가 같으면 두 Mac에서 모두 연결을 누르세요. 숫자를 전달하거나 입력할 필요 없어요.\n④ 연결됨이 표시되면 새로 복사한 텍스트나 이미지를 다른 Mac에 붙여넣으세요.\n\n권한 요청이 나오면 ‘로컬 네트워크’와 ‘다른 앱에서 붙여넣기’를 허용하세요. 거부했다면 시스템 설정 → 개인정보 보호 및 보안에서 변경할 수 있어요.\n\n텍스트와 실제 이미지 클립보드를 지원해요. Finder의 파일 복사는 지원하지 않아요. 이미지는 20MB·4천만 화소까지예요.\n\n연결 전·일시 정지 중 복사한 내용은 자동 전송하지 않아요. 필요하면 ‘지금 보내기’를 누르세요. 암호 관리자가 비공개로 표시한 내용은 공유하지 않아요.\n\n설정에서 연결 해제를 누르면 기존 연결이 끊어져요. 회사·게스트 Wi-Fi에서 기기 간 통신을 막으면 연결할 수 없어요."
-        dialog.informativeText += "\n\n연결 화면 아래에서 파일을 보내거나 ‘화면 배치 · 권한’을 펼쳐 두 Mac의 좌우 순서를 정할 수 있어요. 배치는 양쪽에 반영돼요. 마우스 공유는 양쪽에서 직접 켜야 해요. 화면 가장자리로 밀어 이동하고 ⌃⌥Esc로 즉시 끄세요. 키보드 입력은 이 Mac에 남아요. 파일은 상대가 저장 위치를 선택해야 전송돼요."
+        dialog.informativeText += "\n\n연결 화면 아래에서 파일을 보내거나 ‘화면 배치 · 권한’을 펼쳐 두 Mac의 좌우 순서를 정할 수 있어요. 배치는 양쪽에 반영돼요. 마우스·키보드 공유는 양쪽에서 직접 켜야 해요. 화면 가장자리로 밀어 이동하고 ⌃⌥Esc로 즉시 끄세요. 두 Mac 모두 0.4.3 이상이면 키보드도 커서와 함께 이동해요. 파일은 상대가 저장 위치를 선택해야 전송돼요."
         dialog.addButton(withTitle: "확인"); dialog.runModal()
     }
     private func alert(_ message: String) {
@@ -859,7 +862,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard let self, let transport = self.transport else { reply(false); return }
             transport.sendFeature(FeaturePacket(mouse: packet), to: peer, completion: reply)
         }
-        mouse.onChange = { [weak self] in if self?.window != nil { self?.refresh() } }
+        mouse.sendKeyboard = { [weak self] peer, packet, reply in
+            guard let transport = self?.transport else { reply(false); return }
+            transport.sendFeature(FeaturePacket(keyboard: packet), to: peer, completion: reply)
+        }
+        mouse.onEdgeProgress = { [weak self] point, side, progress in
+            guard let self, !self.headlessDiagnostics else { return }
+            if let point { self.edgeIndicator.show(at: point, side: side, progress: progress, connected: false) }
+            else { self.edgeIndicator.hide() }
+        }
+        mouse.onChange = { [weak self] in
+            guard let self else { return }
+            if !self.headlessDiagnostics {
+                if self.mouse.active {
+                    self.edgeIndicator.show(at: self.mouse.indicatorPoint, side: self.mouse.side, progress: 1,
+                                            connected: self.mouse.mode != .requesting)
+                } else { self.edgeIndicator.hide() }
+            }
+            if self.window != nil { self.refresh() }
+        }
         mouse.onLayout = { [weak self] layout in
             guard let self, !self.preview else { return }
             UserDefaults.standard.set(try? JSONEncoder().encode(layout), forKey: "screenLayout")
@@ -881,10 +902,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func updateFeaturePeer(_ peers: [ConnectedPeer]) {
         let next = peers.count == 1 ? peers.first : nil
         guard featurePeer?.connection != next?.connection else { updateSharingUI(); return }
-        files.disconnected(); mouse.endSession(notify: false)
+        files.disconnected(); mouse.endSession(notify: false, reason: .connectionChanged)
         featurePeer = next
         let saved = UserDefaults.standard.data(forKey: "screenLayout").flatMap { try? JSONDecoder().decode(ScreenLayout.self, from: $0) }
-        mouse.setPeer(next?.features.contains(SharingFeature.mouse) == true ? next?.device : nil, savedLayout: saved)
+        mouse.setPeer(next?.features.contains(SharingFeature.mouse) == true ? next?.device : nil, savedLayout: saved,
+                      supportsKeyboard: next?.features.contains(SharingFeature.keyboard) == true)
         updateSharingUI()
     }
     private func updateSharingUI() {
@@ -898,6 +920,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         fileButton.isEnabled = enabled && supportsFiles && !files.busy
         swapScreens.isEnabled = supportsMouse && !mouse.active
         mouseToggle.isEnabled = enabled && supportsMouse
+        mouseToggle.title = mouse.keyboardSupported || !supportsMouse ? "마우스·키보드 공유 켜기" : "마우스 공유 켜기"
         mouseToggle.state = mouse.enabled ? .on : .off
         arrangement.update(peerID: supportsMouse ? featurePeer?.connection.uuidString : nil,
                            localName: preview ? "My MacBook" : deviceName,
@@ -905,9 +928,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                            editable: supportsMouse && !mouse.active)
         arrangementHint.stringValue = mouse.active ? "마우스 제어를 끝낸 뒤 배치를 바꿀 수 있어요. ⌃⌥Esc로 공유를 끄세요." : "화면을 드래그해 실제 Mac의 좌우 순서에 맞춰주세요. 양쪽에 자동 반영돼요."
         if !supportsMouse { mouseHint.stringValue = "두 Mac 모두 0.4 이상으로 연결하면 사용할 수 있어요." }
-        else if !mouse.enabled { mouseHint.stringValue = mouseSetupError ?? "양쪽에서 켜면 이동·클릭·스크롤을 공유해요. 긴급 해제: ⌃⌥Esc" }
+        else if !mouse.enabled { mouseHint.stringValue = mouseSetupError ?? (mouse.keyboardSupported ? "양쪽에서 켜면 커서와 키보드가 함께 이동해요. 긴급 해제: ⌃⌥Esc" : "키보드 공유는 상대 Mac도 0.4.3 이상이어야 해요. 마우스만 공유할 수 있어요.") }
         else if !mouse.remoteEnabled { mouseHint.stringValue = "이 Mac은 준비됐어요. 상대 Mac에서도 마우스 공유를 켜주세요." }
-        else { mouseHint.stringValue = "준비됐어요. 가장자리로 밀어 이동하세요. ⌃⌥Esc는 공유를 꺼요." }
+        else {
+            mouseHint.stringValue = "준비됐어요. 가장자리로 밀어 이동하세요. ⌃⌥Esc는 공유를 꺼요."
+            if !mouse.active, let message = mouse.lastEndMessage { mouseHint.stringValue += "\n" + message }
+        }
         menuMouseStop?.isEnabled = mouse.enabled
     }
     @objc private func swapScreenOrder() {
@@ -977,6 +1003,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func cancelFile() { files.cancel() }
     @objc private func revealFile() { if let receivedFile { NSWorkspace.shared.activateFileViewerSelecting([receivedFile]) } }
     private func renderPreview() {
+        if CommandLine.arguments.contains("--edge") {
+            let edgePreview = ControlEdgeIndicator.previewView()
+            let size = edgePreview.frame.size
+            window.contentView = edgePreview; window.setContentSize(size)
+        }
         if settingsExpanded { settingsContent.scrollToVisible(settingsContent.bounds) }
         guard let index = CommandLine.arguments.firstIndex(of: "--render-preview"), CommandLine.arguments.count > index + 1,
               let view = window.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { NSApp.terminate(nil); return }

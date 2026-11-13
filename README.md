@@ -37,19 +37,19 @@ Copy new text or an image, then press `⌘V` on the other Mac. NearClip shares p
 
 Copies made before connection or while paused are not sent automatically. Use **Send now (`지금 보내기`)** to send the current clipboard. For a screenshot directly on the clipboard, press `⌃⇧⌘4`.
 
-## Mouse and screen layout
+## Mouse, keyboard, and screen layout
 
-Use 0.4.2 or later for the graphical arrangement controls. Mouse sharing works with a paired Mac running 0.4 or later.
+Use 0.4.2 or later for graphical arrangement. The 0.4.3 test build adds the edge bar and keyboard sharing; both Macs need this build for keyboard input. The current public download above remains 0.4.2.
 
 1. On the main screen, expand **Screen arrangement and permissions (`화면 배치 · 권한`)** below the connected Mac.
 2. Drag either monitor card to match the Macs' physical left-to-right order. Release it to apply the same order on both Macs. You can also use **Swap order (`순서 바꾸기`)**.
-3. Enable **Mouse sharing (`마우스 공유 켜기`)** on both Macs. This expands setup automatically. You can collapse setup while sharing stays on.
+3. Enable **Mouse and keyboard sharing (`마우스·키보드 공유 켜기`)** on both Macs. This expands setup automatically. You can collapse setup while sharing stays on.
 4. Allow the missing permissions shown in the app. The app checks again when you return from System Settings. Then enable sharing again. Restart only if macOS requires it or the permission still has not taken effect.
-5. Push the cursor against the configured outer edge to cross to the other Mac. Return through the edge where it entered.
+5. Push the cursor against the configured outer edge. A vertical bar fills as the handoff starts. After acceptance, it becomes a thin bar and the keyboard follows the pointer. Return through the edge where it entered.
 
-**Press `⌃⌥Esc` to disable mouse sharing and reclaim control.** Local mouse input on the receiving Mac also reclaims control. A lost connection releases held buttons and returns control. Re-enable sharing after a disconnect, pause, or app restart.
+**Press `⌃⌥Esc` to disable mouse sharing and reclaim control.** Local mouse or keyboard input on the receiving Mac also reclaims control. A lost connection releases held buttons and keys and returns control. Re-enable sharing after a disconnect, pause, or app restart.
 
-Movement, left/right/middle clicks, dragging within the receiving Mac, and scrolling are supported. Keyboard input stays on the local Mac and ends remote mouse control. This version does not drag files across the screen boundary. Each card represents one Mac, including its attached displays. This version sets horizontal Mac order; individual monitor placement and vertical arrangements are not included. Press Escape while dragging to cancel. End remote mouse control before changing the arrangement.
+Movement, left/right/middle clicks, dragging within the receiving Mac, and scrolling are supported. Keyboard letters, shortcuts, modifiers, and repeat events use the receiving Mac’s input source. Select the desired input language there. Media keys and Touch ID are not shared. Secure Event Input returns control; enter protected input on that Mac directly. With an older mouse-only peer, typing stays local and ends control. This version does not drag files across the screen boundary. Each card represents one Mac, including its attached displays. This version sets horizontal Mac order; individual monitor placement and vertical arrangements are not included. Press Escape while dragging to cancel. End remote mouse control before changing the arrangement.
 
 NearClip does not change Apple Universal Control settings. If another Apple device also takes the pointer, use the **Apple mouse sharing help (`Apple 마우스 공유와 겹치나요?`)** button in the expanded setup.
 
@@ -76,7 +76,7 @@ Transfers are encrypted and checked with SHA-256. Existing destination files are
 | Pause sharing and cancel active file/input work | `공유 일시 정지` |
 | Resume clipboard sharing | `공유 다시 시작` |
 | Open file and mouse controls | `파일·마우스 공유…` |
-| Stop mouse sharing only | `마우스 공유 끄기` or `⌃⌥Esc` |
+| Stop mouse sharing only | `마우스·키보드 공유 끄기` or `⌃⌥Esc` |
 | Quit | `종료` or `⌘Q` while NearClip is active |
 | Choose close behavior | Settings (`설정`) → `창을 닫으면` |
 | Start at login | Settings → `로그인할 때 NearClip 시작` |

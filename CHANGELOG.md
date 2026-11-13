@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased — 0.4.3 test build
+
+- Show a click-through vertical edge bar while crossing, then a thin control marker.
+- Share keyboard input during accepted handoffs, after both peers opt in and negotiate support. Release held keys on return, timeout, and stop.
+- Stop input when macOS Secure Event Input is active; never forward the emergency chord.
+- Use one persistent signing identity for beta packages and verify identity across updates.
+
+- Keep remote mouse control when the receiver gets a mouse event with zero movement.
+- Show the last return reason and the Mac that ended control. Send only a fixed reason code to the paired Mac; keep it in memory.
+- Require an accepted handoff before each mouse regression scenario. Restore both peers' availability in the reconnect test.
+- Physical two-Mac testing is still required to confirm the reported immediate-return issue is resolved.
+
 ## 0.4.2 — 2026-11-12
 
 - Combine connection, mouse sharing, and file transfer on one screen.

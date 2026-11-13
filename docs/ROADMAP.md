@@ -7,6 +7,12 @@
 - Opt-in mouse movement, clicks, and scrolling across a screen edge.
 - Drag-to-arrange monitor cards for shared left-to-right Mac order, set from either Mac.
 
+## In the 0.4.3 test build
+
+- Keyboard input follows an accepted mouse handoff, with held-key cleanup.
+- Edge progress bars and return-reason diagnostics.
+- Persistent local signing and upgrade identity checks.
+
 ## Next validation work
 
 Test two physical Macs across sleep, lock/unlock, disconnects, display scaling, multiple monitors, secure input, slow networks, long transfers, and input-permission changes. Validate Intel GUI behavior and accessibility. Sign and notarize builds when a Developer ID identity is available.
@@ -20,7 +26,6 @@ The current app and binaries are macOS-only. No Windows release date is set.
 ## Later features
 
 - English interface.
-- Keyboard sharing with separate opt-in and held-key cleanup.
 - File batches, folders, resumable transfers, and drag-and-drop sending.
 - Individual display placement, vertical arrangement, and alignment between displays.
 - Separate interactive/bulk network channels if latency testing justifies them.

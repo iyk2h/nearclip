@@ -2,7 +2,7 @@
 
 ## macOS blocks the first launch
 
-The current beta has an ad-hoc signature. It does not have an Apple Developer ID signature or notarization. First check that you downloaded it from this repository's release page.
+Versions through 0.4.2 have ad-hoc signatures. The 0.4.3 test build has a persistent self-signed certificate. Neither has an Apple Developer ID signature or notarization. First check that you downloaded it from this repository's release page.
 
 1. Try to open NearClip from Applications.
 2. Open **System Settings → Privacy & Security**.
@@ -38,12 +38,20 @@ NearClip tries to reconnect after wake. If the saved address is no longer valid 
 ## Mouse sharing does not start
 
 1. Use NearClip 0.4 or later on both Macs.
-2. On the main screen, enable Mouse sharing (`마우스 공유 켜기`) on both. Setup expands below the checkbox.
+2. On the main screen, enable Mouse and keyboard sharing (`마우스·키보드 공유 켜기`) on both. Setup expands below the checkbox.
 3. Allow NearClip in **System Settings → Privacy & Security → Accessibility** and **Input Monitoring**. Return to the app; it checks permissions again. Use **Check again (`다시 확인`)** if needed, then enable sharing. Arrange screens and change app options without restarting. Restart the app only if macOS requires it or granted permissions still have not taken effect.
 4. Expand **Screen arrangement and permissions (`화면 배치 · 권한`)**, then drag the monitor cards into the correct left-to-right order. Both Macs receive the layout. End remote mouse control before rearranging.
 5. Push against the outer edge briefly with no mouse buttons or modifier keys held. A boundary between this Mac's own monitors does not hand off.
 
-Press `⌃⌥Esc` to stop mouse sharing. Typing stays local and returns mouse control. Re-enable sharing after a pause, disconnect, or app restart. A slow network or a large clipboard frame can trigger the watchdog and return control; this behavior fails safely but can interrupt use.
+Press `⌃⌥Esc` to stop mouse sharing. On 0.4.3, the keyboard follows the pointer. Physical typing on the receiving Mac returns control. Re-enable sharing after a pause, disconnect, or app restart. A slow network or a large clipboard frame can trigger the watchdog and return control; this behavior fails safely but can interrupt use.
+
+## Mouse control returns immediately
+
+The 0.4.3 test build ignores receiver mouse events with zero movement. It also shows **Last return (`마지막 복귀`)** below the mouse toggle after control ends. Install this build on both Macs to see the reason from either side.
+
+Leave the receiving Mac's mouse, trackpad, and keyboard untouched. Push the controlling Mac's pointer across the configured edge. If it returns, note which Mac ended control and the reason shown. The reason distinguishes local input, the return edge, a rejected handoff, a timeout, and a send failure. It stays in memory and clears on the next handoff. This diagnostic does not record clipboard contents or input history.
+
+The immediate-return report still requires a physical two-Mac retest. A passing automated test does not establish that Apple Universal Control caused the report.
 
 ## File transfer fails
 
@@ -73,7 +81,13 @@ To remove the remaining Keychain item, use Keychain Access to delete the item wi
 
 A dialog naming `local.nearclip.pairing.v1` asks permission to read the saved pairing secret. Enter the Mac login Keychain password in the macOS dialog. **Always Allow** approves later access by the same trusted app; **Allow** approves the current access only. Never send your password in an issue or chat. See [Apple's Keychain access guide](https://support.apple.com/en-ge/guide/keychain-access/kyca1243/mac).
 
-These beta builds use ad-hoc signatures. A rebuilt app can require approval again even after an earlier version was trusted. Stable Developer ID signing is still needed for release continuity. NearClip does not weaken Keychain access rules or move the secret into an unprotected settings file.
+Versions through 0.4.2 use ad-hoc signatures. The 0.4.3 test build uses one persistent signing certificate. Moving from the old signature can require approval once. Later builds must use the same identity; a code-identity upgrade check verifies this. This does not guarantee permission retention on every macOS release. NearClip does not weaken Keychain access rules or move the secret into an unprotected settings file.
+
+## Permission switches are on after an update, but input is denied
+
+Quit the old app and replace it in the same install location. Do not keep running an older copy from Downloads or a mounted DMG. The app ID remains `dev.nearclip.mac`; saved pairing and layout are retained.
+
+A transition from an ad-hoc build to the fixed certificate can require one new Accessibility/Input Monitoring approval. Do not reset permissions for routine updates. If macOS still shows an obsolete approval during that transition, replace only the NearClip entry with the current app. The app does not edit the TCC database or reset permissions automatically.
 
 ## Apple clipboard or mouse sharing overlaps
 

@@ -24,6 +24,15 @@ func sharingProtocolTests() throws {
     try Check.rejects("reject unsupported mouse buttons") { try MousePacket(kind: .input, token: UUID(), action: .down, button: 9).validate() }
     try Check.rejects("reject missing input session") { try MousePacket(kind: .input, action: .down).validate() }
     try Check.rejects("reject unsupported input flags") { try MousePacket(kind: .input, token: UUID(), action: .down, flags: UInt64.max).validate() }
+    let reasonPacket = MousePacket(kind: .leave, token: UUID(), endReason: MouseEndReason.localMotion.rawValue)
+    let reasonRoundTrip = try FeaturePacket.decode(FeaturePacket(mouse: reasonPacket).encoded())
+    try Check.that(reasonRoundTrip.mouse?.endReason == "localMotion", "handoff reason survives the wire codec")
+    let legacy = try JSONDecoder().decode(MousePacket.self, from: Data("{\"kind\":\"leave\",\"token\":\"00000000-0000-0000-0000-000000000001\",\"dx\":0,\"dy\":0,\"button\":0,\"clicks\":1,\"flags\":0}".utf8))
+    try legacy.validate()
+    try Check.that(legacy.endReason == nil, "older peers can omit the optional handoff reason")
+    try Check.rejects("bound untrusted handoff reason length") {
+        try MousePacket(kind: .leave, token: UUID(), endReason: String(repeating: "x", count: 65)).validate()
+    }
     let file = FilePacket(kind: .offer, id: UUID(), name: "test.txt", size: 12)
     let decoded = try FeaturePacket.decode(FeaturePacket(file: file).encoded())
     try Check.that(decoded.file?.name == "test.txt", "platform-neutral sharing packet round trip")
@@ -144,14 +153,19 @@ func mouseSharingTests() throws {
     b.receive(MousePacket(kind: .enter, token: denied, side: .left, fraction: 0.5), from: "A", now: now)
     try Check.that(b.mode == .local, "pairing alone cannot authorize mouse control"); pump()
     try a.setEnabled(true); try b.setEnabled(true); pump()
-    func enter() {
+    func enter() throws {
         now = now.addingTimeInterval(2)
-        _ = a.localMove(point: CGPoint(x: 999, y: 300), dx: 2, dy: 0, now: now)
+        let x: Double = a.side == .right ? 999 : 0
+        let dx: Double = a.side == .right ? 2 : -2
+        _ = a.localMove(point: CGPoint(x: x, y: 300), dx: dx, dy: 0, now: now)
         now = now.addingTimeInterval(0.2)
-        _ = a.localMove(point: CGPoint(x: 999, y: 300), dx: 2, dy: 0, now: now); pump()
+        _ = a.localMove(point: CGPoint(x: x, y: 300), dx: dx, dy: 0, now: now); pump()
+        try Check.that(a.mode == .controlling && b.mode == .receiving, "each mouse scenario starts with an accepted handoff")
     }
-    enter()
+    try enter()
     try Check.that(a.mode == .controlling && b.mode == .receiving, "edge dwell and handshake transfer control")
+    _ = b.localMove(point: CGPoint(x: 4, y: 600), dx: 0, dy: 0, now: now); pump()
+    try Check.that(a.mode == .controlling && b.mode == .receiving, "zero-distance receiver motion does not cancel handoff")
     var lastPoint = CGPoint.zero, inputCount = 0, released: Set<Int> = []
     b.onInput = { _, point in lastPoint = point; inputCount += 1 }; b.onRelease = { released = $0 }
     _ = a.localMove(point: .zero, dx: 10, dy: 20, now: now); a.tick(now: now); pump()
@@ -164,21 +178,37 @@ func mouseSharingTests() throws {
     try Check.that(released == [0] && b.mode == .local, "disconnect releases all remotely held buttons")
     now = now.addingTimeInterval(3); a.tick(now: now)
     try Check.that(a.mode == .local, "missing heartbeat restores local control")
+    try Check.that(a.lastEndReason == .timeout && !a.endedByPeer, "watchdog records the local timeout reason")
     try Check.that(!b.enabled, "disconnect revokes input consent for the lost peer")
-    b.setPeer("A", savedLayout: a.layout); try b.setEnabled(true); pump(); enter()
+    b.setPeer("A", savedLayout: a.layout); try b.setEnabled(true); try a.setEnabled(true); pump(); try enter()
     _ = a.localMove(point: .zero, dx: -20, dy: 0, now: now); a.tick(now: now); pump()
     try Check.that(a.mode == .local && b.mode == .local, "opposite edge returns control to source")
-    enter(); a.emergencyStop(); pump()
+    try Check.that(a.lastEndReason == .returnEdge && a.endedByPeer && b.lastEndReason == .returnEdge, "return-edge reason reaches the controlling peer")
+    try enter(); a.emergencyStop(); pump()
     try Check.that(!a.enabled && a.mode == .local && b.mode == .local, "emergency stop disables edge capture and releases both peers")
-    try a.setEnabled(true); pump(); enter()
+    try a.setEnabled(true); pump(); try enter()
     _ = b.localMove(point: CGPoint(x: 100, y: 100), dx: 1, dy: 0, now: now); pump()
     try Check.that(a.mode == .local && b.mode == .local, "physical receiver input reclaims control on both peers")
+    try Check.that(a.lastEndReason == .localMotion && a.endedByPeer && !b.endedByPeer, "physical takeover identifies which Mac ended control")
+    try enter()
+    try Check.that(a.lastEndMessage == nil && b.lastEndMessage == nil, "new handoff clears stale diagnostic text")
+    a.endSession(); pump()
+
     now = now.addingTimeInterval(2)
     _ = a.localMove(point: CGPoint(x: 999, y: 300), dx: 2, dy: 0, now: now)
     now = now.addingTimeInterval(0.2)
     _ = a.localMove(point: CGPoint(x: 999, y: 300), dx: 2, dy: 0, now: now)
     _ = a.localButton(action: .down, button: 0); pump()
     try Check.that(a.mode == .local && b.mode == .local, "local click cancels pending handoff and late acceptance cannot recapture input")
+    a.setSide(.left); pump(); try enter()
+    _ = b.localMove(point: CGPoint(x: 1996, y: 600), dx: 0, dy: 0, now: now); pump()
+    _ = a.localMove(point: .zero, dx: -10, dy: 0, now: now); a.tick(now: now); pump()
+    try Check.that(a.mode == .controlling && b.mode == .receiving && lastPoint.x == 1986, "leftward handoff survives position-only events and moves into the peer screen")
+    _ = a.localMove(point: .zero, dx: 30, dy: 0, now: now); a.tick(now: now); pump()
+    try Check.that(a.mode == .local && b.mode == .local && a.lastEndReason == .returnEdge, "right edge returns from a leftward handoff")
+    try enter()
+    _ = b.localMove(point: .zero, dx: 0, dy: 1, now: now); pump()
+    try Check.that(a.mode == .local && b.mode == .local && a.lastEndReason == .localMotion, "vertical receiver motion still reclaims control immediately")
     let internalEdge = ScreenGeometry.exit(at: CGPoint(x: 999, y: 300), deltaX: 2, side: .right, displays: [CGRect(x: 0, y: 0, width: 1000, height: 600), CGRect(x: 1000, y: 0, width: 1000, height: 600)])
     try Check.that(internalEdge == nil, "local multi-display seams do not hand off remotely")
     let entry = ScreenGeometry.entry(side: .left, fraction: 0.25, displays: [CGRect(x: -1600, y: -100, width: 1600, height: 1000), CGRect(x: 0, y: 0, width: 1000, height: 600)])!
@@ -212,6 +242,11 @@ func featureNetworkTests() throws {
     a.sendFeature(FeaturePacket(mouse: MousePacket(kind: .layout, layout: ScreenLayout(revision: 1, author: idA, left: idA, right: idB))), to: idB)
     waitFor({ layoutArrived })
     try Check.that(layoutArrived, "screen layout crosses the authenticated network channel")
+    var keyboardArrived = false
+    b.onFeature = { _, packet in keyboardArrived = packet.keyboard?.keyCode == 8 }
+    a.sendFeature(FeaturePacket(keyboard: KeyboardPacket(token: UUID(), action: .down, keyCode: 8, flags: 0x100000)), to: idB)
+    waitFor({ keyboardArrived })
+    try Check.that(keyboardArrived && features.contains(SharingFeature.keyboard), "keyboard packets cross negotiated encrypted TCP without posting system input")
 }
 
 func legacyCapabilityTests() throws {
@@ -232,6 +267,9 @@ func legacyCapabilityTests() throws {
     var rejected = false
     server.sendFeature(FeaturePacket(mouse: MousePacket(kind: .availability, enabled: false)), to: legacyID) { rejected = !$0 }
     try Check.that(rejected, "do not send new feature packets to clipboard-only peers")
+    rejected = false
+    server.sendFeature(FeaturePacket(keyboard: KeyboardPacket(token: UUID(), action: .down, keyCode: 0)), to: legacyID) { rejected = !$0 }
+    try Check.that(rejected, "do not send keyboard packets to peers without keyboard capability")
     old?.send(ClipMessage(id: UUID(), stamp: ClipStamp(counter: 1, device: legacyID), payload: ClipPayload(type: "public.utf8-plain-text", data: Data("legacy".utf8))))
     waitFor({ gotClip }); try Check.that(gotClip, "clipboard transfer remains available to an older peer")
 }
