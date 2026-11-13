@@ -588,8 +588,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             (view as? NSStackView)?.arrangedSubviews.compactMap { $0 as? NSButton }.forEach { $0.isEnabled = !busy }
         }
         updateSharingUI()
-        if mouse?.mode == .controlling { statusLabel.stringValue = mouse.keyboardActive ? "상대 Mac 마우스·키보드 제어 중" : "상대 Mac 마우스 제어 중"; activityLabel.stringValue = "돌아오려면 반대쪽 끝으로 이동하세요. 긴급 해제: ⌃⌥Esc" }
-        if mouse?.mode == .receiving { statusLabel.stringValue = "다른 Mac에서 제어 중"; activityLabel.stringValue = "이 Mac의 마우스나 키보드를 쓰면 제어가 돌아와요. 긴급 해제: ⌃⌥Esc" }
         updateWindowSize()
         menuStatus?.title = statusLabel.stringValue
         menuToggle?.title = enabled ? "공유 일시 정지" : "공유 다시 시작"
@@ -953,7 +951,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         else if !mouse.remoteEnabled { mouseHint.stringValue = "이 Mac은 준비됐어요. 상대 Mac에서도 마우스 공유를 켜주세요." }
         else {
             mouseHint.stringValue = "준비됐어요. 가장자리로 밀어 이동하세요. ⌃⌥Esc는 공유를 꺼요."
-            if !mouse.active, let message = mouse.lastEndMessage { mouseHint.stringValue += "\n" + message }
+            if !mouse.active, mouse.lastEndReason != .returnEdge, let message = mouse.lastEndMessage { mouseHint.stringValue += "\n" + message }
         }
         menuMouseStop?.isEnabled = mouse.sharingRequested
     }

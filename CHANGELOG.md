@@ -2,6 +2,9 @@
 
 ## Unreleased — 0.4.3 test build
 
+- Build 14 sends the first mouse sample immediately, batches continuous movement at the existing 120 Hz target, and flushes movement before clicks or modifier changes. Reuse the native event source for received pointer events.
+- Keep the main status and menu status stable during pointer handoffs. Keep the edge indicator; do not show a diagnostic line for a normal edge return.
+
 - Build 13 keeps peer-specific sharing enabled across sleep and temporary disconnection. Resume only after unlock/session restoration; explicit stop and emergency stop remain off.
 - Target 120 Hz cursor batching, preserve trackpad scroll/momentum phases, and display the build number to distinguish test packages. Native three-/four-finger system gestures remain unsupported.
 

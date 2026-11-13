@@ -4,7 +4,7 @@ Validated locally on macOS 15.7.2, Apple Silicon. File and mouse sharing are exp
 
 ## Automated regression suite
 
-**261 checks passed locally for build 13.** The suite uses synthetic identities, temporary files, and separate pasteboards. It does not read or write the general clipboard, install input hooks, post mouse events, move the user's cursor, or request input permissions.
+**270 checks passed locally for build 14.** The suite uses synthetic identities, temporary files, and separate pasteboards. It does not read or write the general clipboard, install input hooks, post mouse events, move the user's cursor, or request input permissions.
 
 On November 13, a physical handoff reached the receiving Mac, then ended with `returnEdge`. A new test reproduced an immediate return from a reverse delta at the four-point entry inset and failed against build 11. Build 12 requires inward travel before return and a sustained outward push. Tests cover both directions, interrupted pushes, and fresh-session reset. The build passed the packaged lifecycle checks and mutual signing-identity verification against build 11. After installing build 12 on the receiving Mac, its UI showed active remote control and the user confirmed controlling it from the other Mac. A later observation showed an edge return. Accessibility and Input Monitoring remained granted across the build 11 to 12 replacement; a Keychain access prompt still required user approval. The origin of the unexpected reverse delta has not been established. Reverse-direction handoff, sustained keyboard/shortcut use, and the full physical matrix below remain unverified.
 
@@ -22,7 +22,11 @@ Coverage includes:
 
 Build 13 adds synthetic checks for sleep/lock overlap, same-peer reconnect, explicit-stop persistence, held-input cleanup, stale-token rejection after wake, peer replacement, and scroll/momentum phase transport. The 120 Hz timer is a scheduling target, not a measured end-to-end rate. Physical sleep/wake recovery, bidirectional control, and scrolling feel still require user testing with both Macs updated.
 
+Build 14 adds deterministic timing tests: immediate first/after-idle movement, 1000 Hz burst coalescing, final-sample delivery, click ordering, modifier boundaries, and Secure Event Input during immediate dispatch. These establish scheduling behavior; they do not measure physical pointer latency or smoothness over Wi-Fi.
+
 ## Packaged application diagnostics
+
+Build 14 passed 34 packaged lifecycle checks and mutual signing-identity verification against build 13. After installation, the main window showed build 14, both native input permissions granted, and both peers ready. Keychain access still prompted and the user approved it. The unchanged header during live handoffs and physical smoothness comparison have not yet been confirmed by the user.
 
 Build 13 passed 34 packaged lifecycle checks, including overlapping sleep/lock callbacks and explicit-stop behavior. It also passed mutual signing-identity verification against build 12. After installation on this Mac, Accessibility and Input Monitoring remained granted, the saved peer reconnected, and both peers reported input readiness. A real sleep/wake cycle and a build-13 peer update remain unverified.
 

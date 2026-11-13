@@ -178,14 +178,14 @@ func mouseSharingTests() throws {
     }
     try enter()
     try Check.that(a.mode == .controlling && b.mode == .receiving, "edge dwell and handshake transfer control")
-    _ = a.localMove(point: .zero, dx: -20, dy: 0, now: now); a.tick(now: now); pump()
+    _ = a.localMove(point: .zero, dx: -20, dy: 0, now: now); now = now.addingTimeInterval(0.01); a.tick(now: now); pump()
     try Check.that(a.mode == .controlling && b.mode == .receiving, "reverse jitter immediately after entry does not bounce control back")
     a.endSession(); pump(); try enter()
     _ = b.localMove(point: CGPoint(x: 4, y: 600), dx: 0, dy: 0, now: now); pump()
     try Check.that(a.mode == .controlling && b.mode == .receiving, "zero-distance receiver motion does not cancel handoff")
     var lastPoint = CGPoint.zero, inputCount = 0, released: Set<Int> = []
     b.onInput = { _, point in lastPoint = point; inputCount += 1 }; b.onRelease = { released = $0 }
-    _ = a.localMove(point: .zero, dx: 10, dy: 20, now: now); a.tick(now: now); pump()
+    _ = a.localMove(point: .zero, dx: 10, dy: 20, now: now); now = now.addingTimeInterval(0.01); a.tick(now: now); pump()
     try Check.that(abs(lastPoint.y - 620) < 0.01 && lastPoint.x == 14, "entry height scales across different screen sizes")
     let count = inputCount
     b.receive(MousePacket(kind: .input, token: UUID(), action: .down), from: "A", now: now)
@@ -198,14 +198,14 @@ func mouseSharingTests() throws {
     try Check.that(a.lastEndReason == .timeout && !a.endedByPeer, "watchdog records the local timeout reason")
     try Check.that(!b.enabled, "disconnect removes input capture for the lost peer")
     b.setPeer("A", savedLayout: a.layout); try b.setEnabled(true); try a.setEnabled(true); pump(); try enter()
-    _ = a.localMove(point: .zero, dx: 40, dy: 0, now: now); a.tick(now: now); pump()
-    _ = a.localMove(point: .zero, dx: -80, dy: 0, now: now); a.tick(now: now); pump()
+    _ = a.localMove(point: .zero, dx: 40, dy: 0, now: now); now = now.addingTimeInterval(0.01); a.tick(now: now); pump()
+    _ = a.localMove(point: .zero, dx: -80, dy: 0, now: now); now = now.addingTimeInterval(0.01); a.tick(now: now); pump()
     try Check.that(a.mode == .controlling && b.mode == .receiving, "one reverse movement at the return edge cannot end control")
     now = now.addingTimeInterval(0.5)
-    _ = a.localMove(point: .zero, dx: -2, dy: 0, now: now); a.tick(now: now); pump()
+    _ = a.localMove(point: .zero, dx: -2, dy: 0, now: now); now = now.addingTimeInterval(0.01); a.tick(now: now); pump()
     try Check.that(a.mode == .controlling, "separated edge taps do not accumulate into a return")
     now = now.addingTimeInterval(0.2)
-    _ = a.localMove(point: .zero, dx: -2, dy: 0, now: now); a.tick(now: now); pump()
+    _ = a.localMove(point: .zero, dx: -2, dy: 0, now: now); now = now.addingTimeInterval(0.01); a.tick(now: now); pump()
     try Check.that(a.mode == .local && b.mode == .local, "opposite edge returns control to source")
     try Check.that(a.lastEndReason == .returnEdge && a.endedByPeer && b.lastEndReason == .returnEdge, "return-edge reason reaches the controlling peer")
     try enter(); a.emergencyStop(); pump()
@@ -226,23 +226,23 @@ func mouseSharingTests() throws {
     try Check.that(a.mode == .local && b.mode == .local, "local click cancels pending handoff and late acceptance cannot recapture input")
     a.setSide(.left); pump(); try enter()
     _ = b.localMove(point: CGPoint(x: 1996, y: 600), dx: 0, dy: 0, now: now); pump()
-    _ = a.localMove(point: .zero, dx: -10, dy: 0, now: now); a.tick(now: now); pump()
+    _ = a.localMove(point: .zero, dx: -10, dy: 0, now: now); now = now.addingTimeInterval(0.01); a.tick(now: now); pump()
     try Check.that(a.mode == .controlling && b.mode == .receiving && lastPoint.x == 1986, "leftward handoff survives position-only events and moves into the peer screen")
-    _ = a.localMove(point: .zero, dx: -30, dy: 0, now: now); a.tick(now: now); pump()
-    _ = a.localMove(point: .zero, dx: 80, dy: 0, now: now); a.tick(now: now); pump()
+    _ = a.localMove(point: .zero, dx: -30, dy: 0, now: now); now = now.addingTimeInterval(0.01); a.tick(now: now); pump()
+    _ = a.localMove(point: .zero, dx: 80, dy: 0, now: now); now = now.addingTimeInterval(0.01); a.tick(now: now); pump()
     try Check.that(a.mode == .controlling, "right return edge also requires a deliberate push")
     // Moving away cancels the pending return, even if its previous dwell elapsed.
     now = now.addingTimeInterval(0.2)
-    _ = a.localMove(point: .zero, dx: -10, dy: 0, now: now); a.tick(now: now); pump()
-    _ = a.localMove(point: .zero, dx: 30, dy: 0, now: now); a.tick(now: now); pump()
+    _ = a.localMove(point: .zero, dx: -10, dy: 0, now: now); now = now.addingTimeInterval(0.01); a.tick(now: now); pump()
+    _ = a.localMove(point: .zero, dx: 30, dy: 0, now: now); now = now.addingTimeInterval(0.01); a.tick(now: now); pump()
     try Check.that(a.mode == .controlling, "moving inward resets the return dwell")
     now = now.addingTimeInterval(0.2)
-    _ = a.localMove(point: .zero, dx: 2, dy: 0, now: now); a.tick(now: now); pump()
+    _ = a.localMove(point: .zero, dx: 2, dy: 0, now: now); now = now.addingTimeInterval(0.01); a.tick(now: now); pump()
     try Check.that(a.mode == .local && b.mode == .local && a.lastEndReason == .returnEdge, "right edge returns from a leftward handoff")
     try enter()
-    _ = a.localMove(point: .zero, dx: 50, dy: 0, now: now); a.tick(now: now); pump()
+    _ = a.localMove(point: .zero, dx: 50, dy: 0, now: now); now = now.addingTimeInterval(0.01); a.tick(now: now); pump()
     now = now.addingTimeInterval(0.2)
-    _ = a.localMove(point: .zero, dx: 2, dy: 0, now: now); a.tick(now: now); pump()
+    _ = a.localMove(point: .zero, dx: 2, dy: 0, now: now); now = now.addingTimeInterval(0.01); a.tick(now: now); pump()
     try Check.that(a.mode == .controlling, "a new handoff cannot reuse the previous session's return arming")
     _ = b.localMove(point: .zero, dx: 0, dy: 1, now: now); pump()
     try Check.that(a.mode == .local && b.mode == .local && a.lastEndReason == .localMotion, "vertical receiver motion still reclaims control immediately")
@@ -250,6 +250,59 @@ func mouseSharingTests() throws {
     try Check.that(internalEdge == nil, "local multi-display seams do not hand off remotely")
     let entry = ScreenGeometry.entry(side: .left, fraction: 0.25, displays: [CGRect(x: -1600, y: -100, width: 1600, height: 1000), CGRect(x: 0, y: 0, width: 1000, height: 600)])!
     try Check.that(entry.0.x == -1596 && entry.0.y == 150, "support negative display origins and normalized height")
+}
+
+func mousePacingTests() throws {
+    let mouse = MouseSharing(local: "A", native: false)
+    defer { mouse.stop() }
+    var sent: [MousePacket] = []
+    mouse.send = { _, packet, reply in sent.append(packet); reply(true) }
+    mouse.displays = { [CGRect(x: 0, y: 0, width: 1000, height: 600)] }
+    mouse.setPeer("B"); mouse.setSide(.right); try mouse.setEnabled(true)
+    mouse.receive(MousePacket(kind: .availability, enabled: true), from: "B")
+    var now = Date().addingTimeInterval(2)
+    func enter() throws {
+        _ = mouse.localMove(point: CGPoint(x: 999, y: 300), dx: 2, dy: 0, now: now)
+        now = now.addingTimeInterval(0.2)
+        _ = mouse.localMove(point: CGPoint(x: 999, y: 300), dx: 2, dy: 0, now: now)
+        let token = sent.last(where: { $0.kind == .enter })!.token
+        mouse.receive(MousePacket(kind: .accepted, token: token), from: "B", now: now)
+        try Check.that(mouse.mode == .controlling, "pacing test starts with accepted control")
+        sent = []
+    }
+    try enter()
+    _ = mouse.localMove(point: .zero, dx: 1, dy: 2, now: now)
+    try Check.that(sent.count == 1 && sent[0].dx == 1, "first cursor movement is sent without waiting for a timer tick")
+    for step in 1...8 {
+        _ = mouse.localMove(point: .zero, dx: 1, dy: 2, now: now.addingTimeInterval(Double(step) / 1000))
+    }
+    try Check.that(sent.count == 1, "1000 Hz device burst is coalesced within one 120 Hz update interval")
+    mouse.tick(now: now.addingTimeInterval(0.009))
+    var moves = sent.filter { $0.action == .move }
+    try Check.that(moves.count == 2 && moves.reduce(0) { $0 + $1.dx } == 9 && moves.reduce(0) { $0 + $1.dy } == 18,
+                   "timer drains the final movement sample without dropping distance")
+    now = now.addingTimeInterval(0.010)
+    _ = mouse.localMove(point: .zero, dx: 3, dy: 0, now: now)
+    _ = mouse.localButton(action: .down, button: 0)
+    let input = sent.filter { $0.kind == .input }
+    try Check.that(input.suffix(2).map(\.action) == [.move, .down] && input[input.count - 2].dx == 3,
+                   "click flushes pending movement before the button event")
+    now = now.addingTimeInterval(0.5)
+    let before = sent.count
+    _ = mouse.localMove(point: .zero, dx: 1, dy: 0, now: now)
+    try Check.that(sent.count == before + 1, "movement after an idle interval also has no timer wait")
+    _ = mouse.localMove(point: .zero, dx: 2, dy: 0, now: now.addingTimeInterval(0.001))
+    _ = mouse.localMove(point: .zero, dx: 3, dy: 0, flags: 0x20000, now: now.addingTimeInterval(0.002))
+    mouse.tick(now: now.addingTimeInterval(0.012))
+    moves = sent.filter { $0.action == .move }
+    try Check.that(moves.suffix(2).map(\.flags) == [0, 0x20000] && moves.suffix(2).map(\.dx) == [2, 3],
+                   "movement batching does not merge across modifier changes")
+    mouse.endSession(); now = now.addingTimeInterval(2); try enter()
+    let count = sent.count
+    mouse.secureInputEnabled = { true }
+    _ = mouse.localMove(point: .zero, dx: 20, dy: 0, now: now)
+    try Check.that(mouse.mode == .local && sent.dropFirst(count).allSatisfy { $0.action != .move },
+                   "immediate movement dispatch still honors Secure Event Input")
 }
 
 func mouseResumeTests() throws {

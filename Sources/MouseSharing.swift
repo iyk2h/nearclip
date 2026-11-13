@@ -68,6 +68,8 @@ final class MouseSharing {
     private var pendingX: Double = 0
     private var pendingY: Double = 0
     private var pendingFlags: UInt64 = 0
+    private var lastMoveObserved = Date.distantPast
+    private static let moveInterval = 1.0 / 120
     private var tap: CFMachPort?
     private var runSource: CFRunLoopSource?
     private var timer: Timer?
@@ -164,7 +166,7 @@ final class MouseSharing {
         if !value { endSession(reason: .disabled); removeTap(); localHeldKeys = [] }
         enabled = value; edgeSince = nil; cooldown = Date().addingTimeInterval(0.7)
         if value, native, timer == nil {
-            let timer = Timer(timeInterval: 1.0 / 120, repeats: true) { [weak self] _ in self?.tick() }
+            let timer = Timer(timeInterval: Self.moveInterval, repeats: true) { [weak self] _ in self?.tick() }
             self.timer = timer; RunLoop.main.add(timer, forMode: .common)
         }
         if !value { timer?.invalidate(); timer = nil }
@@ -226,6 +228,7 @@ final class MouseSharing {
     // Return true only while local mouse events must be suppressed.
     func localMove(point: CGPoint, dx: Double, dy: Double, flags: UInt64 = 0, buttonsDown: Bool = false, now: Date = Date()) -> Bool {
         guard enabled else { return false }
+        if active && secureInputEnabled() { endSession(reason: .secureInput); return false }
         if mode == .receiving {
             // A position-only event is not evidence of local input. In particular,
             // it must not undo a newly accepted handoff with no physical motion.
@@ -233,7 +236,13 @@ final class MouseSharing {
             return false
         }
         if mode == .controlling {
+            if pendingFlags != flags & 0x1E0000 { flushMove() }
+            let idle = now.timeIntervalSince(lastMoveObserved)
+            lastMoveObserved = now
             pendingX = max(-4096, min(4096, pendingX + dx)); pendingY = max(-4096, min(4096, pendingY + dy)); pendingFlags = flags & 0x1E0000
+            // Send the first sample immediately. During a burst, coalesce only
+            // the samples inside one update interval; the timer drains its tail.
+            if idle >= Self.moveInterval || idle < 0 { flushMove() }
             return true
         }
         if mode == .requesting {
@@ -366,6 +375,7 @@ final class MouseSharing {
         let old = mode, oldToken = token
         if old != .local { lastEndReason = reason; endedByPeer = byPeer }
         mode = .local; token = nil; pendingX = 0; pendingY = 0; edgeSince = nil
+        lastMoveObserved = .distantPast
         returnArmed = false; returnEdgeSince = nil; lastReturnPush = nil
         cooldown = Date().addingTimeInterval(0.7)
         onEdgeProgress?(nil, side, 0)
@@ -462,7 +472,7 @@ final class MouseSharing {
         return Unmanaged.passUnretained(event)
     }
     private func post(_ packet: MousePacket, at point: CGPoint) {
-        Self.makeEvent(packet, at: point, pressed: pressed)?.post(tap: .cgSessionEventTap)
+        Self.makeEvent(packet, at: point, pressed: pressed, source: eventSource)?.post(tap: .cgSessionEventTap)
     }
     private func postKeyboard(_ packet: KeyboardPacket) {
         Self.makeKeyboardEvent(packet, source: eventSource)?.post(tap: .cgSessionEventTap)
@@ -478,10 +488,10 @@ final class MouseSharing {
         return event
     }
     // Creating an event has no system input effect; tests inspect this adapter without posting.
-    static func makeEvent(_ packet: MousePacket, at point: CGPoint, pressed: Set<Int>) -> CGEvent? {
+    static func makeEvent(_ packet: MousePacket, at point: CGPoint, pressed: Set<Int>, source: CGEventSource? = nil) -> CGEvent? {
         guard packet.kind == .input, packet.action != nil, (try? packet.validate()) != nil else { return nil }
         let event: CGEvent?
-        let source = CGEventSource(stateID: .privateState)
+        let source = source ?? CGEventSource(stateID: .privateState)
         if packet.action == .scroll {
             event = CGEvent(scrollWheelEvent2Source: source, units: .pixel, wheelCount: 2, wheel1: Int32(packet.dy), wheel2: Int32(packet.dx), wheel3: 0)
             if let phase = packet.scrollPhase { event?.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(phase)) }
