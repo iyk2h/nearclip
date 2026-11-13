@@ -11,7 +11,8 @@ enum SharingFeature {
     static let files = "files-v1"
     static let mouse = "mouse-v1"
     static let keyboard = "keyboard-v1"
-    static let supported = [files, mouse, keyboard]
+    static let inputChannel = "input-channel-v1"
+    static let supported = [files, mouse, keyboard, inputChannel]
     static let maxPacket = 128 * 1024
 }
 

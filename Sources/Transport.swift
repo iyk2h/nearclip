@@ -22,6 +22,23 @@ final class PeerLink {
     private(set) var authenticated = false
     private(set) var closed = false
     private var cipher: SessionCipher?
+    private let inputOnly: Bool
+    private var inputListener: NWListener?
+    private(set) var inputLink: PeerLink?
+    private var pendingInputConnection: NWConnection?
+    private var inputPort: UInt16?
+    private(set) var ready = false
+    var hasSeparateInput: Bool { ready && inputLink?.ready == true }
+    private struct InputOffer: Codable { let port: UInt16 }
+
+    // A new key for each parent handshake, distinct from clipboard keys and
+    // bound to both authenticated identities/nonces. Never sent on the wire.
+    static func inputKey(secret: SymmetricKey, local: Hello, remote: Hello) throws -> SymmetricKey {
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        let transcript = try encoder.encode([local, remote].sorted { $0.device < $1.device })
+        return HKDF<SHA256>.deriveKey(inputKeyMaterial: secret, salt: transcript,
+            info: Data("NearClip authenticated input channel v1".utf8), outputByteCount: 32)
+    }
     private let advertisedFeatures: [String]
     private var sending = false
     private var featureQueue: [(Data, (Bool) -> Void, TimeInterval)] = []
@@ -37,7 +54,8 @@ final class PeerLink {
     var onClock: ((UInt64) -> Void)?
 
     init(connection: NWConnection, secret: SymmetricKey, device: String, name: String,
-         endpointKey: String? = nil, expectedDevice: String? = nil, advertisedFeatures: [String] = SharingFeature.supported) {
+         endpointKey: String? = nil, expectedDevice: String? = nil, advertisedFeatures: [String] = SharingFeature.supported, inputOnly: Bool = false) {
+        self.inputOnly = inputOnly
         self.advertisedFeatures = advertisedFeatures
         self.connection = connection; self.secret = secret
         self.local = Hello.make(device: device, name: name)
@@ -48,18 +66,82 @@ final class PeerLink {
             guard let self, !self.closed else { return }
             switch state {
             case .ready:
-                do { try self.sendFrame(JSONEncoder().encode(self.local)); self.readFrame() }
-                catch { self.close(.invalidFrame) }
+                self.beginHandshake()
             case .failed, .cancelled: self.close(.networkFailure)
             default: break
             }
         }
         connection.start(queue: .main)
     }
+    private func beginHandshake() {
+        guard !inputOnly, advertisedFeatures.contains(SharingFeature.inputChannel) else { sendHello(); return }
+        do {
+            let listener = try NWListener(using: LocalTransport.parameters())
+            inputListener = listener
+            listener.newConnectionHandler = { [weak self] connection in
+                guard let self, !self.closed, self.inputLink == nil, self.pendingInputConnection == nil else { connection.cancel(); return }
+                // The independent socket can arrive before its parent's ready
+                // frame. Hold one candidate until parent authentication finishes.
+                if !self.authenticated { self.pendingInputConnection = connection; return }
+                guard self.features.contains(SharingFeature.inputChannel),
+                      self.local.device > (self.remote?.device ?? "") else { connection.cancel(); return }
+                self.startInput(connection)
+            }
+            listener.stateUpdateHandler = { [weak self, weak listener] state in
+                guard let self, let listener, !self.closed else { return }
+                switch state {
+                case .ready:
+                    guard let port = listener.port else { self.close(.networkFailure); return }
+                    self.inputPort = port.rawValue; self.sendHello()
+                case .failed: self.close(.networkFailure)
+                default: break
+                }
+            }
+            listener.start(queue: .main)
+        } catch { close(.networkFailure) }
+    }
+    private func sendHello() {
+        do { try sendFrame(JSONEncoder().encode(local)); readFrame() }
+        catch { close(.invalidFrame) }
+    }
+    private func startInput(_ connection: NWConnection) {
+        guard let remote, inputLink == nil, !closed else { connection.cancel(); return }
+        do {
+            let key = try Self.inputKey(secret: secret, local: local, remote: remote)
+            let child = PeerLink(connection: connection, secret: key, device: local.device, name: local.name,
+                expectedDevice: remote.device, advertisedFeatures: [SharingFeature.mouse, SharingFeature.keyboard], inputOnly: true)
+            inputLink = child
+            child.onReady = { [weak self] _ in
+                guard let self, !self.closed else { return }
+                self.inputListener?.cancel(); self.inputListener = nil
+                self.ready = true
+                self.logger.notice("input_channel_ready")
+                self.onReady?(self)
+            }
+            child.onFeature = { [weak self] _, packet in
+                guard let self, self.ready, !self.closed, self.features.contains(packet.feature) else { return }
+                self.onFeature?(self, packet)
+            }
+            // A lost input channel invalidates the whole session. Existing
+            // disconnect handling releases held keys/buttons before reconnect.
+            child.onClose = { [weak self] child in
+                guard let self, !self.closed else { return }
+                if self.ready { self.close(.networkFailure) }
+                else if self.inputLink === child {
+                    self.inputLink = nil // Invalid candidates cannot deliver input.
+                    if self.local.device < remote.device { self.close(.networkFailure) }
+                }
+            }
+            child.start()
+        } catch { connection.cancel(); close(.invalidFrame) }
+    }
     func close(_ reason: CloseReason = .stopped) {
         guard !closed else { return }
         logger.notice("connection_close reason=\(reason.rawValue, privacy: .public) authenticated=\(self.authenticated, privacy: .public) peak_queue=\(self.peakQueueDepth, privacy: .public) max_queue_wait_ms=\(Int(self.maxQueueWaitMS), privacy: .public)")
-        closed = true; authenticated = false; pendingClip = nil
+        closed = true; authenticated = false; ready = false; pendingClip = nil
+        inputListener?.stateUpdateHandler = nil; inputListener?.cancel(); inputListener = nil
+        inputLink?.onClose = nil; inputLink?.close(reason); inputLink = nil
+        pendingInputConnection?.cancel(); pendingInputConnection = nil
         let queued = featureQueue; featureQueue = []
         queued.forEach { $0.1(false) }
         connection.stateUpdateHandler = nil
@@ -90,7 +172,7 @@ final class PeerLink {
         readExactly(4) { [weak self] header in
             guard let self else { return }
             do {
-                let count = try Framing.length(header, limit: self.authenticated ? Framing.maxFrame : 4096)
+                let count = try Framing.length(header, limit: self.authenticated && !self.inputOnly ? Framing.maxFrame : 4096)
                 self.readExactly(count) { [weak self] body in
                     self?.processFrame(body)
                 }
@@ -126,7 +208,8 @@ final class PeerLink {
             remote = hello
             let cipher = try SessionCipher(secret: secret, local: local, remote: hello)
             self.cipher = cipher
-            try sendFrame(cipher.seal(kind: "ready", clock: clockProvider?() ?? 0, features: advertisedFeatures))
+            let offer = try inputPort.map { try JSONEncoder().encode(InputOffer(port: $0)) }
+            try sendFrame(cipher.seal(kind: "ready", clock: clockProvider?() ?? 0, features: advertisedFeatures, data: offer))
             return
         }
         guard let cipher else { throw ClipError.invalid("연결을 확인할 수 없어요.") }
@@ -135,7 +218,23 @@ final class PeerLink {
             guard message.kind == "ready", message.clip == nil else { throw ClipError.invalid("연결 인증에 실패했어요.") }
             if let clock = message.clock { onClock?(clock) }
             features = Set((message.features ?? []).prefix(8)).intersection(advertisedFeatures)
-            authenticated = true; onReady?(self)
+            authenticated = true
+            if features.contains(SharingFeature.inputChannel) {
+                guard let data = message.data, let offer = try? JSONDecoder().decode(InputOffer.self, from: data),
+                      offer.port != 0 else { throw ClipError.invalid("입력 연결 정보를 확인할 수 없어요.") }
+                if local.device < (remote?.device ?? "") {
+                    pendingInputConnection?.cancel(); pendingInputConnection = nil
+                    guard case .hostPort(let host, _) = connection.currentPath?.remoteEndpoint,
+                          let port = NWEndpoint.Port(rawValue: offer.port) else { throw ClipError.invalid("입력 연결 주소를 확인할 수 없어요.") }
+                    startInput(NWConnection(host: host, port: port, using: LocalTransport.parameters()))
+                } else if let pending = pendingInputConnection {
+                    pendingInputConnection = nil; startInput(pending)
+                }
+            } else {
+                pendingInputConnection?.cancel(); pendingInputConnection = nil
+                inputListener?.cancel(); inputListener = nil
+                ready = true; onReady?(self)
+            }
             logger.notice("connection_ready elapsed_ms=\(Int((ProcessInfo.processInfo.systemUptime - self.createdAt) * 1000), privacy: .public)")
             return
         }
@@ -144,26 +243,32 @@ final class PeerLink {
     private func handleMessage(_ message: Envelope) throws {
         switch message.kind {
         case "clip":
+            guard !inputOnly else { throw ClipError.invalid("입력 채널에는 클립보드를 보낼 수 없어요.") }
             guard let clip = message.clip, clip.stamp.device == remote?.device else { throw ClipError.invalid("보낸 기기를 확인할 수 없어요.") }
             try clip.payload.validate()
             onClip?(self, clip)
         case "feature":
             guard let data = message.data else { throw ClipError.invalid("공유 데이터가 없어요.") }
             let packet = try FeaturePacket.decode(data)
-            guard features.contains(packet.feature) else { throw ClipError.invalid("지원하지 않는 공유 기능이에요.") }
+            guard features.contains(packet.feature),
+                  !(features.contains(SharingFeature.inputChannel) && packet.file == nil) else { throw ClipError.invalid("지원하지 않는 공유 기능이에요.") }
             onFeature?(self, packet)
         case "ping": break
         default: throw ClipError.invalid("지원하지 않는 메시지예요.")
         }
     }
     func send(_ message: ClipMessage) {
-        guard authenticated, !closed else { return }
+        guard ready, !inputOnly, !closed else { return }
         pendingClip = message
         flush()
     }
     func sendFeature(_ packet: FeaturePacket, completion: @escaping (Bool) -> Void) {
+        if features.contains(SharingFeature.inputChannel), packet.file == nil {
+            guard ready, features.contains(packet.feature), let inputLink, inputLink.ready else { completion(false); return }
+            inputLink.sendFeature(packet, completion: completion); return
+        }
         if featureQueue.count >= 32 { logger.error("send_queue_full depth=32") }
-        guard authenticated, !closed, features.contains(packet.feature), featureQueue.count < 32,
+        guard ready, !closed, features.contains(packet.feature), featureQueue.count < 32,
               let data = try? packet.encoded() else { completion(false); return }
         featureQueue.append((data, completion, ProcessInfo.processInfo.systemUptime))
         peakQueueDepth = max(peakQueueDepth, featureQueue.count); flush()
@@ -214,7 +319,8 @@ final class PeerLink {
     }
     func tick() {
         guard !closed else { return }
-        if (!authenticated && Date().timeIntervalSince(created) > 12) || Date().timeIntervalSince(lastReceived) > 90 {
+        inputLink?.tick()
+        if (!ready && Date().timeIntervalSince(created) > 12) || Date().timeIntervalSince(lastReceived) > 90 {
             close(authenticated ? .idleTimeout : .handshakeTimeout); return
         }
         guard authenticated, !sending, let cipher else { return }
@@ -252,7 +358,8 @@ final class LocalTransport {
     var onListening: ((NWEndpoint.Port) -> Void)?
     var clockProvider: (() -> UInt64)?
     var onClock: ((UInt64) -> Void)?
-    var peerCount: Int { links.values.filter(\.authenticated).count }
+    var separateInputPeerCount: Int { links.values.filter(\.hasSeparateInput).count }
+    var peerCount: Int { links.values.filter(\.ready).count }
 
     init(code: String, device: String, name: String, discovery: Bool = true, port: UInt16 = 0) throws {
         self.preferredPort = port
@@ -371,7 +478,7 @@ final class LocalTransport {
         link.onClock = { [weak self] in self?.onClock?($0) }
         link.onReady = { [weak self] link in
             guard let self else { return }
-            if let existing = self.links.values.first(where: { $0.id != link.id && $0.authenticated && $0.remote?.device == link.remote?.device }) {
+            if let existing = self.links.values.first(where: { $0.id != link.id && $0.ready && $0.remote?.device == link.remote?.device }) {
                 // Both devices select the same physical connection when they dial at once.
                 let preferOutgoing = self.device < (link.remote?.device ?? "")
                 if (link.expectedDevice != nil) == preferOutgoing { existing.close(.duplicate) }
@@ -387,15 +494,15 @@ final class LocalTransport {
         link.start()
     }
     private func publishPeers() {
-        let peers = links.values.filter(\.authenticated).compactMap { link -> ConnectedPeer? in
+        let peers = links.values.filter(\.ready).compactMap { link -> ConnectedPeer? in
             guard let remote = link.remote else { return nil }
             return ConnectedPeer(device: remote.device, name: remote.name, connection: link.id, features: link.features)
         }
         onPeers?(peers.map(\.name).sorted()); onPeerDetails?(peers)
     }
     func sendFeature(_ packet: FeaturePacket, to peer: String, completion: @escaping (Bool) -> Void = { _ in }) {
-        guard let link = links.values.first(where: { $0.authenticated && $0.remote?.device == peer }) else { completion(false); return }
+        guard let link = links.values.first(where: { $0.ready && $0.remote?.device == peer }) else { completion(false); return }
         link.sendFeature(packet, completion: completion)
     }
-    func send(_ message: ClipMessage) { for link in links.values where link.authenticated { link.send(message) } }
+    func send(_ message: ClipMessage) { for link in links.values where link.ready { link.send(message) } }
 }

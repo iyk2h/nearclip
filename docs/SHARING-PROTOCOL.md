@@ -25,7 +25,7 @@ A cross-language implementation must reproduce the transcript bytes exactly, inc
 The encrypted `ready` envelope adds an optional `features` array:
 
 ```json
-["files-v1", "mouse-v1", "keyboard-v1"]
+["files-v1", "mouse-v1", "keyboard-v1", "input-channel-v1"]
 ```
 
 A peer without these capabilities continues to exchange clipboard messages. Never send a feature packet unless the authenticated peer advertised that capability. Missing features mean unsupported, not implicit consent.
@@ -82,7 +82,11 @@ Each active peer sends a heartbeat every 500 ms. A request times out after one s
 
 On macOS, Control–Option–Escape disables mouse sharing. Capture uses a session event tap; generated events carry a marker to avoid recapture. The app requests Accessibility and Input Monitoring only when the user enables mouse sharing. It also stops input on sleep, session deactivation, and the available screen-lock notification. Permission, lock-screen, and secure-input behavior still require physical-device validation.
 
-Files and mouse messages currently share the clipboard TCP channel. Small file chunks limit blocking, but a large clipboard frame or a slow link can delay mouse traffic. The watchdog returns control instead of keeping the source captured indefinitely. Separate interactive and bulk channels are a possible follow-up after physical latency measurements.
+Build 16 negotiates `input-channel-v1`. When both peers support it, the encrypted parent `ready.data` contains Base64-encoded JSON `{"port": <nonzero UInt16>}`. The lower device ID dials that port on the existing connection's resolved remote host. No extra Bonjour service or unencrypted input endpoint is advertised.
+
+The child secret is HKDF-SHA256 of the pairing key, with sorted-key JSON for the device-sorted array of both parent hellos as salt, info `NearClip authenticated input channel v1`, and 32 output bytes. The child performs the usual hello/ready exchange with fresh nonces, expected peer identity, independent directional cipher keys, and sequence counters. It advertises only mouse and keyboard capabilities. Every child frame is limited to 4 KiB; files and clipboard are rejected. The peer is published only after both connections authenticate.
+
+Mouse, keyboard, layout, and input availability use the child channel; clipboard and files stay on the parent. Input frames cannot overtake each other but can overtake bulk frames. A failure of either established channel closes the whole session and invokes normal held-input cleanup. Reconnection derives fresh keys and requires fresh input availability/session acceptance. Older peers use the original single-channel path; both Macs need build 16 for separation. The two sockets still share physical network bandwidth, so separation does not guarantee latency under network saturation.
 
 ## Keyboard control (0.4.3)
 

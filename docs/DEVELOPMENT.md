@@ -8,11 +8,12 @@ Use macOS 13 or later and Apple's Command Line Tools. No package manager or thir
 xcode-select --install
 git clone https://github.com/iyk2h/nearclip.git
 cd nearclip
+python3 scripts/setup-local-signing.py
 bash build.sh
 open build/NearClip.app
 ```
 
-The build script creates one universal app for Apple Silicon and Intel. The build uses `SIGNING_IDENTITY`, or the persistent local identity configured below. Without either, a development build uses an ad-hoc signature and prints a warning. The bundle ID is `dev.nearclip.mac`; changing it can change permission and settings behavior.
+The build script creates one universal app for Apple Silicon and Intel. The build uses `SIGNING_IDENTITY`, or the persistent local identity configured below. Without either, an ad-hoc build can run previews and synthetic tests, but cannot read or save real pairing keys. The bundle ID is `dev.nearclip.mac`; changing it can change permission and settings behavior.
 
 ## Tests
 
@@ -76,7 +77,8 @@ Self-signing provides continuity, not Apple trust or notarization. For public Ga
 | --- | --- |
 | `App.swift` | App lifecycle, window, menu bar, settings |
 | `Clipboard.swift` | Pasteboard formats, polling, conflict resolution |
-| `Core.swift` | Keychain, message types, framing, encryption |
+| `Core.swift` | Restricted Keychain helper client, message types, framing, encryption |
+| `Helpers/NearClipKeyStore.m` | Stable signed Keychain access, authenticated parent only |
 | `Pairing.swift` | Discovery and two-sided numeric pairing |
 | `Transport.swift` | Authenticated clipboard sessions and reconnect |
 | `Preferences.swift` | Address parsing, saved route model, and pairing access policy |
@@ -87,3 +89,11 @@ Self-signing provides continuity, not Apple trust or notarization. For public Ga
 | `FileTransfer.swift` | Transfer state, background I/O, and safe destination commit |
 
 Pairing and clipboard discovery share `_nearclip._tcp`. Pairing advertisements start with `pair-`; clipboard advertisements start with a group hint. Both peers can dial directly, so duplicate connections use a deterministic device-ID order.
+
+## Keychain helper continuity
+
+Build 16 moves access to the existing pairing item into `Contents/Helpers/NearClipKeyStore`. The helper verifies the live parent’s certificate-bound code requirement and requires private stdin/stdout pipes. The app verifies the helper’s certificate and identifier before launch. Pairing keys never appear in arguments, preferences, or diagnostic output.
+
+Keep `build/keystore-cache` between release builds, or set `NEARCLIP_HELPER_CACHE` to a persistent private build directory. Cache entries are keyed by helper source and signing identity, checked by SHA-256, and signature-verified. Ordinary app edits and version increments reuse the same signed helper bytes. A helper change or new signing identity may require Keychain approval again. Do not re-sign nested helpers during an app-only update. A new build machine must use the same verified helper artifact or validate its hashes before claiming approval continuity.
+
+After initial authorization, run `NearClip.app/Contents/MacOS/NearClip --keychain-check`. This checks the existing item without prompting and prints only success/failure. Use `bash scripts/verify-keychain-update.sh OLD_APP NEW_APP` to check signing requirements, identical helper bytes, and prompt-free reads from both app builds. It does not create, reset, print, or export pairing keys.

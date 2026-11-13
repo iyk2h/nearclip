@@ -13,5 +13,6 @@ xcrun lipo -create "$out/NearClip-arm64" "$out/NearClip-x86_64" -output "$out/Ne
 cp Info.plist "$out/NearClip.app/Contents/Info.plist"
 xcrun swift -module-cache-path "$out/module-cache" scripts/make-icon.swift "$out/AppIcon.iconset"
 xcrun iconutil -c icns "$out/AppIcon.iconset" -o "$out/NearClip.app/Contents/Resources/AppIcon.icns"
+bash scripts/build-keychain-helper.sh "$out/NearClip.app"
 bash scripts/sign-app.sh "$out/NearClip.app"
 echo "Built $out/NearClip.app"

@@ -53,6 +53,21 @@ func sharingProtocolTests() throws {
     try Check.rejects("reject mixed feature payloads") { _ = try FeaturePacket(file: file, mouse: MousePacket(kind: .availability, enabled: true)).encoded() }
     let a = Hello.make(device: UUID().uuidString, name: "A"), b = Hello.make(device: UUID().uuidString, name: "B")
     let key = try PairCode.key(PairCode.create())
+    let inputKey = try PeerLink.inputKey(secret: key, local: a, remote: b)
+    let reverseKey = try PeerLink.inputKey(secret: key, local: b, remote: a)
+    let inputTX = try SessionCipher(secret: inputKey, local: a, remote: b)
+    let inputRX = try SessionCipher(secret: reverseKey, local: b, remote: a)
+    let inputFrame = try inputTX.seal(kind: "ping")
+    try Check.that(try inputRX.open(inputFrame).kind == "ping", "both directions derive the same session-bound input secret")
+    try Check.rejects("input secret cannot be used on the bulk channel") {
+        _ = try SessionCipher(secret: key, local: b, remote: a).open(inputFrame)
+    }
+    try Check.rejects("reconnected parent cannot decrypt an old input channel") {
+        let next = Hello.make(device: a.device, name: a.name)
+        let nextKey = try PeerLink.inputKey(secret: key, local: next, remote: b)
+        _ = try SessionCipher(secret: nextKey, local: b, remote: a).open(inputFrame)
+    }
+    try Check.rejects("input frame replay is rejected") { _ = try inputRX.open(inputFrame) }
     let tx = try SessionCipher(secret: key, local: a, remote: b), rx = try SessionCipher(secret: key, local: b, remote: a)
     let sealed = try tx.seal(kind: "feature", data: FeaturePacket(file: file).encoded())
     let opened = try rx.open(sealed)
@@ -374,25 +389,34 @@ func mouseResumeTests() throws {
 func featureNetworkTests() throws {
     let folder = try testFolder(); defer { try? FileManager.default.removeItem(at: folder) }
     let source = folder.appendingPathComponent("source.dat"), destination = folder.appendingPathComponent("copy.dat")
-    let data = Data(repeating: 0x9A, count: 500_007); try data.write(to: source)
+    let data = Data(repeating: 0x9A, count: 8 * 1024 * 1024 + 7); try data.write(to: source)
     let key = try PairCode.create(), idA = UUID().uuidString, idB = UUID().uuidString
     let a = try LocalTransport(code: key, device: idA, name: "File A", discovery: false)
     let b = try LocalTransport(code: key, device: idB, name: "File B", discovery: false)
     let fa = FileTransfer(), fb = FileTransfer()
     defer { fa.stop(); fb.stop(); a.stop(); b.stop() }
-    var features: Set<String> = [], done = false
+    var features: Set<String> = [], done = false, inputDuringFile = false, inputSent = false
     b.onListening = { a.connectLoopback(port: $0, expected: idB) }
     a.onPeerDetails = { features = $0.first?.features ?? [] }
     fa.send = { peer, packet, reply in a.sendFeature(FeaturePacket(file: packet), to: peer, completion: reply) }
     fb.send = { peer, packet, reply in b.sendFeature(FeaturePacket(file: packet), to: peer, completion: reply) }
     a.onFeature = { peer, packet in if let file = packet.file { fa.receive(file, from: peer) } }
-    b.onFeature = { peer, packet in if let file = packet.file { fb.receive(file, from: peer) } }
+    b.onFeature = { peer, packet in
+        if let file = packet.file {
+            fb.receive(file, from: peer)
+            if file.kind == .chunk && !inputSent {
+                inputSent = true
+                a.sendFeature(FeaturePacket(mouse: MousePacket(kind: .availability, enabled: false)), to: idB)
+            }
+        } else if packet.mouse?.kind == .availability { inputDuringFile = !done }
+    }
     fb.onOffer = { _, packet in fb.accept(id: packet.id, destination: destination) }
     fa.onComplete = { _ in done = true }
     a.start(); b.start(); waitFor({ a.peerCount == 1 && b.peerCount == 1 })
     try Check.that(features.contains(SharingFeature.files) && features.contains(SharingFeature.mouse), "authenticated ready negotiates file and mouse capabilities")
     try fa.offer(url: source, to: idB); waitFor({ done }, seconds: 10)
     try Check.that(done && (try Data(contentsOf: destination)) == data, "real encrypted TCP streams files through background I/O workers")
+    try Check.that(inputDuringFile, "input arrives during an 8 MiB streamed file without waiting for completion")
     var layoutArrived = false
     b.onFeature = { _, packet in layoutArrived = packet.mouse?.layout?.left == idA }
     a.sendFeature(FeaturePacket(mouse: MousePacket(kind: .layout, layout: ScreenLayout(revision: 1, author: idA, left: idA, right: idB))), to: idB)
@@ -428,6 +452,40 @@ func legacyCapabilityTests() throws {
     try Check.that(rejected, "do not send keyboard packets to peers without keyboard capability")
     old?.send(ClipMessage(id: UUID(), stamp: ClipStamp(counter: 1, device: legacyID), payload: ClipPayload(type: "public.utf8-plain-text", data: Data("legacy".utf8))))
     waitFor({ gotClip }); try Check.that(gotClip, "clipboard transfer remains available to an older peer")
+    old?.close(); server.stop()
+    var legacyInput = false
+    server.onListening = { port in
+        let link = PeerLink(connection: NWConnection(host: "127.0.0.1", port: port, using: LocalTransport.parameters()),
+            secret: secret, device: legacyID, name: "Build 15", advertisedFeatures: [SharingFeature.mouse, SharingFeature.keyboard, SharingFeature.files])
+        old = link
+        link.onFeature = { _, packet in legacyInput = packet.mouse?.kind == .availability }
+        link.start()
+    }
+    server.start(); waitFor({ old?.ready == true && server.peerCount == 1 })
+    try Check.that(server.peerCount == 1 && server.separateInputPeerCount == 0, "older input peers retain the single-channel protocol")
+    server.sendFeature(FeaturePacket(mouse: MousePacket(kind: .availability, enabled: false)), to: legacyID)
+    waitFor({ legacyInput })
+    try Check.that(legacyInput, "mouse availability reaches an older peer without a channel upgrade")
+    old?.close(); server.stop()
+
+    // Exercise the two physical connections and either-socket cleanup directly.
+    server.onListening = { port in
+        let link = PeerLink(connection: NWConnection(host: "127.0.0.1", port: port, using: LocalTransport.parameters()),
+            secret: secret, device: legacyID, name: "Split input")
+        old = link; link.start()
+    }
+    server.start(); waitFor({ old?.hasSeparateInput == true && server.peerCount == 1 })
+    try Check.that(old?.inputLink?.connection !== old?.connection && old?.hasSeparateInput == true, "input and bulk use distinct TCP connections")
+    var fileRejected = false
+    old?.inputLink?.sendFeature(FeaturePacket(file: FilePacket(kind: .cancel, id: UUID()))) { fileRejected = !$0 }
+    try Check.that(fileRejected, "input channel rejects file packets")
+    gotClip = false
+    old?.inputLink?.send(ClipMessage(id: UUID(), stamp: ClipStamp(counter: 2, device: legacyID), payload: ClipPayload(type: "public.utf8-plain-text", data: Data("legacy".utf8))))
+    RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+    try Check.that(!gotClip, "input channel cannot send clipboard content")
+    old?.inputLink?.close()
+    waitFor({ old?.closed == true && server.peerCount == 0 })
+    try Check.that(old?.closed == true && server.peerCount == 0, "input disconnect invalidates both peers and ends the parent session")
 }
 
 func mouseAdapterTests() throws {

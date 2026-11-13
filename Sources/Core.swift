@@ -42,35 +42,52 @@ enum PairCode {
 }
 
 enum KeyStore {
-    private static let service = "local.nearclip.pairing.v1"
-    private static var query: [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
-         kSecAttrAccount as String: "pairing-code"]
+    private static func run(_ operation: String, input: Data? = nil) throws -> (Int32, Data) {
+        let url = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/NearClipKeyStore")
+        var own: SecCode?, ownStatic: SecStaticCode?, ownRequirement: SecRequirement?, requirementText: CFString?
+        var helper: SecStaticCode?, required: SecRequirement?
+        guard SecCodeCopySelf([], &own) == errSecSuccess, let own,
+              SecCodeCopyStaticCode(own, [], &ownStatic) == errSecSuccess, let ownStatic,
+              SecCodeCopyDesignatedRequirement(ownStatic, [], &ownRequirement) == errSecSuccess, let ownRequirement,
+              SecRequirementCopyString(ownRequirement, [], &requirementText) == errSecSuccess, let requirementText else {
+            throw ClipError.invalid("앱 서명을 확인할 수 없어요.")
+        }
+        let text = requirementText as String
+        guard text.contains("identifier \"dev.nearclip.mac\""), text.contains("certificate"), !text.contains("cdhash") else {
+            throw ClipError.invalid("연결 정보를 저장하려면 고정 서명이 필요해요.")
+        }
+        let helperRequirement = text.replacingOccurrences(of: "identifier \"dev.nearclip.mac\"", with: "identifier \"dev.nearclip.keystore\"")
+        guard SecRequirementCreateWithString(helperRequirement as CFString, [], &required) == errSecSuccess,
+              SecStaticCodeCreateWithPath(url as CFURL, [], &helper) == errSecSuccess, let helper,
+              SecStaticCodeCheckValidity(helper, SecCSFlags(rawValue: kSecCSStrictValidate | kSecCSCheckAllArchitectures), required) == errSecSuccess else {
+            throw ClipError.invalid("키체인 구성요소의 서명을 확인할 수 없어요. 앱을 다시 설치해 주세요.")
+        }
+        let process = Process(), stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
+        process.executableURL = url; process.arguments = [operation]
+        process.environment = [:]
+        process.standardInput = stdin; process.standardOutput = stdout; process.standardError = stderr
+        try process.run()
+        if let input { try stdin.fileHandleForWriting.write(contentsOf: input) }
+        try stdin.fileHandleForWriting.close()
+        let output = stdout.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return (process.terminationStatus, output)
+    }
+    static func checkWithoutPrompt() -> Bool {
+        guard let (status, _) = try? run("check") else { return false }
+        return status == 0
     }
     static func load() throws -> String? {
-        var q = query
-        q[kSecReturnData as String] = true
-        q[kSecMatchLimit as String] = kSecMatchLimitOne
-        var value: CFTypeRef?
-        let status = SecItemCopyMatching(q as CFDictionary, &value)
-        if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let data = value as? Data, let code = String(data: data, encoding: .utf8) else {
-            throw ClipError.invalid("키체인에서 연결 코드를 읽을 수 없어요. 오류 \(status)")
+        let (status, data) = try run("load")
+        if status == 2 { return nil }
+        guard status == 0, data.count == 32, let code = String(data: data, encoding: .utf8) else {
+            throw ClipError.invalid("키체인에서 연결 정보를 읽지 못했어요. 오류 \(status)")
         }
         return PairCode.format(try PairCode.normalize(code))
     }
     static func save(_ code: String) throws {
-        let data = Data(try PairCode.normalize(code).utf8)
-        let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
-        if status == errSecItemNotFound {
-            var q = query
-            q[kSecValueData as String] = data
-            q[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-            let added = SecItemAdd(q as CFDictionary, nil)
-            guard added == errSecSuccess else { throw ClipError.invalid("연결 코드를 저장할 수 없어요. 오류 \(added)") }
-        } else if status != errSecSuccess {
-            throw ClipError.invalid("연결 코드를 저장할 수 없어요. 오류 \(status)")
-        }
+        let (status, _) = try run("save", input: Data(try PairCode.normalize(code).utf8))
+        guard status == 0 else { throw ClipError.invalid("연결 정보를 저장하지 못했어요. 오류 \(status)") }
     }
 }
 

@@ -101,6 +101,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.setActivationPolicy(headlessDiagnostics ? .accessory : .regular)
         if CommandLine.arguments.contains("--light") { NSApp.appearance = NSAppearance(named: .aqua) }
         if CommandLine.arguments.contains("--dark") { NSApp.appearance = NSAppearance(named: .darkAqua) }
+        if CommandLine.arguments.contains("--keychain-check") {
+            let success = KeyStore.checkWithoutPrompt()
+            print(success ? "PASS: pairing key is readable without a prompt." : "FAIL: pairing key requires authorization or helper verification failed.")
+            fflush(stdout); exit(success ? 0 : 1)
+        }
         if !preview, let bundleID = Foundation.Bundle.main.bundleIdentifier,
            let existing = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
             .first(where: { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }) {
@@ -993,7 +998,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
     @objc private func keychainHelp() {
-        alert("NearClip은 저장된 기기 연결 키를 키체인에서 읽어요. 시작할 때 접근 확인이 뜨면 Mac 로그인 암호를 입력하고 ‘항상 허용(Always Allow)’을 선택할 수 있어요. ‘허용(Allow)’은 이번 접근만 승인해요.\n\n임시 서명 베타는 업데이트 후 재승인을 요구할 수 있어요. 앱에 암호를 저장하거나 키체인 보호를 해제하지 않아요.")
+        alert("NearClip은 저장된 기기 연결 키를 키체인에서 읽어요. 시작할 때 접근 확인이 뜨면 Mac 로그인 암호를 입력하고 ‘항상 허용(Always Allow)’을 선택할 수 있어요. ‘허용(Allow)’은 이번 접근만 승인해요.\n\n연결 키는 고정 서명의 NearClipKeyStore 구성요소가 읽어요. 이 구성요소를 처음 사용할 때 한 번 승인하면 일반 앱 업데이트에서는 그대로 사용해요. 구성요소나 서명이 바뀌거나 키체인이 잠기면 다시 확인할 수 있어요. 앱에 로그인 암호를 저장하거나 키체인 보호를 해제하지 않아요.")
     }
     @objc private func stopInput() { mouse?.stop(); if window != nil { refresh() } }
     @objc private func accessibilitySettings() { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!) }

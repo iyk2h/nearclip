@@ -153,6 +153,7 @@ func networkTests() throws {
     let deadline = Date().addingTimeInterval(15)
     while !receivedImage && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
     try Check.that(a.peerCount == 1 && b.peerCount == 1, "real TCP authenticated connection")
+    try Check.that(a.separateInputPeerCount == 1 && b.separateInputPeerCount == 1, "both peers establish a separate authenticated input channel")
     try Check.that(observedClock == 800, "authenticated handshake clock synchronization")
     try Check.that(receivedText, "real TCP multi-megabyte Unicode transfer with frame reassembly")
     try Check.that(receivedImage, "real TCP reverse-direction PNG transfer")
@@ -166,7 +167,7 @@ func networkTests() throws {
     print("METRIC: 20 MiB clipboard send() return_ms=\((ProcessInfo.processInfo.systemUptime - enqueueStart) * 1000)")
     a.sendFeature(FeaturePacket(mouse: MousePacket(kind: .availability, enabled: false)), to: idB)
     waitFor({ order.count == 2 }, seconds: 15)
-    try Check.that(order == ["clip", "input"], "background clipboard preparation preserves encrypted ordering with queued input")
+    try Check.that(order == ["input", "clip"], "dedicated input overtakes 20 MiB clipboard without corrupting either channel")
     b.onClip = savedClipHandler; b.onFeature = nil
     a.send(bulk) // Closing during encoding must not deliver this on a new connection.
     a.stop(); b.stop(); receivedText = false; receivedImage = false; didSend = false

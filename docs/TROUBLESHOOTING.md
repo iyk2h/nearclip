@@ -81,7 +81,7 @@ To remove the remaining Keychain item, use Keychain Access to delete the item wi
 
 A dialog naming `local.nearclip.pairing.v1` asks permission to read the saved pairing secret. Enter the Mac login Keychain password in the macOS dialog. **Always Allow** approves later access by the same trusted app; **Allow** approves the current access only. Never send your password in an issue or chat. See [Apple's Keychain access guide](https://support.apple.com/en-ge/guide/keychain-access/kyca1243/mac).
 
-Versions through 0.4.2 use ad-hoc signatures. The 0.4.3 test build uses one persistent signing certificate. Moving from the old signature can require approval once. Later builds must use the same identity; a code-identity upgrade check verifies this. This does not guarantee permission retention on every macOS release. NearClip does not weaken Keychain access rules or move the secret into an unprotected settings file.
+Versions through 0.4.2 used ad-hoc signatures. A persistent certificate preserved code identity in later test builds, but the local Keychain still approved each changed executable hash. Build 16 uses a stable signed `NearClipKeyStore` component to read the same pairing item. On the first launch, macOS can ask you to approve this component; check that it names the NearClip pairing item before choosing **Always Allow**. App-only updates reuse that component. A component or certificate change, or a locked login Keychain, can still require approval. NearClip does not weaken Keychain access rules or move the secret into an unprotected settings file.
 
 ## Permission switches are on after an update, but input is denied
 

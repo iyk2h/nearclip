@@ -4,7 +4,7 @@ Validated locally on macOS 15.7.2, Apple Silicon. File and mouse sharing are exp
 
 ## Automated regression suite
 
-**277 checks passed locally for build 15.** The suite uses synthetic identities, temporary files, and separate pasteboards. It does not read or write the general clipboard, install input hooks, post mouse events, move the user's cursor, or request input permissions.
+**289 checks passed locally for build 16.** The suite uses synthetic identities, temporary files, and separate pasteboards. It does not read or write the general clipboard, install input hooks, post mouse events, move the user's cursor, or request input permissions.
 
 On November 13, a physical handoff reached the receiving Mac, then ended with `returnEdge`. A new test reproduced an immediate return from a reverse delta at the four-point entry inset and failed against build 11. Build 12 requires inward travel before return and a sustained outward push. Tests cover both directions, interrupted pushes, and fresh-session reset. The build passed the packaged lifecycle checks and mutual signing-identity verification against build 11. After installing build 12 on the receiving Mac, its UI showed active remote control and the user confirmed controlling it from the other Mac. A later observation showed an edge return. Accessibility and Input Monitoring remained granted across the build 11 to 12 replacement; a Keychain access prompt still required user approval. The origin of the unexpected reverse delta has not been established. Reverse-direction handoff, sustained keyboard/shortcut use, and the full physical matrix below remain unverified.
 
@@ -26,7 +26,13 @@ Build 14 adds deterministic timing tests: immediate first/after-idle movement, 1
 
 Build 15 tests cover movement backpressure, click ordering with queued movement, late-completion isolation, adaptive maintenance intervals, and encrypted ordering between a 20 MiB background-prepared clipboard and queued input. Local synthetic timing and remaining limits are documented in [the runtime review](PERFORMANCE-REVIEW.md).
 
+Build 16 adds real two-socket input delivery during a 20 MiB clipboard operation and an 8 MiB streamed file, parent-session key binding, old-session rejection, input replay rejection, old input-peer fallback, rejection of files/clipboard on the input socket, and either-channel cleanup. The input packet arrived before the bulk clipboard completed in the loopback test. This establishes independent transport ordering, not physical Wi-Fi latency.
+
 ## Packaged application diagnostics
+
+Build 16 passed 34 lifecycle checks and signed-bundle discovery, pairing, clipboard, file, layout, and cleanup tests. The installed app reconnected to its saved peer, retained both input permissions, and enabled local input sharing. The peer had not yet been updated/enabled for a physical two-channel control test.
+
+After one initial `NearClipKeyStore` approval, the installed bundle, another bundle location, and a version-bumped re-signed verification bundle all read the existing pairing item without a prompt. The original and verification main-app CDHashes differed; their helper bytes were identical. An unrelated Python parent with pipes was rejected with status 77 and zero output, including after approval. The diagnostic did not print or change the pairing secret. The version-bumped verification bundle was not installed or distributed. Helper-source or signing-certificate changes and locked-Keychain behavior are not covered by the prompt-free result.
 
 Build 15 passed 34 packaged lifecycle checks, its signed-bundle Bonjour/clipboard/file/layout smoke test, and signing-identity verification against build 14. After installation, the saved peer reconnected and input permissions remained granted. The live diagnostic log recorded a 41.7-second receiving-control session ending at the return edge. Keychain approval still required a user action. Physical bulk-transfer smoothness and sleep/wake remain pending.
 

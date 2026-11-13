@@ -28,11 +28,17 @@ These are local processing times, not network transfer times. The payload was ge
 
 The signed build 15 reconnected and reported both native input permissions granted. Its scoped diagnostic log recorded an authenticated connection in 173 ms and a receiving-control session lasting 41,746 ms, with 382 movement packets, ending normally at the return edge. The maximum reported maintenance-timer delay was 1 ms during that session. This is not a measurement of end-to-end pointer latency or a large-transfer stress test. Keychain approval was still required.
 
-## Remaining priorities
+## Changes in build 16
 
-1. **Bulk transfer can still delay input on the wire.** Clipboard, file, and input frames share one ordered TCP connection. Once a large frame has started, later input cannot overtake it. A separate authenticated input channel or a negotiated chunked clipboard protocol needs compatibility and failure-handling tests. Current queue logs distinguish this from main-thread processing delay.
-2. **Keychain approval still repeats on some updates.** Fixed designated-requirement checks pass, but build 14 still required user approval. The exact Keychain ACL cause has not been established. Do not claim that local signing eliminates prompts or weaken Keychain protection.
-3. **Gesture and physical-transition coverage is incomplete.** Native three-/four-finger system gestures remain unsupported. Sustained bidirectional movement, physical sleep/wake, lock/unlock, and simultaneous large-image copying need tests with both Macs on the same build.
+Input uses a second authenticated TCP connection when both peers advertise support. It has independent encryption sequences and is bound to the current parent handshake. The real loopback regression delivers input before a pending 20 MiB clipboard completes. Clipboard/file traffic still shares physical bandwidth with input. Older peers retain the original protocol.
+
+A metadata-only inspection of the existing pairing item found three `cdhash:` partitions, with no Team ID partition. This matches [Apple's securityd implementation](https://github.com/apple-oss-distributions/Security/blob/main/securityd/src/clientid.cpp), which uses an executable hash for signed code outside its recognized Apple developer categories. A fixed designated requirement alone does not keep that hash stable.
+
+The new restricted Keychain helper keeps its signed executable unchanged during app-only updates. It validates the signed parent, and the parent validates the helper. It reads the original item without changing its ACL or pairing secret. Initial authorization and a changed helper/certificate can still prompt. After initial authorization, the installed app and a version-bumped re-signed verification bundle both passed noninteractive Keychain reads. Their main-app CDHashes differed and helper bytes matched. An unrelated caller was denied without secret output. The native Accessibility and Input Monitoring approvals also remained granted.
+
+## Remaining physical checks
+
+Native three-/four-finger system gestures remain unsupported. Sustained bidirectional movement, physical sleep/wake, lock/unlock, and simultaneous large-image copying need tests with both Macs on build 16. Loopback ordering does not establish end-to-end input latency over the user's network.
 
 ## Collect diagnostics
 
