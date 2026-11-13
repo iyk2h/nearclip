@@ -3,6 +3,24 @@ import Network
 import CryptoKit
 import OSLog
 
+enum NetworkNotice: Equatable {
+    case localNetworkDenied, unavailable, recovering, waitingForPeer
+    static func classify(_ error: NWError) -> Self {
+        // Bonjour PolicyDenied is the explicit privacy denial (TN3179).
+        if case .dns(-65570) = error { return .localNetworkDenied }
+        if case .posix(let code) = error, code == .ENETDOWN || code == .ENETUNREACH { return .unavailable }
+        return .recovering
+    }
+    var message: String {
+        switch self {
+        case .localNetworkDenied: return "로컬 네트워크 접근이 차단됐어요. 시스템 설정 → 개인정보 보호 및 보안 → 로컬 네트워크에서 NearClip을 허용해 주세요."
+        case .unavailable: return "네트워크 연결을 기다리고 있어요. Wi-Fi 또는 LAN이 돌아오면 자동으로 다시 연결해요."
+        case .recovering: return "연결을 다시 시도하고 있어요. 두 Mac의 네트워크 연결을 확인해 주세요."
+        case .waitingForPeer: return "상대 Mac 연결을 기다리고 있어요. 같은 네트워크에서 상대 NearClip이 실행 중인지 확인해 주세요."
+        }
+    }
+}
+
 final class PeerLink {
     enum CloseReason: String { case stopped, networkFailure, invalidFrame, peerClosed, handshakeTimeout, idleTimeout, duplicate }
     private let logger = Logger(subsystem: "dev.nearclip.mac", category: "transport")
@@ -34,6 +52,7 @@ final class PeerLink {
     private var measurements = InputMeasurements()
     private var lastMetricsLog = -Double.infinity
     private(set) var appVersion: AppVersion?
+    var onNetworkError: ((NWError) -> Void)?
     var onInputChange: ((PeerLink) -> Void)?
     var onMetrics: ((PeerLink, InputHealth) -> Void)?
     var canRecoverInput: Bool { features.contains(SharingFeature.inputRecovery) }
@@ -78,7 +97,12 @@ final class PeerLink {
             switch state {
             case .ready:
                 self.beginHandshake()
-            case .failed, .cancelled: self.close(.networkFailure)
+            case .waiting(let error):
+                self.onNetworkError?(error)
+                // Release held input promptly when an established route is lost.
+                if self.ready { self.close(.networkFailure) }
+            case .failed(let error): self.onNetworkError?(error); self.close(.networkFailure)
+            case .cancelled: self.close(.networkFailure)
             default: break
             }
         }
@@ -159,6 +183,12 @@ final class PeerLink {
               let raw = remoteInputPort, let port = NWEndpoint.Port(rawValue: raw),
               case .hostPort(let host, _) = connection.currentPath?.remoteEndpoint else { return }
         startInput(NWConnection(host: host, port: port, using: LocalTransport.parameters()))
+    }
+    func reconnectInputNow() {
+        guard ready, canRecoverInput, !inputReady, !closed else { return }
+        if let child = inputLink, case .waiting = child.connection.state { child.close(.networkFailure) }
+        retryInputWork?.cancel(); retryInputWork = nil; inputRetry = 0
+        dialInput()
     }
     private func scheduleInputRetry() {
         guard canRecoverInput, !closed, retryInputWork == nil, local.device < (remote?.device ?? "") else { return }
@@ -422,6 +452,13 @@ final class LocalTransport {
     private var endpoints: [String: (NWEndpoint, String)] = [:]
     private var timer: Timer?
     private var running = false
+    private var pathMonitor: NWPathMonitor?
+    private var recoveryWork: DispatchWorkItem?
+    private var pathAvailable: Bool?
+    private var listenerIssue: NetworkNotice?
+    private var browserIssue: NetworkNotice?
+    private var connectionIssue: NetworkNotice?
+    private let logger = Logger(subsystem: "dev.nearclip.mac", category: "transport")
     private var preferredPort: UInt16
     private var directPeer: DirectPeer?
     private var directAttempts = 0
@@ -430,7 +467,7 @@ final class LocalTransport {
     var onMetrics: ((String, InputHealth) -> Void)?
     var onFeature: ((String, FeaturePacket) -> Void)?
     var onClip: ((ClipMessage) -> Void)?
-    var onStatus: ((String) -> Void)?
+    var onStatus: ((String?) -> Void)?
     var onListening: ((NWEndpoint.Port) -> Void)?
     var clockProvider: (() -> UInt64)?
     var onClock: ((UInt64) -> Void)?
@@ -453,7 +490,16 @@ final class LocalTransport {
     func start() {
         guard !running else { return }; running = true
         startListener()
-        if discovery { startBrowser() }
+        if discovery {
+            startBrowser()
+            let monitor = NWPathMonitor(); pathMonitor = monitor
+            monitor.pathUpdateHandler = { [weak self, weak monitor] path in
+                guard let self, let monitor, self.pathMonitor === monitor, self.running else { return }
+                self.networkPathChanged(available: path.status == .satisfied)
+            }
+            monitor.start(queue: .main)
+        }
+        reconnectNow()
         let timer = Timer(timeInterval: 4, repeats: true) { [weak self] _ in
             guard let self else { return }
             for link in Array(self.links.values) { link.tick() }
@@ -465,11 +511,54 @@ final class LocalTransport {
     }
     func stop() {
         running = false; timer?.invalidate(); timer = nil
+        recoveryWork?.cancel(); recoveryWork = nil
+        pathMonitor?.pathUpdateHandler = nil; pathMonitor?.cancel(); pathMonitor = nil
+        pathAvailable = nil; listenerIssue = nil; browserIssue = nil; connectionIssue = nil
         listener?.stateUpdateHandler = nil; listener?.cancel(); listener = nil
         browser?.stateUpdateHandler = nil; browser?.cancel(); browser = nil
         endpoints.removeAll()
         for link in Array(links.values) { link.close() }
         links.removeAll(); publishPeers()
+    }
+    // Path events accelerate recovery; they never gate LAN traffic on internet
+    // reachability or tear down an authenticated connection that still works.
+    func networkPathChanged(available: Bool) {
+        guard running else { return }
+        pathAvailable = available
+        recoveryWork?.cancel(); recoveryWork = nil
+        if available {
+            connectionIssue = nil
+            let work = DispatchWorkItem { [weak self] in self?.reconnectNow() }
+            recoveryWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
+        }
+        publishStatus()
+    }
+    func reconnectNow() {
+        guard running else { return }
+        recoveryWork?.cancel(); recoveryWork = nil
+        // Failed connection attempts can otherwise occupy the peer until the
+        // handshake timeout. Keep in-progress handshakes and healthy sessions.
+        for link in Array(links.values) where !link.ready {
+            if case .waiting = link.connection.state { link.close(.networkFailure) }
+        }
+        if listener == nil { startListener() }
+        if discovery && browser == nil { startBrowser() }
+        for link in links.values where link.ready { link.reconnectInputNow() }
+        connectDiscovered(); connectDirectPeer(immediate: true)
+        logger.notice("network_recovery_attempt")
+        publishStatus()
+    }
+    private func publishStatus() {
+        guard running else { return }
+        let issues = [listenerIssue, browserIssue, connectionIssue].compactMap { $0 }
+        let notice: NetworkNotice
+        if peerCount > 0 { onStatus?(nil); return }
+        if issues.contains(.localNetworkDenied) { notice = .localNetworkDenied }
+        else if pathAvailable == false || issues.contains(.unavailable) { notice = .unavailable }
+        else if !issues.isEmpty { notice = .recovering }
+        else { notice = .waitingForPeer }
+        onStatus?(notice.message)
     }
     private func startListener() {
         guard running, listener == nil else { return }
@@ -481,18 +570,23 @@ final class LocalTransport {
             listener.stateUpdateHandler = { [weak self, weak listener] state in
                 guard let self, let listener, self.listener === listener, self.running else { return }
                 switch state {
-                case .ready: if let port = listener.port { self.preferredPort = port.rawValue; self.onListening?(port) }
-                case .waiting:
-                    self.onStatus?("네트워크 연결과 로컬 네트워크 권한을 확인해 주세요.")
+                case .ready:
+                    self.listenerIssue = nil; self.publishStatus()
+                    if let port = listener.port { self.preferredPort = port.rawValue; self.onListening?(port) }
+                case .waiting(let error):
+                    self.listenerIssue = NetworkNotice.classify(error); self.publishStatus()
                 case .failed(let error):
                     if case .posix(.EADDRINUSE) = error { self.preferredPort = 0 }
-                    self.onStatus?("연결을 다시 시도하고 있어요. 로컬 네트워크 권한을 확인해 주세요.")
+                    self.listenerIssue = NetworkNotice.classify(error); self.publishStatus()
                     listener.cancel(); self.listener = nil
                 default: break
                 }
             }
             listener.start(queue: .main)
-        } catch { onStatus?("네트워크를 열 수 없어요. 잠시 후 다시 시도할게요.") }
+        } catch {
+            listenerIssue = (error as? NWError).map(NetworkNotice.classify) ?? .recovering
+            publishStatus()
+        }
     }
     private func startBrowser() {
         guard running, browser == nil else { return }
@@ -513,9 +607,10 @@ final class LocalTransport {
         browser.stateUpdateHandler = { [weak self, weak browser] state in
             guard let self, let browser, self.browser === browser, self.running else { return }
             switch state {
-            case .waiting: self.onStatus?("로컬 네트워크 접근을 허용하면 다른 Mac을 찾을 수 있어요.")
-            case .failed:
-                self.onStatus?("다른 Mac을 다시 찾고 있어요. 네트워크 권한을 확인해 주세요.")
+            case .ready: self.browserIssue = nil; self.publishStatus()
+            case .waiting(let error): self.browserIssue = NetworkNotice.classify(error); self.publishStatus()
+            case .failed(let error):
+                self.browserIssue = NetworkNotice.classify(error); self.publishStatus()
                 browser.cancel(); self.browser = nil
             default: break
             }
@@ -526,20 +621,22 @@ final class LocalTransport {
         guard running else { return }
         for (key, (endpoint, peer)) in endpoints {
             // Only one side dials, so each pair has exactly one duplex connection.
-            guard device < peer, !links.values.contains(where: { $0.endpointKey == key || $0.remote?.device == peer }), links.count < 8 else { continue }
+            guard device < peer, !links.values.contains(where: {
+                $0.endpointKey == key || $0.remote?.device == peer || $0.expectedDevice == peer
+            }), links.count < 8 else { continue }
             accept(NWConnection(to: endpoint, using: Self.parameters()), key: key, expected: peer)
         }
     }
     func setDirectPeer(_ peer: DirectPeer?) {
         directPeer = peer; directAttempts = 0; connectDirectPeer()
     }
-    private func connectDirectPeer() {
+    private func connectDirectPeer(immediate: Bool = false) {
         guard running, let peer = directPeer, peerCount == 0,
               !links.values.contains(where: { $0.expectedDevice == peer.device }), links.count < 8,
               let port = NWEndpoint.Port(rawValue: peer.port) else { return }
         // Give Bonjour a chance first, then let either side recover a broken connection.
         directAttempts += 1
-        guard directAttempts >= 2 else { return }
+        guard immediate || directAttempts >= 2 else { return }
         accept(NWConnection(host: .init(peer.host), port: port, using: Self.parameters()), expected: peer.device)
     }
     func connectLoopback(port: NWEndpoint.Port, expected: String) {
@@ -552,8 +649,12 @@ final class LocalTransport {
         links[link.id] = link
         link.clockProvider = { [weak self] in self?.clockProvider?() ?? 0 }
         link.onClock = { [weak self] in self?.onClock?($0) }
+        link.onNetworkError = { [weak self] error in
+            self?.connectionIssue = NetworkNotice.classify(error); self?.publishStatus()
+        }
         link.onReady = { [weak self] link in
             guard let self else { return }
+            self.connectionIssue = nil
             if let existing = self.links.values.first(where: { $0.id != link.id && $0.ready && $0.remote?.device == link.remote?.device }) {
                 // Both devices select the same physical connection when they dial at once.
                 let preferOutgoing = self.device < (link.remote?.device ?? "")
@@ -579,6 +680,7 @@ final class LocalTransport {
             return ConnectedPeer(device: remote.device, name: remote.name, connection: link.id, features: link.features, appVersion: link.appVersion, inputReady: link.inputReady, inputSession: link.inputLink?.ready == true ? link.inputLink?.id : nil)
         }
         onPeers?(peers.map(\.name).sorted()); onPeerDetails?(peers)
+        publishStatus()
     }
     func sendFeature(_ packet: FeaturePacket, to peer: String, completion: @escaping (Bool) -> Void = { _ in }) {
         guard let link = links.values.first(where: { $0.ready && $0.remote?.device == peer }) else { completion(false); return }

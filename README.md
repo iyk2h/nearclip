@@ -27,7 +27,7 @@ If macOS blocks the first launch, use the [first-launch instructions](docs/TROUB
 2. Click **Connect (`연결`)** beside the other Mac's name.
 3. Compare the six digits. If they match, click **Confirm (`숫자가 같아요 · 연결`)** on both Macs.
 
-The saved Macs reconnect automatically. To replace a pairing, click **Connect another Mac (`다른 Mac 연결`)** on each previously paired Mac. New pairing opens for two minutes and still requires both confirmations.
+The saved Macs reconnect automatically. Build 20 retries as soon as a network path returns and dials the saved peer on wake. **Find again (`연결 다시 찾기`)** preserves working connections and file transfers. To replace a pairing, click **Connect another Mac (`다른 Mac 연결`)** on each previously paired Mac. New pairing opens for two minutes and still requires both confirmations.
 
 If no Mac appears, expand **Mac not visible? (`Mac이 보이지 않나요?`)**. Use the other Mac's displayed address through **Connect by address (`주소로 연결…`)**.
 
@@ -75,7 +75,9 @@ Transfers are encrypted and checked with SHA-256. Existing destination files are
 | --- | --- |
 | Pause sharing and cancel active file/input work | `공유 일시 정지` |
 | Resume clipboard sharing | `공유 다시 시작` |
-| Open file and mouse controls | `파일·마우스 공유…` |
+| Turn mouse and keyboard sharing on or off | `마우스·키보드 공유` (checked when requested) |
+| Swap the two screen positions | `화면 좌우 바꾸기` (available when remote control is idle) |
+| Open file and screen controls | `파일·화면 배치…` |
 | Stop mouse sharing only | `마우스·키보드 공유 끄기` or `⌃⌥Esc` |
 | Quit | `종료` or `⌘Q` while NearClip is active |
 | Choose close behavior | Settings (`설정`) → `창을 닫으면` |

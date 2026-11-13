@@ -2,6 +2,18 @@
 
 Validated locally on macOS 15.7.2, Apple Silicon. File and mouse sharing are experimental. Receiving control from a second physical Mac was confirmed with build 12. The complete bidirectional input matrix remains unverified.
 
+## Build 20 recovery and menu validation
+
+326 automated checks passed. New loopback tests connect to a saved peer within a two-second bound before the four-second periodic retry, preserve the authenticated connection ID through path changes/manual retry, reconnect after a simulated unavailable/available path transition, clear warnings after authentication, and cancel queued recovery on stop. Error classification tests distinguish Bonjour PolicyDenied, network unavailability, and generic failures without assuming the peer app is closed.
+
+The signed package passed 44 lifecycle checks. Menu actions enable/disable input while the window stays hidden, synchronize left/right screen changes through a synthetic peer, retain the stop action during input recovery, and disable layout actions without a peer.
+
+The signed build also passed Bonjour pairing, encrypted synthetic clipboard/file/layout smoke tests. Build 19 and build 20 satisfy the same signing requirements and use identical Keychain helper bytes; both passed prompt-free Keychain reads.
+
+After installation, build 20 retained both native input permissions, reconnected to the existing peer, received clipboard content, and restored input readiness. That peer did not report build metadata. The final launch still took about 25 seconds to make the input channel ready after an initial handshake timeout; the duplicate-attempt guard did not eliminate this delay. Its cause is not established. Repeat the test with both peers updated before claiming a physical reconnect speed improvement.
+
+These checks simulate path transitions over local TCP. They do not verify physical Wi-Fi changes, sleep/wake timing, remote mouse smoothness, or both Macs running build 20. That physical matrix remains pending.
+
 ## Automated regression suite
 
 **316 checks passed locally for build 17.** The suite uses synthetic identities, temporary files, and separate pasteboards. It does not read or write the general clipboard, install input hooks, post mouse events, move the user's cursor, or request input permissions.

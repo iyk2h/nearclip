@@ -45,6 +45,14 @@ The new restricted Keychain helper keeps its signed executable unchanged during 
 
 Before the build 17 update, build 16 logs showed a 51.3-second physical receiving-control session with 497 movement packets, ending at the return edge. The reported maintenance delay was 0 ms at integer precision. This does not establish zero transport latency. Build 17 adds direct transport measurements for subsequent physical tests.
 
+## Changes in build 20
+
+- Observe network-path changes with `NWPathMonitor`. Debounce available-path events by 150 ms and retry saved-peer connections immediately on startup/wake. Keep the four-second fallback retry. A path event does not close a healthy session or block local traffic when internet reachability is absent.
+- Prevent Bonjour from opening a second outbound attempt while the saved-address attempt for that same authenticated device identity is pending.
+- Recover failed attempts and negotiated input channels without resetting working clipboard/file connections. The manual Find again action uses the same recovery path. Stop cancels queued recovery and the path monitor.
+- Distinguish Bonjour `PolicyDenied` (-65570), network unavailability, and generic connection recovery. A timeout does not imply that the peer app is closed or a privacy permission is missing. The classification follows [Apple TN3179](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy). Clear stale guidance after successful authentication.
+- Add menu-bar input-sharing and screen-order controls. They use the existing consent and layout paths. Swapping is disabled during remote control; sharing can still be stopped during input recovery.
+
 ## Remaining physical checks
 
 Native three-/four-finger system gestures remain unsupported. Sustained bidirectional movement, physical sleep/wake, lock/unlock, and simultaneous large-image copying need tests with both Macs on build 17. Loopback ordering does not establish end-to-end input latency over the user's network.

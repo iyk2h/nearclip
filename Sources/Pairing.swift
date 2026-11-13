@@ -227,7 +227,7 @@ final class NearbyPairing {
                     }
                 }
                 server.start(queue: .main)
-            } catch { onStatus?("주변 Mac을 찾을 수 없어요. 네트워크 권한을 확인해 주세요.") }
+            } catch { onStatus?((error as? NWError).map(Self.failureMessage) ?? NetworkNotice.recovering.message) }
         }
         if discovery && browser == nil {
             let finder = NWBrowser(for: .bonjour(type: Self.serviceType, domain: "local."), using: LocalTransport.parameters())
@@ -251,7 +251,8 @@ final class NearbyPairing {
                 case .failed(let error):
                     self.logger.error("Pairing browser failed: \(String(describing: error), privacy: .public)")
                     self.onStatus?(Self.failureMessage(error)); finder.cancel(); self.browser = nil
-                case .waiting: self.onStatus?("주변 Mac을 찾으려면 로컬 네트워크 접근을 허용해 주세요.")
+                case .waiting(let error): self.onStatus?(Self.failureMessage(error))
+                case .ready: self.onStatus?("주변 Mac을 찾고 있어요. 상대 Mac에서도 NearClip을 켜주세요.")
                 default: break
                 }
             }
@@ -259,10 +260,7 @@ final class NearbyPairing {
         }
     }
     static func failureMessage(_ error: NWError) -> String {
-        if case .dns(let code) = error, code == -65555 {
-            return "주변 검색 권한이 없어요. 시스템 설정에서 로컬 네트워크를 허용한 뒤 다시 찾아주세요."
-        }
-        return "주변 Mac 검색에 실패했어요. 로컬 네트워크 권한을 확인한 뒤 ‘다시 찾기’를 눌러주세요. (\(error))"
+        NetworkNotice.classify(error).message
     }
     func connect(device: String) {
         guard accepting, active == nil, let candidate = candidates.first(where: { $0.device == device }) else { return }

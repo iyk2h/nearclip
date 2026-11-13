@@ -36,6 +36,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var receivePanel: NSSavePanel?
     private var receivedFile: URL?
     private var menuMouseStop: NSMenuItem!
+    private var menuMouseToggle: NSMenuItem!
+    private var menuScreenOrder: NSMenuItem!
+    private var menuSwapScreens: NSMenuItem!
     private var statusItem: NSStatusItem!
     private var window: NSWindow!
     private var sync: ClipboardSync!
@@ -231,7 +234,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         item("NearClip 열기…", #selector(showWindow), menu: menu)
         menuSend = item("지금 클립보드 보내기", #selector(sendNow), menu: menu)
         menuToggle = item("공유 일시 정지", #selector(toggleSharing), menu: menu)
-        item("파일·마우스 공유…", #selector(showSharing), menu: menu)
+        menuMouseToggle = item("마우스·키보드 공유", #selector(toggleMouseFromMenu), menu: menu)
+        menuScreenOrder = NSMenuItem(title: "화면 배치 · 연결 대기", action: nil, keyEquivalent: "")
+        menu.addItem(menuScreenOrder)
+        menuSwapScreens = item("화면 좌우 바꾸기", #selector(swapScreenOrder), menu: menu)
+        item("파일·화면 배치…", #selector(showSharing), menu: menu)
         menuMouseStop = item("마우스·키보드 공유 끄기  ⌃⌥Esc", #selector(stopInput), menu: menu)
         item("연결 다시 찾기", #selector(retry), menu: menu)
         menu.addItem(.separator())
@@ -606,7 +613,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 if let keyboard = packet.keyboard { self.mouse.receiveKeyboard(keyboard, from: peer) }
             }
             transport.onClip = { [weak self] clip in self?.sync.receive(clip) }
-            transport.onStatus = { [weak self] note in self?.networkNote = note; self?.refresh() }
+            transport.onStatus = { [weak self] note in
+                guard let self, self.verificationAlert == nil, self.pairing?.busy != true else { return }
+                self.networkNote = note; self.refresh()
+            }
             transport.start(); refresh()
         } catch { alert(error.localizedDescription) }
     }
@@ -764,7 +774,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if !preview { UserDefaults.standard.set(enabled, forKey: "enabled") }
         refresh()
     }
-    @objc private func retry() { restartTransport(); pairing?.stop(); hasLocalAddress = false; if access.isOpen { pairing?.start() }; refresh() }
+    @objc private func retry() {
+        if let transport { transport.reconnectNow() } else { restartTransport() }
+        if access.isOpen { pairing?.stop(); hasLocalAddress = false; pairing?.start() }
+        refresh()
+    }
     @objc private func willSleep() { mouse?.suspend(.sleep); files.cancel(); sync?.stop(); transport?.stop(); pairing?.stop(); sync?.connected = false }
     @objc private func didWake() { sync?.baseline(); sync?.start(); restartTransport(); mouse?.resume(.sleep); if access.isOpen { pairing?.start() } }
     @objc private func displaySlept() { mouse?.suspend(.displaySleep) }
@@ -812,6 +826,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         updateFeaturePeer([recoveryPeer])
         require(!mouse.enabled && mouse.sharingRequested && mouseToggle.state == .on && mouseToggle.isEnabled,
                 "input outage retains consent and allows explicit stop while clipboard peer remains")
+        require(menuMouseToggle.isEnabled && menuMouseToggle.state == .on, "menu bar can revoke input consent during channel recovery")
         require(fileButton.isEnabled && peerVersionLabel.stringValue.contains("양쪽 버전 같음"), "input outage preserves file controls and reports matched versions")
         recoveryPeer.inputReady = true; recoveryPeer.inputSession = UUID()
         updateFeaturePeer([recoveryPeer])
@@ -825,6 +840,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         require(mouse.enabled, "unlock callback restores input readiness for the same peer")
         displaySlept(); stopInput(); displayWoke()
         require(!mouse.enabled && mouseToggle.state == .off, "explicit stop while suspended stays off after wake")
+        require(menuMouseToggle.isEnabled && menuMouseToggle.state == .off, "menu bar offers input sharing for an eligible connected peer")
+        window.orderOut(nil)
+        NSApp.sendAction(menuMouseToggle.action!, to: menuMouseToggle.target, from: menuMouseToggle)
+        require(mouse.enabled && menuMouseToggle.state == .on && !window.isVisible, "menu bar enables sharing without opening the main window")
+        let previousSide = mouse.side
+        NSApp.sendAction(menuSwapScreens.action!, to: menuSwapScreens.target, from: menuSwapScreens)
+        require(mouse.side == previousSide.opposite && mouse.layout == other.layout && !window.isVisible,
+                "menu bar swaps and synchronizes screen order without opening the window")
+        NSApp.sendAction(menuMouseToggle.action!, to: menuMouseToggle.target, from: menuMouseToggle)
+        require(!mouse.enabled && menuMouseToggle.state == .off, "menu bar toggle stops input capture")
+        showWindow()
         mouse.setSide(.right)
         let left = CGPoint(x: arrangement.bounds.midX - 110, y: 60)
         let right = CGPoint(x: arrangement.bounds.midX + 110, y: 60)
@@ -859,6 +885,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         updateFeaturePeer([])
         gesture(.leftMouseUp, left)
         require(mouse.layout == nil && !swapScreens.isEnabled, "disconnect cancels arrangement editing")
+        require(!menuSwapScreens.isEnabled && !menuMouseToggle.isEnabled && menuScreenOrder.title.contains("연결 대기"),
+                "disconnected menu disables new sharing and layout changes")
         mouse.send = originalSend
         showSettings(); require(!settingsContent.isHidden, "settings expand on the main screen")
         toggleSettings(); require(settingsContent.isHidden, "settings can collapse without leaving sharing")
@@ -1094,14 +1122,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             mouseHint.stringValue = "준비됐어요. 가장자리로 밀어 이동하세요. ⌃⌥Esc는 공유를 꺼요."
             if !mouse.active, mouse.lastEndReason != .returnEdge, let message = mouse.lastEndMessage { mouseHint.stringValue += "\n" + message }
         }
+        menuMouseToggle?.state = mouse.sharingRequested ? .on : .off
+        menuMouseToggle?.isEnabled = mouse.sharingRequested || mouseToggle.isEnabled
+        menuMouseToggle?.title = mouseToggle.title.replacingOccurrences(of: " 켜기", with: "")
+        menuSwapScreens?.isEnabled = swapScreens.isEnabled
+        menuScreenOrder?.title = supportsMouse ? (mouse.side == .left ? "상대 Mac ← 이 Mac" : "이 Mac → 상대 Mac") : "화면 배치 · 연결 대기"
+        menuScreenOrder?.isEnabled = false
         menuMouseStop?.isEnabled = mouse.sharingRequested
     }
     @objc private func swapScreenOrder() {
         guard featurePeer?.features.contains(SharingFeature.mouse) == true, !mouse.active else { return }
         mouse.setSide(mouse.side.opposite)
     }
-    @objc private func toggleMouse() {
-        let requested = mouseToggle.state == .on
+    @objc private func toggleMouseFromMenu() {
+        guard mouse.sharingRequested || mouseToggle.isEnabled else { return }
+        setMouseSharing(!mouse.sharingRequested)
+        if mouseSetupError != nil { showWindow() }
+    }
+    @objc private func toggleMouse() { setMouseSharing(mouseToggle.state == .on) }
+    private func setMouseSharing(_ requested: Bool) {
         mouseSetupError = nil
         if requested { mouseDetailsExpanded = true }
         do { try mouse.setEnabled(requested) }

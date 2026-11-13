@@ -50,7 +50,7 @@ func inputRecoveryNetworkTests() throws {
     var client: PeerLink?, detail: ConnectedPeer?, health: InputHealth?
     let sender = FileTransfer(), receiver = FileTransfer()
     defer { sender.stop(); receiver.stop(); client?.close(); server.stop() }
-    var interrupted = false, done = false, clipArrived = false, clipboardDuringRecovery = false, dataDisconnected = false
+    var interrupted = false, done = false, clipArrived = false, clipboardDuringRecovery = false, dataDisconnected = false, recoveryClipSent = false
     server.onListening = { port in
         client = PeerLink(connection: NWConnection(host: "127.0.0.1", port: port, using: LocalTransport.parameters()), secret: secret, device: other, name: "Recovery B")
         client?.onFeature = { _, packet in if let file = packet.file { sender.receive(file, from: local) } }
@@ -60,6 +60,12 @@ func inputRecoveryNetworkTests() throws {
     server.onPeerDetails = { peers in
         detail = peers.first
         if interrupted && peers.isEmpty { dataDisconnected = true }
+        // The two sockets deliver callbacks independently. Send only after the
+        // receiver has observed the input outage, rather than racing its EOF.
+        if interrupted, let detail, !detail.inputReady, !recoveryClipSent {
+            recoveryClipSent = true
+            client?.send(ClipMessage(id: UUID(), stamp: ClipStamp(counter: 1, device: other), payload: ClipPayload(type: "public.utf8-plain-text", data: Data("during recovery".utf8))))
+        }
     }
     sender.send = { _, packet, reply in client?.sendFeature(FeaturePacket(file: packet), completion: reply) }
     receiver.send = { peer, packet, reply in server.sendFeature(FeaturePacket(file: packet), to: peer, completion: reply) }
@@ -71,7 +77,6 @@ func inputRecoveryNetworkTests() throws {
         if let file = packet.file {
             if file.kind == .chunk && !interrupted {
                 interrupted = true; client?.inputLink?.close()
-                client?.send(ClipMessage(id: UUID(), stamp: ClipStamp(counter: 1, device: other), payload: ClipPayload(type: "public.utf8-plain-text", data: Data("during recovery".utf8))))
             }
             receiver.receive(file, from: peer)
         }
@@ -92,4 +97,41 @@ func inputRecoveryNetworkTests() throws {
     client?.inputLink?.close(); client?.close(); server.stop()
     RunLoop.main.run(until: Date().addingTimeInterval(0.7))
     try Check.that(client?.inputLink == nil && client?.closed == true && server.peerCount == 0, "shutdown cancels a pending input reconnect")
+}
+
+func recoveryWakeTests() throws {
+    try Check.that(NetworkNotice.classify(.dns(-65570)) == .localNetworkDenied, "Bonjour policy denial requests local network permission")
+    try Check.that(NetworkNotice.classify(.posix(.ENETDOWN)) == .unavailable, "offline network is not reported as a privacy denial")
+    try Check.that(NetworkNotice.classify(.posix(.ECONNREFUSED)) == .recovering, "unreachable peer does not claim the app is off or permission denied")
+    try Check.that(NetworkNotice.classify(.dns(-65555)) == .recovering, "generic DNS authorization error does not misidentify privacy settings")
+    try Check.that(NearbyPairing.failureMessage(.posix(.ETIMEDOUT)) == NetworkNotice.recovering.message, "pairing timeout uses the same factual recovery guidance")
+    let code = try PairCode.create()
+    let server = try LocalTransport(code: code, device: UUID().uuidString, name: "Wake server", discovery: false)
+    let client = try LocalTransport(code: code, device: UUID().uuidString, name: "Wake client", discovery: false)
+    defer { server.stop(); client.stop() }
+    var port: UInt16?, connection: UUID?, note: String?
+    server.onListening = { port = $0.rawValue }
+    client.onPeerDetails = { connection = $0.first?.connection }
+    client.onStatus = { note = $0 }
+    server.start(); waitFor({ port != nil })
+    guard let port else { throw ClipError.invalid("Wake listener unavailable") }
+    client.setDirectPeer(DirectPeer(host: "127.0.0.1", port: port, device: server.device))
+    client.start(); waitFor({ connection != nil }, seconds: 2)
+    try Check.that(connection != nil, "startup immediately dials a saved peer without the four-second retry tick")
+    let original = connection
+    client.networkPathChanged(available: false)
+    client.networkPathChanged(available: true)
+    RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+    client.reconnectNow()
+    try Check.that(connection == original && note == nil, "path changes and manual retry preserve a healthy authenticated connection and clear warnings")
+    server.stop(); waitFor({ client.peerCount == 0 })
+    client.networkPathChanged(available: false)
+    try Check.that(note == NetworkNotice.unavailable.message, "disconnected client explains offline state without a permission prompt")
+    server.start(); client.networkPathChanged(available: true)
+    waitFor({ client.peerCount == 1 }, seconds: 2)
+    try Check.that(client.peerCount == 1 && connection != original && note == nil, "network restoration reconnects and authenticates before the periodic retry")
+    client.networkPathChanged(available: true); client.stop()
+    RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+    client.networkPathChanged(available: true); client.reconnectNow()
+    try Check.that(client.peerCount == 0, "stop cancels queued path recovery and ignores later wake events")
 }
