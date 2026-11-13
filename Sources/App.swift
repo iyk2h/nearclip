@@ -214,7 +214,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func makeMenu() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: "NearClip 클립보드 공유")
+        let menuIcon = NSImage(systemSymbolName: "doc.on.clipboard.fill", accessibilityDescription: "NearClip")?
+            .withSymbolConfiguration(.init(pointSize: 16, weight: .medium))
+        menuIcon?.isTemplate = true
+        statusItem.button?.image = menuIcon
+        statusItem.button?.imagePosition = .imageOnly
         let menu = NSMenu()
         menuStatus = NSMenuItem(title: "연결 대기 중", action: nil, keyEquivalent: ""); menu.addItem(menuStatus)
         menu.addItem(.separator())
@@ -643,7 +647,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         menuToggle?.title = enabled ? "공유 일시 정지" : "공유 다시 시작"
         toggle?.state = enabled ? .on : .off
         statusItem?.button?.toolTip = "NearClip · " + statusLabel.stringValue
-        statusItem?.button?.image = NSImage(systemSymbolName: !enabled ? "pause.circle" : (peers.isEmpty ? "doc.on.clipboard" : "checkmark.circle"), accessibilityDescription: text)
+        statusItem?.button?.setAccessibilityLabel("NearClip · " + statusLabel.stringValue)
     }
     @objc private func showWindow() {
         if headlessDiagnostics {
