@@ -214,9 +214,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func makeMenu() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        let menuIcon = NSImage(systemSymbolName: "doc.on.clipboard.fill", accessibilityDescription: "NearClip")?
-            .withSymbolConfiguration(.init(pointSize: 16, weight: .medium))
-        menuIcon?.isTemplate = true
+        let menuIcon = NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: "NearClip")?
+            .withSymbolConfiguration(.init(pointSize: 13, weight: .regular))
+        if let menuIcon {
+            // Symbol point size is not its image bounds. Keep the actual glyph
+            // compact beside other menu extras without changing the hit target.
+            let scale = 14 / max(menuIcon.size.width, menuIcon.size.height)
+            menuIcon.size = NSSize(width: menuIcon.size.width * scale, height: menuIcon.size.height * scale)
+            menuIcon.isTemplate = true
+        }
         statusItem.button?.image = menuIcon
         statusItem.button?.imagePosition = .imageOnly
         let menu = NSMenu()
