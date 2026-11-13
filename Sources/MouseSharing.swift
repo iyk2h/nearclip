@@ -53,6 +53,9 @@ final class MouseSharing {
     private var entrySide: ScreenSide = .left
     private var entryRect = CGRect.zero
     private var position = CGPoint.zero
+    private var returnArmed = false
+    private var returnEdgeSince: Date?
+    private var lastReturnPush: Date?
     private var pressed: Set<Int> = []
     private var pressedKeys: Set<Int> = []
     private var receivedKeyFlags: UInt64 = 0
@@ -166,6 +169,7 @@ final class MouseSharing {
                 emit(MousePacket(kind: .deny, token: packet.token)); return
             }
             token = packet.token; mode = .receiving; position = point; entryRect = rect; entrySide = side
+            returnArmed = false; returnEdgeSince = nil; lastReturnPush = nil
             lastEndReason = nil
             lastHeard = now; lastBeat = .distantPast
             if native { CGWarpMouseCursorPosition(point) }
@@ -185,7 +189,7 @@ final class MouseSharing {
             onChange?()
         case .input:
             guard mode == .receiving else { return }
-            apply(packet)
+            apply(packet, now: now)
         case .leave: endSession(notify: false, fraction: packet.fraction, reason: packet.endReason.flatMap(MouseEndReason.init(rawValue:)) ?? .peerEnded, byPeer: true)
         case .deny: if mode == .requesting { endSession(notify: false, reason: .notReady, byPeer: true) }
         case .heartbeat: break
@@ -300,17 +304,31 @@ final class MouseSharing {
         let dx = pendingX, dy = pendingY; pendingX = 0; pendingY = 0
         emit(MousePacket(kind: .input, token: token, action: .move, dx: dx, dy: dy, flags: pendingFlags))
     }
-    private func apply(_ packet: MousePacket) {
+    private func apply(_ packet: MousePacket, now: Date) {
         guard let action = packet.action else { return }
         switch action {
         case .move:
             let next = CGPoint(x: position.x + packet.dx, y: position.y + packet.dy)
             let atReturnEdge = entrySide == .left ? next.x <= entryRect.minX + 1 && packet.dx < 0 : next.x >= entryRect.maxX - 1 && packet.dx > 0
-            if atReturnEdge, pressed.isEmpty, position.y >= entryRect.minY, position.y <= entryRect.maxY {
-                endSession(fraction: ScreenGeometry.fraction(position.y, in: entryRect), reason: .returnEdge); return
+            // Entry is only four points inside the screen. Do not interpret a
+            // single reverse delta there as an intentional return. First move
+            // into the display, then push its edge continuously, as on entry.
+            if returnArmed, atReturnEdge, pressed.isEmpty, position.y >= entryRect.minY, position.y <= entryRect.maxY {
+                if lastReturnPush == nil || now.timeIntervalSince(lastReturnPush!) > 0.25 { returnEdgeSince = now }
+                if returnEdgeSince == nil { returnEdgeSince = now }
+                lastReturnPush = now
+                if now.timeIntervalSince(returnEdgeSince!) >= 0.15 {
+                    endSession(fraction: ScreenGeometry.fraction(position.y, in: entryRect), reason: .returnEdge); return
+                }
+            } else {
+                returnEdgeSince = nil; lastReturnPush = nil
             }
             position = ScreenGeometry.project(next, displays: displays())
-        case .down: guard !pressed.contains(packet.button) else { return }; pressed.insert(packet.button)
+            let depth = entrySide == .left ? position.x - entryRect.minX : entryRect.maxX - position.x
+            if depth >= min(24, entryRect.width / 4) { returnArmed = true }
+        case .down:
+            guard !pressed.contains(packet.button) else { return }; pressed.insert(packet.button)
+            returnEdgeSince = nil; lastReturnPush = nil
         case .up: guard pressed.contains(packet.button) else { return }; pressed.remove(packet.button)
         case .scroll: break
         }
@@ -321,6 +339,7 @@ final class MouseSharing {
         let old = mode, oldToken = token
         if old != .local { lastEndReason = reason; endedByPeer = byPeer }
         mode = .local; token = nil; pendingX = 0; pendingY = 0; edgeSince = nil
+        returnArmed = false; returnEdgeSince = nil; lastReturnPush = nil
         cooldown = Date().addingTimeInterval(0.7)
         onEdgeProgress?(nil, side, 0)
         if !pressedKeys.isEmpty || receivedKeyFlags != 0 {

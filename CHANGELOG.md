@@ -8,9 +8,10 @@
 - Use one persistent signing identity for beta packages and verify identity across updates.
 
 - Keep remote mouse control when the receiver gets a mouse event with zero movement.
+- Prevent immediate return at the entry edge: move into the receiving screen before a sustained outward push can return control. Reset the push after a pause, inward motion, a click, or a new session.
 - Show the last return reason and the Mac that ended control. Send only a fixed reason code to the paired Mac; keep it in memory.
 - Require an accepted handoff before each mouse regression scenario. Restore both peers' availability in the reconnect test.
-- Physical two-Mac testing is still required to confirm the reported immediate-return issue is resolved.
+- Build 12 was confirmed receiving control from a second physical Mac after the entry-edge fix. Reverse-direction and extended input testing remain outstanding.
 
 ## 0.4.2 — 2026-11-12
 

@@ -1,12 +1,14 @@
 # 0.4.3 local test build validation
 
-Validated locally on macOS 15.7.2, Apple Silicon. File and mouse sharing are experimental. No claim of successful physical two-Mac mouse control is made.
+Validated locally on macOS 15.7.2, Apple Silicon. File and mouse sharing are experimental. Receiving control from a second physical Mac was confirmed with build 12. The complete bidirectional input matrix remains unverified.
 
 ## Automated regression suite
 
-**230 checks passed locally.** The suite uses synthetic identities, temporary files, and separate pasteboards. It does not read or write the general clipboard, install input hooks, post mouse events, move the user's cursor, or request input permissions.
+**237 checks passed locally for build 12.** The suite uses synthetic identities, temporary files, and separate pasteboards. It does not read or write the general clipboard, install input hooks, post mouse events, move the user's cursor, or request input permissions.
 
-The new zero-movement receiver test failed against 0.4.2 and passes after the fix. Each handoff scenario now asserts that control was accepted before testing its return path. Leftward and rightward handoffs, zero-movement events, vertical local takeover, return reasons, and the optional reason field's wire compatibility are covered. The keyboard tests also cover explicit consent, capability negotiation, repeat and modifier events, stale tokens, held-key cleanup, timeout, local takeover, secure input, emergency stop, and encrypted TCP delivery. The physical report of an immediate return and real keyboard typing still need confirmation with this build.
+On November 13, a physical handoff reached the receiving Mac, then ended with `returnEdge`. A new test reproduced an immediate return from a reverse delta at the four-point entry inset and failed against build 11. Build 12 requires inward travel before return and a sustained outward push. Tests cover both directions, interrupted pushes, and fresh-session reset. The build passed the packaged lifecycle checks and mutual signing-identity verification against build 11. After installing build 12 on the receiving Mac, its UI showed active remote control and the user confirmed controlling it from the other Mac. A later observation showed an edge return. Accessibility and Input Monitoring remained granted across the build 11 to 12 replacement; a Keychain access prompt still required user approval. The origin of the unexpected reverse delta has not been established. Reverse-direction handoff, sustained keyboard/shortcut use, and the full physical matrix below remain unverified.
+
+The new zero-movement receiver test failed against 0.4.2 and passes after the fix. Each handoff scenario now asserts that control was accepted before testing its return path. Leftward and rightward handoffs, zero-movement events, vertical local takeover, return reasons, and the optional reason field's wire compatibility are covered. The keyboard tests also cover explicit consent, capability negotiation, repeat and modifier events, stale tokens, held-key cleanup, timeout, local takeover, secure input, emergency stop, and encrypted TCP delivery. The immediate-return fix has one successful physical receiving-side confirmation; extended keyboard testing remains outstanding.
 
 Coverage includes:
 
@@ -39,7 +41,7 @@ The [reference review](DESIGN-REFERENCES.md) explains the earlier UI direction. 
 
 ## Distribution
 
-The build script produces one arm64/x86_64 app. The final 0.4.3 package uses a persistent self-signed certificate and is not notarized. Signing completed after approval. Two builds with different bundle versions and the final package satisfy each other’s designated code requirement. Retention of Accessibility/Input Monitoring on a physical upgrade still requires a user check. CI runs regression tests, universal compilation, and signature checks on Apple Silicon and Intel hosts. Release notes link the corresponding run.
+The build script produces one arm64/x86_64 app. The final 0.4.3 package uses a persistent self-signed certificate and is not notarized. Signing completed after approval. Two builds with different bundle versions and the final package satisfy each other’s designated code requirement. Accessibility and Input Monitoring remained granted on this Mac after replacement of build 11 with build 12. This does not guarantee retention on every Mac or eliminate Keychain prompts. CI runs regression tests, universal compilation, and signature checks on Apple Silicon and Intel hosts. Release notes link the corresponding run.
 
 ## Required physical-device checks
 
