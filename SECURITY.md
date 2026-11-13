@@ -12,7 +12,7 @@ Clipboard sessions use HKDF-derived directional keys and AES-GCM. Fresh connecti
 
 New-pairing discovery closes after a successful pairing. On a saved setup, **Connect another Mac** opens it for at most two minutes. Cancel closes it immediately. Authenticated clipboard sessions and automatic reconnection remain available. Closing discovery does not interrupt delivery of the already-approved confirmation. On first use, discovery stays open until a Mac is paired or the app quits.
 
-Build 16 binds a separate input connection to both authenticated parent hellos, using a distinct HKDF label and fresh child handshake. It checks the expected peer and rejects bulk messages on the input socket. Either socket's failure invalidates the established session. Old peers retain the single encrypted connection.
+Build 16 binds a separate input connection to both authenticated parent hellos, using a distinct HKDF label and fresh child handshake. It checks the expected peer and rejects bulk messages on the input socket. With build 16 peers, either socket's failure invalidates the session. When both peers negotiate build 17 recovery, input loss ends control and clears remote consent, while the authenticated bulk connection stays open. The input socket reconnects with fresh child nonces and sequence keys; a new handoff is required. Losing the parent always closes its child. Old peers retain their previous behavior.
 
 Keychain access uses a small signed helper with the same fixed signing certificate and its own identifier. It accepts only the live signed NearClip parent through private pipes; the app also verifies the helper before launch. The helper can only read/write the existing pairing service/account. It does not expose a network service, grant access to other applications, alter ACLs, or export the signing key. The helper binary is reused across app-only updates to keep its Keychain partition hash stable. Initial helper authorization, a changed helper, a changed certificate, or a locked Keychain can still require user action.
 
@@ -49,3 +49,7 @@ Do not put secrets or exploit details in public issues. Use the repository's pri
 ## Local diagnostics
 
 Build 15 records fixed control/connection reason codes, counts, queue waits, and processing durations in the local macOS unified log. Input content, pointer coordinates, clipboard data, names, network addresses, file paths, and pairing secrets are not included in these application diagnostic messages. The collection script reads only these categories and does not upload them. This does not control what macOS itself records in its own diagnostic categories.
+
+## Update checks
+
+Build 17 can request public release metadata from `api.github.com` once a day. The setting can be disabled. Requests use an ephemeral session with no cookies or credential store; they do not contain a device ID, peer identity, pairing key, clipboard, file, or input content. GitHub receives normal connection metadata such as the public IP address. HTTP redirects are rejected. Download links must use HTTPS and the exact `github.com/iyk2h/nearclip/releases/download/` path. The app opens the download in the browser; it does not execute downloaded files or replace itself. Drafts, malformed versions, unsupported assets, and older versions cannot become an offered upgrade.

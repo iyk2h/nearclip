@@ -12,6 +12,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var mouse: MouseSharing!
     private let edgeIndicator = ControlEdgeIndicator()
     private var featurePeer: ConnectedPeer?
+    private let peerVersionLabel = NSTextField(wrappingLabelWithString: "")
+    private let healthLabel = NSTextField(wrappingLabelWithString: "연결 후 입력 지연을 측정해요.")
+    private var inputHealth: InputHealth?
+    private let updateChecker = UpdateChecker()
+    private var updateTimer: Timer?
+    private var updateDownload: URL?
+    private let updateLabel = NSTextField(wrappingLabelWithString: "GitHub에 공개된 새 버전을 확인해요. 베타 배포를 포함해요.")
+    private var updateButton: NSButton!
+    private var updateDownloadButton: NSButton!
+    private var autoUpdateToggle: NSButton!
+    private var updateMenu: NSMenuItem?
     private var fileButton: NSButton!
     private var fileCancel: NSButton!
     private var revealButton: NSButton!
@@ -36,7 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var lastActivity = "연결한 뒤 복사하는 내용부터 공유해요."
     private var networkNote: String?
     private var enabled = true
-    private let headlessDiagnostics = CommandLine.arguments.contains("--render-preview") || CommandLine.arguments.contains("--smoke-test") || CommandLine.arguments.contains("--lifecycle-smoke")
+    private let headlessDiagnostics = CommandLine.arguments.contains("--update-check") || CommandLine.arguments.contains("--render-preview") || CommandLine.arguments.contains("--smoke-test") || CommandLine.arguments.contains("--lifecycle-smoke")
     private let preview = CommandLine.arguments.contains("--render-preview") || CommandLine.arguments.contains("--preview") || CommandLine.arguments.contains("--smoke-test") || CommandLine.arguments.contains("--lifecycle-smoke")
     private let statusLabel = NSTextField(labelWithString: "연결할 Mac을 기다리고 있어요")
     private let activityLabel = NSTextField(wrappingLabelWithString: "연결한 뒤 복사하는 내용부터 공유해요.")
@@ -101,6 +112,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.setActivationPolicy(headlessDiagnostics ? .accessory : .regular)
         if CommandLine.arguments.contains("--light") { NSApp.appearance = NSAppearance(named: .aqua) }
         if CommandLine.arguments.contains("--dark") { NSApp.appearance = NSAppearance(named: .darkAqua) }
+        if CommandLine.arguments.contains("--update-check") {
+            updateChecker.check { result in
+                switch result {
+                case .success(let release):
+                    print("PASS: public release check; latest=\(release?.tag_name ?? "none") upgrade=\(release?.version.map { AppVersion.current < $0 } ?? false)")
+                    fflush(stdout); exit(0)
+                case .failure:
+                    print("FAIL: public release check unavailable."); fflush(stdout); exit(1)
+                }
+            }
+            return
+        }
         if CommandLine.arguments.contains("--keychain-check") {
             let success = KeyStore.checkWithoutPrompt()
             print(success ? "PASS: pairing key is readable without a prompt." : "FAIL: pairing key requires authorization or helper verification failed.")
@@ -169,6 +192,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             NotificationCenter.default.addObserver(self, selector: #selector(displaysChanged), name: NSApplication.didChangeScreenParametersNotification, object: nil)
             DistributedNotificationCenter.default().addObserver(self, selector: #selector(screenLocked), name: NSNotification.Name("com.apple.screenIsLocked"), object: nil)
             DistributedNotificationCenter.default().addObserver(self, selector: #selector(screenUnlocked), name: NSNotification.Name("com.apple.screenIsUnlocked"), object: nil)
+            configureUpdates()
         } catch {
             alert(error.localizedDescription)
             NSApp.terminate(nil)
@@ -176,6 +200,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     func applicationWillTerminate(_ notification: Notification) {
         terminating = true
+        updateTimer?.invalidate(); updateChecker.cancel()
         NSWorkspace.shared.notificationCenter.removeObserver(self)
         DistributedNotificationCenter.default().removeObserver(self)
         NotificationCenter.default.removeObserver(self)
@@ -201,6 +226,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         item("연결 다시 찾기", #selector(retry), menu: menu)
         menu.addItem(.separator())
         item("설정…", #selector(showSettings), menu: menu, key: ",")
+        updateMenu = item("업데이트 확인…", #selector(checkUpdates), menu: menu)
         item("도움말", #selector(help), menu: menu)
         item("NearClip 종료", #selector(quit), menu: menu, key: "q")
         menu.autoenablesItems = false
@@ -208,6 +234,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let main = NSMenu()
         let appMenu = NSMenu(); let appItem = NSMenuItem(); appItem.submenu = appMenu; main.addItem(appItem)
         item("NearClip 정보", #selector(about), menu: appMenu)
+        item("업데이트 확인…", #selector(checkUpdates), menu: appMenu)
         item("설정…", #selector(showSettings), menu: appMenu, key: ",")
         appMenu.addItem(.separator())
         item("NearClip 종료", #selector(quit), menu: appMenu, key: "q")
@@ -369,8 +396,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             row([button("Apple 마우스 공유와 겹치나요?", action: #selector(universalControlHelp)), flexible(NSView())])
         ], spacing: 8)
         mouseDetails.isHidden = true
+        peerVersionLabel.font = .systemFont(ofSize: 11); peerVersionLabel.textColor = .secondaryLabelColor
+        peerVersionLabel.maximumNumberOfLines = 3
+        healthLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+        healthLabel.textColor = .secondaryLabelColor; healthLabel.maximumNumberOfLines = 3
         let sharing = column([
-            row([flexible(mouseToggle), mouseDisclosure]), mouseHint, mouseDetails,
+            peerVersionLabel, row([flexible(mouseToggle), mouseDisclosure]), mouseHint, mouseDetails,
             separator(), row([flexible(label("파일 전송", size: 13, weight: .semibold)), fileButton, fileCancel, revealButton]), fileLabel, fileProgress
         ], spacing: 10)
         closePicker.addItems(withTitles: ["닫을 때 물어보기", "메뉴 막대에서 계속 실행", "앱 완전히 종료"])
@@ -381,7 +412,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         closeHint.font = .systemFont(ofSize: 11); closeHint.textColor = .secondaryLabelColor
         relayToggle = NSButton(checkboxWithTitle: "받은 클립보드의 Apple 기기 재공유 막기", target: self, action: #selector(toggleAppleRelay))
         relayToggle.state = preventAppleRelay ? .on : .off
+        updateButton = button("업데이트 확인", action: #selector(checkUpdates))
+        updateDownloadButton = button("새 버전 다운로드", action: #selector(downloadUpdate)); updateDownloadButton.isHidden = true
+        autoUpdateToggle = NSButton(checkboxWithTitle: "새 버전 자동 확인 (하루 한 번)", target: self, action: #selector(toggleAutomaticUpdates))
+        autoUpdateToggle.state = (UserDefaults.standard.object(forKey: "automaticUpdateChecks") as? Bool ?? true) ? .on : .off
+        updateLabel.font = .systemFont(ofSize: 11); updateLabel.textColor = .secondaryLabelColor; updateLabel.maximumNumberOfLines = 3
         settingsContent = column([
+            separator(), label("업데이트", size: 14, weight: .semibold), autoUpdateToggle, updateLabel,
+            row([updateButton, updateDownloadButton, button("공개 배포 보기", action: #selector(openReleases)), flexible(NSView())]),
+            label("다운로드 후 두 Mac의 앱을 교체하세요. 자동으로 설치하거나 종료하지 않아요.", size: 11, color: .secondaryLabelColor),
+            separator(), label("연결 진단", size: 14, weight: .semibold), healthLabel,
+            label("왕복은 입력 채널의 응답 시간이에요. 실제 화면 반영 시간과는 달라요. 최근 최대 60회만 메모리에 보관해요.", size: 11, color: .secondaryLabelColor),
             separator(), label("클립보드 보호", size: 14, weight: .semibold), relayToggle,
             label("다음에 NearClip으로 받는 내용부터 적용돼요. 다른 앱에서 복사한 내용에는 적용되지 않아요.", size: 11, color: .secondaryLabelColor),
             row([button("Apple 클립보드 설정 안내", action: #selector(appleClipboardHelp)), flexible(NSView())]),
@@ -541,6 +582,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 self.refresh()
             }
             transport.onPeerDetails = { [weak self] peers in self?.updateFeaturePeer(peers) }
+            transport.onMetrics = { [weak self] peer, health in
+                guard let self, self.featurePeer?.device == peer else { return }
+                self.inputHealth = health; self.updateHealthUI()
+            }
             transport.onFeature = { [weak self] peer, packet in
                 guard let self, peer == self.featurePeer?.device else { return }
                 if let file = packet.file {
@@ -752,6 +797,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         mouse.send = { [weak other] _, packet, reply in other?.receive(packet, from: self.device); reply(true) }
         updateFeaturePeer([ConnectedPeer(device: "arrangement-peer", name: "Test Mac", connection: UUID(), features: Set(SharingFeature.supported))])
         try? mouse.setEnabled(true)
+        var recoveryPeer = featurePeer!
+        recoveryPeer.appVersion = AppVersion.current; recoveryPeer.inputReady = false
+        updateFeaturePeer([recoveryPeer])
+        require(!mouse.enabled && mouse.sharingRequested && mouseToggle.state == .on && mouseToggle.isEnabled,
+                "input outage retains consent and allows explicit stop while clipboard peer remains")
+        require(fileButton.isEnabled && peerVersionLabel.stringValue.contains("양쪽 버전 같음"), "input outage preserves file controls and reports matched versions")
+        recoveryPeer.inputReady = true; recoveryPeer.inputSession = UUID()
+        updateFeaturePeer([recoveryPeer])
+        require(mouse.enabled && !mouse.remoteEnabled && mouse.mode == .local, "input reconnect restores local readiness with fresh remote consent")
+        require(updateDownloadButton.isHidden && updateButton.isEnabled, "update controls never offer an unchecked download")
         displaySlept(); screenLocked(); sessionDeactivated(); willSleep()
         require(!mouse.enabled && mouseToggle.state == .on, "sleep stops capture while the sharing checkbox retains the choice")
         didWake(); displayWoke(); sessionActivated()
@@ -924,25 +979,95 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     private func updateFeaturePeer(_ peers: [ConnectedPeer]) {
         let next = peers.count == 1 ? peers.first : nil
-        guard featurePeer?.connection != next?.connection else { updateSharingUI(); return }
-        files.disconnected(); mouse.endSession(notify: false, reason: .connectionChanged)
+        let previous = featurePeer
+        let parentChanged = previous?.connection != next?.connection
+        let inputChanged = parentChanged || previous?.inputReady != next?.inputReady || previous?.inputSession != next?.inputSession
         featurePeer = next
-        let saved = UserDefaults.standard.data(forKey: "screenLayout").flatMap { try? JSONDecoder().decode(ScreenLayout.self, from: $0) }
-        mouse.setPeer(next?.features.contains(SharingFeature.mouse) == true ? next?.device : nil, savedLayout: saved,
-                      supportsKeyboard: next?.features.contains(SharingFeature.keyboard) == true)
+        if parentChanged { files.disconnected() }
+        if inputChanged {
+            inputHealth = nil
+            // Clear remote consent and held input before an independent socket
+            // reconnects. Keep the same-peer local opt-in, never the old token.
+            mouse.setPeer(nil)
+            let saved = UserDefaults.standard.data(forKey: "screenLayout").flatMap { try? JSONDecoder().decode(ScreenLayout.self, from: $0) }
+            if next?.inputReady == true {
+                mouse.setPeer(next?.features.contains(SharingFeature.mouse) == true ? next?.device : nil, savedLayout: saved,
+                              supportsKeyboard: next?.features.contains(SharingFeature.keyboard) == true)
+            }
+        }
         updateSharingUI()
     }
+    private func updateHealthUI() {
+        guard let peer = featurePeer else { healthLabel.stringValue = "상대 Mac에 연결하면 입력 지연을 측정해요."; return }
+        if !peer.inputReady { healthLabel.stringValue = "입력 연결 복구 중 · 클립보드와 파일 연결은 유지돼요." }
+        else if let inputHealth { healthLabel.stringValue = "입력 전용 연결 · " + inputHealth.label }
+        else if peer.features.contains(SharingFeature.inputMetrics) { healthLabel.stringValue = "입력 전용 연결 · 왕복 지연 측정 중…" }
+        else { healthLabel.stringValue = "상대도 최신 빌드로 업데이트하면 왕복 지연을 확인할 수 있어요." }
+    }
+    private func configureUpdates() {
+        guard !preview else { return }
+        let timer = Timer(timeInterval: 3600, repeats: true) { [weak self] _ in self?.automaticUpdateCheck() }
+        updateTimer = timer; RunLoop.main.add(timer, forMode: .common)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.automaticUpdateCheck() }
+    }
+    private func automaticUpdateCheck() {
+        guard !preview, !terminating, UserDefaults.standard.object(forKey: "automaticUpdateChecks") as? Bool ?? true,
+              Date().timeIntervalSince1970 - UserDefaults.standard.double(forKey: "lastUpdateAttempt") >= 86400 else { return }
+        performUpdateCheck()
+    }
+    @objc private func toggleAutomaticUpdates() {
+        guard !preview else { return }
+        UserDefaults.standard.set(autoUpdateToggle.state == .on, forKey: "automaticUpdateChecks")
+        if autoUpdateToggle.state == .on { automaticUpdateCheck() }
+    }
+    @objc private func checkUpdates() {
+        showSettings(); performUpdateCheck()
+    }
+    private func performUpdateCheck() {
+        guard !preview, !updateChecker.checking else { return }
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "lastUpdateAttempt")
+        updateButton.isEnabled = false; updateLabel.stringValue = "공개 배포를 확인하고 있어요…"
+        updateChecker.check { [weak self] result in
+            guard let self, !self.terminating else { return }
+            self.updateButton.isEnabled = true
+            switch result {
+            case .success(let release):
+                self.updateDownload = nil
+                if let release, let latest = release.version {
+                    if AppVersion.current < latest {
+                        self.updateDownload = release.downloadURL
+                        self.updateLabel.stringValue = "새 버전 \(latest.label)이 있어요. 두 Mac을 함께 업데이트하세요."
+                    } else if latest < AppVersion.current { self.updateLabel.stringValue = "현재는 공개 배포보다 최신 테스트 빌드예요. 내려받을 업데이트가 없어요." }
+                    else { self.updateLabel.stringValue = "현재 공개된 최신 버전이에요." }
+                } else { self.updateLabel.stringValue = "아직 다운로드할 공개 배포가 없어요." }
+                self.updateDownloadButton.isHidden = self.updateDownload == nil
+                self.updateMenu?.title = self.updateDownload == nil ? "업데이트 확인…" : "새 버전 있음 · 다운로드…"
+            case .failure:
+                self.updateLabel.stringValue = "업데이트 확인에 실패했어요. 네트워크를 확인하고 다시 눌러주세요."
+            }
+            self.updateWindowSize()
+        }
+    }
+    @objc private func downloadUpdate() {
+        guard let url = updateDownload, PublicRelease.trustedURL(url, download: true) else { return }
+        NSWorkspace.shared.open(url)
+    }
+    @objc private func openReleases() { NSWorkspace.shared.open(UpdateChecker.releasesURL) }
     private func updateSharingUI() {
         guard mouseToggle != nil else { return }
         mouseDetails?.isHidden = !mouseDetailsExpanded
         settingsContent?.isHidden = !settingsExpanded
         mouseDisclosure?.title = mouseDetailsExpanded ? "화면 배치 · 권한 ▾" : "화면 배치 · 권한 ▸"
         permissionLabel.stringValue = permissions.statusText
+        peerVersionLabel.isHidden = featurePeer == nil
+        peerVersionLabel.stringValue = AppVersion.current.peerNotice(featurePeer?.appVersion)
+        peerVersionLabel.textColor = featurePeer?.appVersion == AppVersion.current ? .secondaryLabelColor : .systemOrange
+        updateHealthUI()
         let supportsFiles = featurePeer?.features.contains(SharingFeature.files) == true
         let supportsMouse = featurePeer?.features.contains(SharingFeature.mouse) == true
         fileButton.isEnabled = enabled && supportsFiles && !files.busy
         swapScreens.isEnabled = supportsMouse && !mouse.active
-        mouseToggle.isEnabled = enabled && supportsMouse
+        mouseToggle.isEnabled = enabled && supportsMouse && (featurePeer?.inputReady == true || mouse.sharingRequested)
         mouseToggle.title = mouse.keyboardSupported || !supportsMouse ? "마우스·키보드 공유 켜기" : "마우스 공유 켜기"
         mouseToggle.state = mouse.sharingRequested ? .on : .off
         arrangement.update(peerID: supportsMouse ? featurePeer?.connection.uuidString : nil,
@@ -950,7 +1075,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                            peerName: featurePeer?.name ?? "상대 Mac", side: mouse.side,
                            editable: supportsMouse && !mouse.active)
         arrangementHint.stringValue = mouse.active ? "마우스 제어를 끝낸 뒤 배치를 바꿀 수 있어요. ⌃⌥Esc로 공유를 끄세요." : "화면을 드래그해 실제 Mac의 좌우 순서에 맞춰주세요. 양쪽에 자동 반영돼요."
-        if mouse.sharingRequested && !mouse.enabled { mouseHint.stringValue = "입력 공유 대기 중 · 잠금 해제 후 같은 Mac에 연결되면 자동으로 다시 켜져요." }
+        if featurePeer != nil && featurePeer?.inputReady == false { mouseHint.stringValue = "입력 연결을 복구하고 있어요. 클립보드와 파일 공유는 계속돼요." }
+        else if mouse.sharingRequested && !mouse.enabled { mouseHint.stringValue = "입력 공유 대기 중 · 잠금 해제 후 같은 Mac에 연결되면 자동으로 다시 켜져요." }
         else if !supportsMouse { mouseHint.stringValue = "두 Mac 모두 0.4 이상으로 연결하면 사용할 수 있어요." }
         else if !mouse.enabled { mouseHint.stringValue = mouseSetupError ?? (mouse.keyboardSupported ? "양쪽에서 켜면 커서와 키보드가 함께 이동해요. 긴급 해제: ⌃⌥Esc" : "키보드 공유는 상대 Mac도 0.4.3 이상이어야 해요. 마우스만 공유할 수 있어요.") }
         else if !mouse.remoteEnabled { mouseHint.stringValue = "이 Mac은 준비됐어요. 상대 Mac에서도 마우스 공유를 켜주세요." }

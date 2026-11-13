@@ -5,6 +5,9 @@ struct ConnectedPeer {
     let name: String
     let connection: UUID
     let features: Set<String>
+    var appVersion: AppVersion? = nil
+    var inputReady: Bool = true
+    var inputSession: UUID? = nil
 }
 
 enum SharingFeature {
@@ -12,7 +15,9 @@ enum SharingFeature {
     static let mouse = "mouse-v1"
     static let keyboard = "keyboard-v1"
     static let inputChannel = "input-channel-v1"
-    static let supported = [files, mouse, keyboard, inputChannel]
+    static let inputRecovery = "input-recovery-v1"
+    static let inputMetrics = "input-metrics-v1"
+    static let supported = [files, mouse, keyboard, inputChannel, inputRecovery, inputMetrics]
     static let maxPacket = 128 * 1024
 }
 

@@ -27,6 +27,17 @@ final class PeerLink {
     private(set) var inputLink: PeerLink?
     private var pendingInputConnection: NWConnection?
     private var inputPort: UInt16?
+    private var remoteInputPort: UInt16?
+    private var retryInputWork: DispatchWorkItem?
+    private var inputRetry = 0
+    private var metricsTimer: Timer?
+    private var measurements = InputMeasurements()
+    private var lastMetricsLog = -Double.infinity
+    private(set) var appVersion: AppVersion?
+    var onInputChange: ((PeerLink) -> Void)?
+    var onMetrics: ((PeerLink, InputHealth) -> Void)?
+    var canRecoverInput: Bool { features.contains(SharingFeature.inputRecovery) }
+    var inputReady: Bool { features.contains(SharingFeature.inputChannel) ? hasSeparateInput : ready }
     private(set) var ready = false
     var hasSeparateInput: Bool { ready && inputLink?.ready == true }
     private struct InputOffer: Codable { let port: UInt16 }
@@ -41,7 +52,7 @@ final class PeerLink {
     }
     private let advertisedFeatures: [String]
     private var sending = false
-    private var featureQueue: [(Data, (Bool) -> Void, TimeInterval)] = []
+    private var featureQueue: [(String, Data, (Bool) -> Void, TimeInterval)] = []
     private(set) var features: Set<String> = []
     var onFeature: ((PeerLink, FeaturePacket) -> Void)?
     private var pendingClip: ClipMessage?
@@ -109,41 +120,89 @@ final class PeerLink {
         do {
             let key = try Self.inputKey(secret: secret, local: local, remote: remote)
             let child = PeerLink(connection: connection, secret: key, device: local.device, name: local.name,
-                expectedDevice: remote.device, advertisedFeatures: [SharingFeature.mouse, SharingFeature.keyboard], inputOnly: true)
+                expectedDevice: remote.device, advertisedFeatures: [SharingFeature.mouse, SharingFeature.keyboard] + (features.contains(SharingFeature.inputMetrics) ? [SharingFeature.inputMetrics] : []), inputOnly: true)
             inputLink = child
             child.onReady = { [weak self] _ in
                 guard let self, !self.closed else { return }
-                self.inputListener?.cancel(); self.inputListener = nil
-                self.ready = true
+                if !self.canRecoverInput || self.local.device < remote.device {
+                    self.inputListener?.cancel(); self.inputListener = nil
+                }
+                self.retryInputWork?.cancel(); self.retryInputWork = nil; self.inputRetry = 0
+                let wasReady = self.ready; self.ready = true
                 self.logger.notice("input_channel_ready")
-                self.onReady?(self)
+                if wasReady { self.onInputChange?(self) } else { self.onReady?(self) }
             }
-            child.onFeature = { [weak self] _, packet in
-                guard let self, self.ready, !self.closed, self.features.contains(packet.feature) else { return }
+            child.onFeature = { [weak self, weak child] _, packet in
+                guard let self, self.inputLink === child, self.ready, !self.closed, self.features.contains(packet.feature) else { return }
                 self.onFeature?(self, packet)
             }
-            // A lost input channel invalidates the whole session. Existing
-            // disconnect handling releases held keys/buttons before reconnect.
+            child.onMetrics = { [weak self, weak child] _, health in
+                guard let self, self.inputLink === child, self.inputReady else { return }
+                self.onMetrics?(self, health)
+            }
+            // Recovery is negotiated. Older split-channel peers retain the
+            // build-16 whole-session teardown behavior.
             child.onClose = { [weak self] child in
-                guard let self, !self.closed else { return }
-                if self.ready { self.close(.networkFailure) }
-                else if self.inputLink === child {
-                    self.inputLink = nil // Invalid candidates cannot deliver input.
-                    if self.local.device < remote.device { self.close(.networkFailure) }
-                }
+                guard let self, !self.closed, self.inputLink === child else { return }
+                self.inputLink = nil
+                if self.canRecoverInput {
+                    self.logger.notice("input_channel_lost bulk_preserved=true")
+                    self.onInputChange?(self)
+                    self.scheduleInputRetry()
+                } else if self.ready || self.local.device < remote.device { self.close(.networkFailure) }
             }
             child.start()
         } catch { connection.cancel(); close(.invalidFrame) }
+    }
+    private func dialInput() {
+        guard !closed, authenticated, inputLink == nil, local.device < (remote?.device ?? ""),
+              let raw = remoteInputPort, let port = NWEndpoint.Port(rawValue: raw),
+              case .hostPort(let host, _) = connection.currentPath?.remoteEndpoint else { return }
+        startInput(NWConnection(host: host, port: port, using: LocalTransport.parameters()))
+    }
+    private func scheduleInputRetry() {
+        guard canRecoverInput, !closed, retryInputWork == nil, local.device < (remote?.device ?? "") else { return }
+        let delay = min(8.0, 0.5 * pow(2, Double(min(inputRetry, 4))))
+        inputRetry += 1
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, !self.closed else { return }
+            self.retryInputWork = nil; self.dialInput()
+        }
+        retryInputWork = work; DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+    private func startMetrics() {
+        guard inputOnly, features.contains(SharingFeature.inputMetrics), metricsTimer == nil else { return }
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.probe() }
+        metricsTimer = timer; RunLoop.main.add(timer, forMode: .common)
+    }
+    private func probe() {
+        guard ready, !closed else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        if measurements.expired(now: now) { close(.idleTimeout); return }
+        guard let id = measurements.begin(now: now) else { return }
+        enqueue(kind: "probe", data: Data(id.uuidString.utf8)) { [weak self] sent in
+            if !sent { self?.close(.networkFailure) }
+        }
+    }
+    private func publishMeasurements() {
+        guard let health = measurements.snapshot else { return }
+        onMetrics?(self, health)
+        let now = ProcessInfo.processInfo.systemUptime
+        if now - lastMetricsLog >= 10 {
+            lastMetricsLog = now
+            logger.notice("input_latency samples=\(health.samples, privacy: .public) rtt_ms=\(Int(health.rttMS), privacy: .public) p95_ms=\(Int(health.p95MS), privacy: .public) jitter_ms=\(Int(health.jitterMS), privacy: .public) queue_max_ms=\(Int(health.queueMaxMS), privacy: .public)")
+        }
     }
     func close(_ reason: CloseReason = .stopped) {
         guard !closed else { return }
         logger.notice("connection_close reason=\(reason.rawValue, privacy: .public) authenticated=\(self.authenticated, privacy: .public) peak_queue=\(self.peakQueueDepth, privacy: .public) max_queue_wait_ms=\(Int(self.maxQueueWaitMS), privacy: .public)")
         closed = true; authenticated = false; ready = false; pendingClip = nil
+        retryInputWork?.cancel(); retryInputWork = nil; metricsTimer?.invalidate(); metricsTimer = nil
         inputListener?.stateUpdateHandler = nil; inputListener?.cancel(); inputListener = nil
         inputLink?.onClose = nil; inputLink?.close(reason); inputLink = nil
         pendingInputConnection?.cancel(); pendingInputConnection = nil
         let queued = featureQueue; featureQueue = []
-        queued.forEach { $0.1(false) }
+        queued.forEach { $0.2(false) }
         connection.stateUpdateHandler = nil
         connection.cancel()
         onClose?(self)
@@ -209,31 +268,35 @@ final class PeerLink {
             let cipher = try SessionCipher(secret: secret, local: local, remote: hello)
             self.cipher = cipher
             let offer = try inputPort.map { try JSONEncoder().encode(InputOffer(port: $0)) }
-            try sendFrame(cipher.seal(kind: "ready", clock: clockProvider?() ?? 0, features: advertisedFeatures, data: offer))
+            try sendFrame(cipher.seal(kind: "ready", clock: clockProvider?() ?? 0, features: advertisedFeatures, data: offer, app: AppVersion.current))
             return
         }
         guard let cipher else { throw ClipError.invalid("연결을 확인할 수 없어요.") }
         let message = try cipher.open(data)
         if !authenticated {
             guard message.kind == "ready", message.clip == nil else { throw ClipError.invalid("연결 인증에 실패했어요.") }
+            if let version = message.app {
+                guard version.components != nil else { throw ClipError.invalid("버전 정보가 올바르지 않아요.") }
+                appVersion = version
+            }
             if let clock = message.clock { onClock?(clock) }
             features = Set((message.features ?? []).prefix(8)).intersection(advertisedFeatures)
             authenticated = true
             if features.contains(SharingFeature.inputChannel) {
                 guard let data = message.data, let offer = try? JSONDecoder().decode(InputOffer.self, from: data),
                       offer.port != 0 else { throw ClipError.invalid("입력 연결 정보를 확인할 수 없어요.") }
+                remoteInputPort = offer.port
+                if canRecoverInput { ready = true; onReady?(self) }
                 if local.device < (remote?.device ?? "") {
                     pendingInputConnection?.cancel(); pendingInputConnection = nil
-                    guard case .hostPort(let host, _) = connection.currentPath?.remoteEndpoint,
-                          let port = NWEndpoint.Port(rawValue: offer.port) else { throw ClipError.invalid("입력 연결 주소를 확인할 수 없어요.") }
-                    startInput(NWConnection(host: host, port: port, using: LocalTransport.parameters()))
+                    dialInput()
                 } else if let pending = pendingInputConnection {
                     pendingInputConnection = nil; startInput(pending)
                 }
             } else {
                 pendingInputConnection?.cancel(); pendingInputConnection = nil
                 inputListener?.cancel(); inputListener = nil
-                ready = true; onReady?(self)
+                ready = true; startMetrics(); onReady?(self)
             }
             logger.notice("connection_ready elapsed_ms=\(Int((ProcessInfo.processInfo.systemUptime - self.createdAt) * 1000), privacy: .public)")
             return
@@ -253,6 +316,13 @@ final class PeerLink {
             guard features.contains(packet.feature),
                   !(features.contains(SharingFeature.inputChannel) && packet.file == nil) else { throw ClipError.invalid("지원하지 않는 공유 기능이에요.") }
             onFeature?(self, packet)
+        case "probe", "probe-reply":
+            guard inputOnly, features.contains(SharingFeature.inputMetrics), let data = message.data,
+                  data.count == 36, let text = String(data: data, encoding: .utf8), let id = UUID(uuidString: text) else {
+                throw ClipError.invalid("지연 측정 메시지가 올바르지 않아요.")
+            }
+            if message.kind == "probe" { enqueue(kind: "probe-reply", data: data) { _ in } }
+            else if measurements.receive(id, now: ProcessInfo.processInfo.systemUptime) { publishMeasurements() }
         case "ping": break
         default: throw ClipError.invalid("지원하지 않는 메시지예요.")
         }
@@ -270,22 +340,27 @@ final class PeerLink {
         if featureQueue.count >= 32 { logger.error("send_queue_full depth=32") }
         guard ready, !closed, features.contains(packet.feature), featureQueue.count < 32,
               let data = try? packet.encoded() else { completion(false); return }
-        featureQueue.append((data, completion, ProcessInfo.processInfo.systemUptime))
+        enqueue(kind: "feature", data: data, completion: completion)
+    }
+    private func enqueue(kind: String, data: Data, completion: @escaping (Bool) -> Void) {
+        guard ready, !closed, featureQueue.count < 32 else { completion(false); return }
+        featureQueue.append((kind, data, completion, ProcessInfo.processInfo.systemUptime))
         peakQueueDepth = max(peakQueueDepth, featureQueue.count); flush()
     }
     private func flush() {
         guard !sending, !closed, authenticated, let cipher else { return }
         if !featureQueue.isEmpty {
-            let (data, reply, queuedAt) = featureQueue.removeFirst(); sending = true
+            let (kind, data, reply, queuedAt) = featureQueue.removeFirst(); sending = true
             let uptime = ProcessInfo.processInfo.systemUptime
             let waitMS = (uptime - queuedAt) * 1000
             maxQueueWaitMS = max(maxQueueWaitMS, waitMS)
+            if inputOnly && kind == "feature" { measurements.queueWait(waitMS) }
             if waitMS >= 50, uptime - lastSlowQueueLog >= 5 {
                 lastSlowQueueLog = uptime
                 logger.notice("send_queue_slow wait_ms=\(Int(waitMS), privacy: .public) remaining=\(self.featureQueue.count, privacy: .public)")
             }
             do {
-                let frame = try Framing.encode(cipher.seal(kind: "feature", data: data))
+                let frame = try Framing.encode(cipher.seal(kind: kind, data: data))
                 connection.send(content: frame, completion: .contentProcessed { [weak self] error in
                     guard let self else { reply(false); return }
                     self.sending = false; reply(error == nil && !self.closed)
@@ -321,7 +396,7 @@ final class PeerLink {
         guard !closed else { return }
         inputLink?.tick()
         if (!ready && Date().timeIntervalSince(created) > 12) || Date().timeIntervalSince(lastReceived) > 90 {
-            close(authenticated ? .idleTimeout : .handshakeTimeout); return
+            close(ready ? .idleTimeout : .handshakeTimeout); return
         }
         guard authenticated, !sending, let cipher else { return }
         sending = true
@@ -352,6 +427,7 @@ final class LocalTransport {
     private var directAttempts = 0
     var onPeers: (([String]) -> Void)?
     var onPeerDetails: (([ConnectedPeer]) -> Void)?
+    var onMetrics: ((String, InputHealth) -> Void)?
     var onFeature: ((String, FeaturePacket) -> Void)?
     var onClip: ((ClipMessage) -> Void)?
     var onStatus: ((String) -> Void)?
@@ -486,6 +562,10 @@ final class LocalTransport {
             }
             self.publishPeers()
         }
+        link.onInputChange = { [weak self] _ in self?.publishPeers() }
+        link.onMetrics = { [weak self] link, health in
+            if let peer = link.remote?.device { self?.onMetrics?(peer, health) }
+        }
         link.onFeature = { [weak self] link, packet in
             if let peer = link.remote?.device { self?.onFeature?(peer, packet) }
         }
@@ -496,7 +576,7 @@ final class LocalTransport {
     private func publishPeers() {
         let peers = links.values.filter(\.ready).compactMap { link -> ConnectedPeer? in
             guard let remote = link.remote else { return nil }
-            return ConnectedPeer(device: remote.device, name: remote.name, connection: link.id, features: link.features)
+            return ConnectedPeer(device: remote.device, name: remote.name, connection: link.id, features: link.features, appVersion: link.appVersion, inputReady: link.inputReady, inputSession: link.inputLink?.ready == true ? link.inputLink?.id : nil)
         }
         onPeers?(peers.map(\.name).sorted()); onPeerDetails?(peers)
     }

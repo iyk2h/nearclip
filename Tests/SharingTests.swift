@@ -471,7 +471,7 @@ func legacyCapabilityTests() throws {
     // Exercise the two physical connections and either-socket cleanup directly.
     server.onListening = { port in
         let link = PeerLink(connection: NWConnection(host: "127.0.0.1", port: port, using: LocalTransport.parameters()),
-            secret: secret, device: legacyID, name: "Split input")
+            secret: secret, device: legacyID, name: "Split input", advertisedFeatures: [SharingFeature.files, SharingFeature.mouse, SharingFeature.keyboard, SharingFeature.inputChannel])
         old = link; link.start()
     }
     server.start(); waitFor({ old?.hasSeparateInput == true && server.peerCount == 1 })

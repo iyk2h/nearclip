@@ -41,9 +41,10 @@ Run the app bundle diagnostics after a build. These use synthetic data, not the 
 ```sh
 build/NearClip.app/Contents/MacOS/NearClip --smoke-test
 build/NearClip.app/Contents/MacOS/NearClip --lifecycle-smoke
+build/NearClip.app/Contents/MacOS/NearClip --update-check
 ```
 
-The first checks Bonjour, encrypted clipboard/file transfer, and shared layout under the actual app identity. The second checks menu entries, inline mouse/settings expansion, pause/resume, input consent, hiding/reopening, stable geometry, and quit cleanup. Both exit when complete. Render and diagnostic modes keep their windows offscreen and use accessory activation so they do not occupy the Dock or steal focus. Tests create native mouse event objects but never post them, install real input hooks, move the system cursor, or request input permissions.
+The update check contacts only the public GitHub release API and prints the latest tag and whether it is newer; it does not touch the Keychain or clipboard. The first smoke test checks Bonjour, encrypted clipboard/file transfer, and shared layout under the actual app identity. The second checks menu entries, inline mouse/settings expansion, pause/resume, input consent, hiding/reopening, stable geometry, and quit cleanup. Both exit when complete. Render and diagnostic modes keep their windows offscreen and use accessory activation so they do not occupy the Dock or steal focus. Tests create native mouse event objects but never post them, install real input hooks, move the system cursor, or request input permissions.
 
 ## Release
 
@@ -97,3 +98,5 @@ Build 16 moves access to the existing pairing item into `Contents/Helpers/NearCl
 Keep `build/keystore-cache` between release builds, or set `NEARCLIP_HELPER_CACHE` to a persistent private build directory. Cache entries are keyed by helper source and signing identity, checked by SHA-256, and signature-verified. Ordinary app edits and version increments reuse the same signed helper bytes. A helper change or new signing identity may require Keychain approval again. Do not re-sign nested helpers during an app-only update. A new build machine must use the same verified helper artifact or validate its hashes before claiming approval continuity.
 
 After initial authorization, run `NearClip.app/Contents/MacOS/NearClip --keychain-check`. This checks the existing item without prompting and prints only success/failure. Use `bash scripts/verify-keychain-update.sh OLD_APP NEW_APP` to check signing requirements, identical helper bytes, and prompt-free reads from both app builds. It does not create, reset, print, or export pairing keys.
+
+For patch builds of the same app version, use a release tag such as `v0.4.3-build17`. The update checker compares the three numeric version components, then the explicit build number. Use the existing `NearClip-VERSION-macOS.dmg` asset name. Keep draft or unvalidated builds unpublished; a local package is not automatically a GitHub release.

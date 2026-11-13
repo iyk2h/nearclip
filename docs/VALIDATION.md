@@ -4,7 +4,7 @@ Validated locally on macOS 15.7.2, Apple Silicon. File and mouse sharing are exp
 
 ## Automated regression suite
 
-**289 checks passed locally for build 16.** The suite uses synthetic identities, temporary files, and separate pasteboards. It does not read or write the general clipboard, install input hooks, post mouse events, move the user's cursor, or request input permissions.
+**316 checks passed locally for build 17.** The suite uses synthetic identities, temporary files, and separate pasteboards. It does not read or write the general clipboard, install input hooks, post mouse events, move the user's cursor, or request input permissions.
 
 On November 13, a physical handoff reached the receiving Mac, then ended with `returnEdge`. A new test reproduced an immediate return from a reverse delta at the four-point entry inset and failed against build 11. Build 12 requires inward travel before return and a sustained outward push. Tests cover both directions, interrupted pushes, and fresh-session reset. The build passed the packaged lifecycle checks and mutual signing-identity verification against build 11. After installing build 12 on the receiving Mac, its UI showed active remote control and the user confirmed controlling it from the other Mac. A later observation showed an edge return. Accessibility and Input Monitoring remained granted across the build 11 to 12 replacement; a Keychain access prompt still required user approval. The origin of the unexpected reverse delta has not been established. Reverse-direction handoff, sustained keyboard/shortcut use, and the full physical matrix below remain unverified.
 
@@ -28,7 +28,11 @@ Build 15 tests cover movement backpressure, click ordering with queued movement,
 
 Build 16 adds real two-socket input delivery during a 20 MiB clipboard operation and an 8 MiB streamed file, parent-session key binding, old-session rejection, input replay rejection, old input-peer fallback, rejection of files/clipboard on the input socket, and either-channel cleanup. The input packet arrived before the bulk clipboard completed in the loopback test. This establishes independent transport ordering, not physical Wi-Fi latency.
 
+Build 17 adds authenticated peer-version metadata, numeric version/build ordering, bounded latency samples, matching/expired probes, official-download URL validation, prerelease filtering, and downgrade prevention. A real TCP test interrupts input during an 8 MiB file transfer, verifies the completed file, receives clipboard content during recovery without changing the parent connection, and then exchanges input and RTT probes through a new child connection. Shutdown cancels pending retries. Build 16 fallback still tears down both sockets.
+
 ## Packaged application diagnostics
+
+Build 17 passed 38 packaged lifecycle checks, including input-only outage/recovery, retained local opt-in, fresh remote consent, file controls during input loss, and update controls. Its signed-bundle discovery/pairing/clipboard/file/layout smoke test passed. A live update check returned public `v0.4.2` and correctly declined to offer it over local 0.4.3 build 17. Build 16 and build 17 passed the same-helper and noninteractive Keychain checks; the installed build 17 then opened without a new prompt and retained both native input permissions. Initial UI verification correctly reported the still-older peer's version as unknown.
 
 Build 16 passed 34 lifecycle checks and signed-bundle discovery, pairing, clipboard, file, layout, and cleanup tests. The installed app reconnected to its saved peer, retained both input permissions, and enabled local input sharing. The peer had not yet been updated/enabled for a physical two-channel control test.
 

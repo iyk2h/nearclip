@@ -1,0 +1,75 @@
+import Foundation
+
+struct AppVersion: Codable, Equatable, Comparable {
+    let version: String
+    let build: Int
+    var components: [Int]? {
+        let parts = version.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 3, parts.allSatisfy({ !$0.isEmpty && $0.count <= 6 && $0.allSatisfy({ $0.isASCII && $0.isNumber }) }),
+              build >= 0 && build <= 1_000_000 else { return nil }
+        return parts.compactMap { Int($0) }
+    }
+    var label: String { "\(version) · build \(build)" }
+    static var current: Self {
+        Self(version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.4.3",
+             build: Int(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0") ?? 0)
+    }
+    static func < (lhs: Self, rhs: Self) -> Bool {
+        guard let a = lhs.components, let b = rhs.components else { return false }
+        return a == b ? lhs.build < rhs.build : a.lexicographicallyPrecedes(b)
+    }
+    static func releaseTag(_ tag: String) -> Self? {
+        let raw = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
+        let pieces = raw.components(separatedBy: "-build")
+        guard pieces.count <= 2 else { return nil }
+        let build = pieces.count == 2 ? Int(pieces[1]) : 0
+        guard let build else { return nil }
+        let value = Self(version: pieces[0], build: build)
+        return value.components == nil ? nil : value
+    }
+    func peerNotice(_ peer: Self?) -> String {
+        guard let peer else { return "이 Mac \(label) · 상대 버전 확인 불가\n상대도 최신 빌드로 업데이트하면 버전을 확인할 수 있어요." }
+        if self == peer { return "양쪽 버전 같음 · \(label)" }
+        return "버전이 달라요 · 이 Mac \(label) / 상대 \(peer.label)\n같은 빌드로 맞추면 새 기능을 함께 사용할 수 있어요."
+    }
+}
+
+struct InputHealth: Equatable {
+    let samples: Int
+    let rttMS: Double
+    let p95MS: Double
+    let jitterMS: Double
+    let queueMaxMS: Double
+    var label: String {
+        "왕복 \(Int(rttMS.rounded()))ms · p95 \(Int(p95MS.rounded()))ms · 편차 \(Int(jitterMS.rounded()))ms · 입력 대기 최대 \(Int(queueMaxMS.rounded()))ms"
+    }
+}
+
+struct InputMeasurements {
+    private(set) var pending: (UUID, TimeInterval)?
+    private var samples: [Double] = []
+    private var queueSamples: [Double] = []
+    mutating func begin(now: TimeInterval) -> UUID? {
+        guard pending == nil else { return nil }
+        let id = UUID(); pending = (id, now); return id
+    }
+    mutating func receive(_ id: UUID, now: TimeInterval) -> Bool {
+        guard let (expected, started) = pending, expected == id, now >= started else { return false }
+        pending = nil; samples.append((now - started) * 1000)
+        if samples.count > 60 { samples.removeFirst() }
+        return true
+    }
+    func expired(now: TimeInterval) -> Bool { pending.map { now - $0.1 > 3 } ?? false }
+    mutating func queueWait(_ ms: Double) {
+        guard ms.isFinite, ms >= 0 else { return }
+        queueSamples.append(ms); if queueSamples.count > 120 { queueSamples.removeFirst() }
+    }
+    var snapshot: InputHealth? {
+        guard !samples.isEmpty else { return nil }
+        let sorted = samples.sorted()
+        let jitter = zip(samples, samples.dropFirst()).map { abs($0 - $1) }
+        return InputHealth(samples: samples.count, rttMS: samples.last!,
+            p95MS: sorted[min(sorted.count - 1, Int(ceil(Double(sorted.count) * 0.95)) - 1)],
+            jitterMS: jitter.isEmpty ? 0 : jitter.reduce(0, +) / Double(jitter.count), queueMaxMS: queueSamples.max() ?? 0)
+    }
+}

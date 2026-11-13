@@ -25,7 +25,7 @@ A cross-language implementation must reproduce the transcript bytes exactly, inc
 The encrypted `ready` envelope adds an optional `features` array:
 
 ```json
-["files-v1", "mouse-v1", "keyboard-v1", "input-channel-v1"]
+["files-v1", "mouse-v1", "keyboard-v1", "input-channel-v1", "input-recovery-v1", "input-metrics-v1"]
 ```
 
 A peer without these capabilities continues to exchange clipboard messages. Never send a feature packet unless the authenticated peer advertised that capability. Missing features mean unsupported, not implicit consent.
@@ -86,7 +86,15 @@ Build 16 negotiates `input-channel-v1`. When both peers support it, the encrypte
 
 The child secret is HKDF-SHA256 of the pairing key, with sorted-key JSON for the device-sorted array of both parent hellos as salt, info `NearClip authenticated input channel v1`, and 32 output bytes. The child performs the usual hello/ready exchange with fresh nonces, expected peer identity, independent directional cipher keys, and sequence counters. It advertises only mouse and keyboard capabilities. Every child frame is limited to 4 KiB; files and clipboard are rejected. The peer is published only after both connections authenticate.
 
-Mouse, keyboard, layout, and input availability use the child channel; clipboard and files stay on the parent. Input frames cannot overtake each other but can overtake bulk frames. A failure of either established channel closes the whole session and invokes normal held-input cleanup. Reconnection derives fresh keys and requires fresh input availability/session acceptance. Older peers use the original single-channel path; both Macs need build 16 for separation. The two sockets still share physical network bandwidth, so separation does not guarantee latency under network saturation.
+Mouse, keyboard, layout, and input availability use the child channel; clipboard and files stay on the parent. Input frames cannot overtake each other but can overtake bulk frames. Without `input-recovery-v1`, a failure of either established channel closes the whole session and invokes normal held-input cleanup. Reconnection derives fresh keys and requires fresh input availability/session acceptance. Older peers use the original single-channel path; both Macs need build 16 for separation. The two sockets still share physical network bandwidth, so separation does not guarantee latency under network saturation.
+
+## Version, recovery, and metrics (build 17)
+
+The encrypted `ready` envelope can carry `app: {"version":"0.4.3","build":17}`. It does not change the hello transcript. Version strings must contain three numeric components; builds are nonnegative bounded integers. Missing metadata is shown as unknown, never guessed from capabilities.
+
+Both peers must negotiate `input-recovery-v1`. The parent becomes ready once it authenticates, independently of input readiness. The higher device ID keeps its input listener open. The lower ID reconnects to the authenticated input port with delays of 0.5, 1, 2, 4, then 8 seconds. It keeps at most one candidate and one retry. Each retry repeats the child handshake with fresh nonces. An input transition updates a separate connection generation; the app releases held input and clears remote availability without cancelling file work. Local opt-in remains scoped to the same peer. Closing the parent cancels all child connections, probes, and retries. Invalid candidates never deliver input.
+
+With `input-metrics-v1`, the child sends `probe` envelopes with a UTF-8 UUID in `data`, once a second, with at most one probe outstanding. The peer replies with `probe-reply` carrying the same UUID. Only a matching pending reply creates an RTT sample, using local monotonic time. A probe older than three seconds closes the unresponsive child and starts negotiated recovery. Probes use the same authenticated sequencing and bounded send queue as input. RTT therefore includes software scheduling and transport queues; it is not display latency. Up to 60 RTT samples and 120 input queue samples stay in memory. Diagnostics record aggregates at most once per ten seconds, without input content or coordinates.
 
 ## Keyboard control (0.4.3)
 

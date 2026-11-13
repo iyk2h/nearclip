@@ -47,7 +47,7 @@ Use 0.4.2 or later for graphical arrangement. The 0.4.3 test build adds the edge
 4. Allow the missing permissions shown in the app. The app checks again when you return from System Settings. Then enable sharing again. Restart only if macOS requires it or the permission still has not taken effect.
 5. Push the cursor against the configured outer edge. A vertical bar fills as the handoff starts. After acceptance, it becomes a thin bar and the keyboard follows the pointer. Return through the edge where it entered.
 
-**Press `⌃⌥Esc` to disable mouse sharing and reclaim control.** Local mouse or keyboard input on the receiving Mac also reclaims control. A lost connection releases held buttons and keys and returns control. The current test build keeps your choice during sleep and temporary disconnection. After unlock, sharing resumes only with the same authenticated Mac. Pause, explicit stop, emergency stop, a new pairing, and app restart require you to enable it again. Install the same build on both Macs; the footer shows the build number. Build 16 separates input from clipboard/file traffic when both Macs support it. Older peers keep the original connection.
+**Press `⌃⌥Esc` to disable mouse sharing and reclaim control.** Local mouse or keyboard input on the receiving Mac also reclaims control. A lost connection releases held buttons and keys and returns control. The current test build keeps your choice during sleep and temporary disconnection. After unlock, sharing resumes only with the same authenticated Mac. Pause, explicit stop, emergency stop, a new pairing, and app restart require you to enable it again. Install the same build on both Macs; the footer shows the build number. Build 16 separates input from clipboard/file traffic when both Macs support it. Build 17 can recover the input connection while clipboard and file transfers continue. Both Macs need build 17 for this recovery; older peers keep their previous behavior. The main screen shows both versions when available.
 
 Movement, left/right/middle clicks, dragging within the receiving Mac, and scrolling are supported. Keyboard letters, shortcuts, modifiers, and repeat events use the receiving Mac’s input source. Select the desired input language there. Media keys, Touch ID, and three- or four-finger system gestures are not shared. The test build preserves two-finger scroll and momentum phases; it does not change your trackpad settings. Secure Event Input returns control; enter protected input on that Mac directly. With an older mouse-only peer, typing stays local and ends control. This version does not drag files across the screen boundary. Each card represents one Mac, including its attached displays. This version sets horizontal Mac order; individual monitor placement and vertical arrangements are not included. Press Escape while dragging to cancel. End remote mouse control before changing the arrangement.
 
@@ -83,6 +83,12 @@ Transfers are encrypted and checked with SHA-256. Existing destination files are
 | Forget the paired Mac | Settings → `연결 해제…` |
 
 The first window close asks whether to quit or keep running in the menu bar. Quitting stops all sharing. Choosing to keep running allows sharing to continue.
+
+## Updates and connection diagnostics
+
+In build 17, open **Settings (`설정`) → Updates (`업데이트`)**. The app checks GitHub's public releases once a day, including beta releases. Turn off **Check automatically (`새 버전 자동 확인`)** to use manual checks only. **Download new version (`새 버전 다운로드`)** opens the official DMG download. Quit and replace the app on both Macs after downloading. NearClip does not install updates or quit for you. A local build newer than the public release is not offered a downgrade.
+
+**Connection diagnostics (`연결 진단`)** shows input-channel round-trip time, p95, variation between samples, and maximum recent input queue wait. Both Macs need build 17. These measurements exclude display rendering and are not full pointer-to-screen latency. The connection status at the top stays unchanged during normal handoffs.
 
 ## Security, validation, and development
 

@@ -36,9 +36,18 @@ A metadata-only inspection of the existing pairing item found three `cdhash:` pa
 
 The new restricted Keychain helper keeps its signed executable unchanged during app-only updates. It validates the signed parent, and the parent validates the helper. It reads the original item without changing its ACL or pairing secret. Initial authorization and a changed helper/certificate can still prompt. After initial authorization, the installed app and a version-bumped re-signed verification bundle both passed noninteractive Keychain reads. Their main-app CDHashes differed and helper bytes matched. An unrelated caller was denied without secret output. The native Accessibility and Input Monitoring approvals also remained granted.
 
+## Changes in build 17
+
+- Exchange validated version/build metadata inside the encrypted ready envelope; show matched, mismatched, or unknown versions.
+- Negotiate independent input recovery. A real TCP test interrupted input during an 8 MiB file: verified file delivery and clipboard delivery continued, the parent connection ID stayed unchanged, and input recovered through a fresh child connection. Old peers retain their previous teardown behavior.
+- Measure input-channel RTT once per second, keeping at most 60 samples. Show latest RTT, p95, variation between consecutive samples, and maximum recent input queue wait in Settings. Fixed aggregate logs are limited to once per ten seconds. The data does not measure display presentation time.
+- Check official public GitHub releases on demand or once per day, with automatic checks configurable. Validate HTTPS repository paths and versions; never recommend a downgrade or install a downloaded file automatically.
+
+Before the build 17 update, build 16 logs showed a 51.3-second physical receiving-control session with 497 movement packets, ending at the return edge. The reported maintenance delay was 0 ms at integer precision. This does not establish zero transport latency. Build 17 adds direct transport measurements for subsequent physical tests.
+
 ## Remaining physical checks
 
-Native three-/four-finger system gestures remain unsupported. Sustained bidirectional movement, physical sleep/wake, lock/unlock, and simultaneous large-image copying need tests with both Macs on build 16. Loopback ordering does not establish end-to-end input latency over the user's network.
+Native three-/four-finger system gestures remain unsupported. Sustained bidirectional movement, physical sleep/wake, lock/unlock, and simultaneous large-image copying need tests with both Macs on build 17. Loopback ordering does not establish end-to-end input latency over the user's network.
 
 ## Collect diagnostics
 
