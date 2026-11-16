@@ -102,7 +102,7 @@ From build 21, you can update directly in NearClip. You do not need to transfer 
 
 NearClip validates the signed update and opens the new app. Pairing and settings stay in place. From build 22, the input-sharing choice also stays in place for the same pairing.
 
-Update each Mac separately. For build 20 or earlier, quit NearClip and replace it with the current download once. Later updates can use the app's update window. Run the installed app from a writable folder, such as Applications, rather than from a mounted DMG.
+For build 20 or earlier, quit NearClip and replace it with the current download once. Later updates can use the app's update window. Run the installed app from a writable folder, such as Applications, rather than from a mounted DMG.
 
 The app checks public GitHub releases once a day, including beta releases. Turn off **Check automatically (`새 버전 자동 확인`)** for manual checks only. Automatic checks do not install an update or interrupt sharing. **Public releases (`공개 배포 보기`)** remains available for manual downloads.
 

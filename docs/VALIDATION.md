@@ -13,6 +13,10 @@ The input send window holds at most four frames. Input connections use [responsi
 
 Both bundles passed the same signing requirements and noninteractive pairing-key reads. The Keychain helper bytes stayed identical. The updater rejected modified host and updater test copies.
 
+The public signed feed offered build 27 to the installed build 26 app. The built-in updater downloaded and installed the release, then restarted NearClip. The installed executable matched the release package. Its signature passed validation. Pairing, input permissions, and the enabled input choice stayed in place. The app reconnected to the existing peer without a password prompt.
+
+The peer still used build 24 during this observation. Round-trip spikes remained after the local update, including one 621 ms sample. This does not establish a physical latency improvement. Both-peer testing remains necessary.
+
 Physical four-finger gestures remain unverified. Build 27 includes the capability diagnostics from build 26. The peer must update before those diagnostics can report its OS major version.
 
 ## 0.4.4 build 22 — November 16, 2026
