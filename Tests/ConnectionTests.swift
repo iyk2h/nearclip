@@ -274,3 +274,38 @@ func inputBurstNetworkTests() throws {
     try Check.that(closeCallbacks.allSatisfy { $0 == 1 } && rejected >= 8,
                    "input window stays bounded and shutdown completes every pending submission exactly once")
 }
+
+
+func delayedInputRouteTests() throws {
+    let code = try PairCode.create(), secret = try PairCode.key(code)
+    let local = "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF", remote = "00000000-0000-0000-0000-000000000001"
+    let server = try LocalTransport(code: code, device: local, name: "Delayed route receiver", discovery: false)
+    var client: PeerLink?, routeAvailable = false, attempts = 0, delivered = false
+    defer { client?.close(); server.stop() }
+    server.onListening = { port in
+        client = PeerLink(connection: NWConnection(host: "127.0.0.1", port: port, using: LocalTransport.parameters()),
+                          secret: secret, device: remote, name: "Delayed route sender")
+        client?.inputHostProvider = { attempts += 1; return routeAvailable ? NWEndpoint.Host("127.0.0.1") : nil }
+        client?.start()
+    }
+    server.onFeature = { _, packet in delivered = packet.keyboard?.action == .up }
+    server.start(); waitFor({ client?.authenticated == true && attempts > 0 })
+    try Check.that(client?.ready == true && client?.hasSeparateInput == false && attempts == 1,
+        "bulk authentication can finish while the input route is temporarily unavailable")
+    routeAvailable = true
+    waitFor({ client?.hasSeparateInput == true && server.separateInputPeerCount == 1 }, seconds: 3)
+    try Check.that(attempts >= 2 && client?.hasSeparateInput == true,
+        "delayed input route retries automatically without app restart or parent replacement")
+    client?.sendFeature(FeaturePacket(keyboard: KeyboardPacket(token: UUID(), action: .up, keyCode: 0))) { _ in }
+    waitFor({ delivered })
+    try Check.that(delivered, "recovered initial route transports authenticated keyboard frames")
+    client?.close(); server.stop()
+
+    routeAvailable = false; attempts = 0
+    server.start(); waitFor({ client?.authenticated == true && attempts > 0 })
+    client?.close(); server.stop()
+    let stoppedAttempts = attempts
+    RunLoop.main.run(until: Date().addingTimeInterval(0.65))
+    try Check.that(attempts == stoppedAttempts && client?.closed == true,
+        "shutdown cancels the initial unresolved-route retry")
+}

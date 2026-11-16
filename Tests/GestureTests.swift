@@ -86,9 +86,9 @@ func gestureSharingTests() throws {
                 integer(payload, 68, 4) == 28 && integer(payload, 72, 4) == 9 && integer(payload, 80, 4) == 1 &&
                 integer(payload, 84, 4) == 131072 && integer(payload, 88, 4) == UInt64(UInt32(bitPattern: -196608)),
                 "modern HID payload preserves axis, phase, signed progress and velocity with fixed byte offsets")
-            let modern = DockSwipeAdapter.events(packet, at: CGPoint(x: 100, y: 200), marker: 123, osMajor: 27)
+            let modern = DockSwipeAdapter.events(packet, at: CGPoint(x: 100, y: 200), marker: 123, osMajor: 27, naturalScrolling: true)
             let reread = modern.first.flatMap { DockSwipeAdapter.read($0, token: token) }
-            try Check.that(modern.count == 2 && reread?.axis == axis && reread?.phase == phase && reread?.progress == -0.5 &&
+            try Check.that(modern.count == 2 && reread?.axis == axis && reread?.phase == phase && reread?.progress == (axis == 1 ? 0.5 : -0.5) &&
                 modern.allSatisfy { $0.getIntegerValueField(.eventSourceUserData) == 123 },
                 "modern native event conversion retains gesture fields and echo marker without posting")
         }
@@ -111,6 +111,33 @@ func gestureSharingTests() throws {
         DockSwipeAdapter.localTermination(terminalEvent, packet: sample, osMajor: 27) == nil &&
         DockSwipeAdapter.localTermination(terminalEvent, packet: terminalPacket, osMajor: 15) == nil,
         "only modern terminal capture releases a neutral event to close local Dock tracking")
+    for os in [15, 26, 27] {
+        for natural in [false, true] {
+            for axis in [1, 2] {
+                for sign in [-1.0, 1.0] {
+                    for phase in [1, 2, 4, 8] {
+                        let logical = DockSwipePacket(token: token, axis: axis, phase: phase, progress: sign * 0.25,
+                            velocityX: sign * 3, velocityY: sign * 2, inverted: true)
+                        let expected = os == 27 && axis == 1 && natural ? -1.0 : 1.0
+                        let rendered = DockSwipeAdapter.renderingPacket(logical, osMajor: os, naturalScrolling: natural)
+                        let native = DockSwipeAdapter.events(logical, at: .zero, marker: 123, osMajor: os, naturalScrolling: natural)
+                        let captured = native.first.flatMap { DockSwipeAdapter.read($0, token: token) }
+                        try Check.that(rendered.progress == logical.progress * expected &&
+                            rendered.velocityX == logical.velocityX * expected && rendered.velocityY == logical.velocityY &&
+                            captured?.progress == rendered.progress && captured?.velocityX == rendered.velocityX && captured?.phase == phase &&
+                            (os != 27 || axis != 1 || captured?.inverted == false),
+                            "direction matrix preserves logical direction across OS, natural-scroll preference, axis, sign, and phase")
+                        if os == 27 {
+                            let hid = DockSwipeAdapter.hidPayload(rendered, timestamp: 1)!
+                            try Check.that(integer(hid, 64, 4) == UInt64(UInt32(bitPattern: Int32(rendered.progress * 65536))) &&
+                                integer(hid, 84, 4) == UInt64(UInt32(bitPattern: Int32(rendered.velocityX * 65536))),
+                                "modern HID progress and end velocity use the same direction correction")
+                        }
+                    }
+                }
+            }
+        }
+    }
     a.setPeer("B", supportsGestures: false)
     try Check.that(!a.gesturesSupported && !a.localGesture(sample), "legacy peers keep gestures local")
 }

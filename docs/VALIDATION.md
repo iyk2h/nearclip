@@ -1,5 +1,13 @@
 # Validation
 
+## 0.4.4 build 29 — November 16, 2026
+
+The final regression suite passed 583 checks. The packaged app passed 48 lifecycle checks and the network smoke test. Update identity and prompt-free Keychain checks passed. Modified updater and host test copies were rejected. Both architectures compiled, but runtime checks used Apple Silicon. [Build 29 review](REVIEW-BUILD29.md) records the direction and initial-route findings, test coverage, and remaining physical checks.
+
+The direction matrix covers macOS 15, 26, and 27 adapters, both axes, both signs, all phases, and both natural-scroll settings. The initial-route test authenticates the bulk connection before exposing the input address. It checks automatic input recovery and cancellation on shutdown.
+
+The user confirmed reversed horizontal desktop movement when the macOS 27 Mac received control on build 28. Build 29 corrects the destination posting sign. Physical confirmation after this update remains pending. These checks do not establish that intermittent network latency is resolved.
+
 ## 0.4.4 build 28 — November 16, 2026
 
 ### Physical test after peer restart

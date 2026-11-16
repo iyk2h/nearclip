@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.4 build 29 — 2026-11-16
+
+- Horizontal gestures on macOS 27 use its posting direction and local natural-scroll preference. Vertical gestures keep their existing direction.
+- An input route that becomes available after authentication triggers an automatic retry. The bulk connection stays open.
+- The expanded suite covers direction across OS versions, axes, phases, signs, and both natural-scroll settings.
+- Physical direction confirmation after this update remains pending. Intermittent network latency remains unresolved.
+
 ## 0.4.4 build 28 — 2026-11-16
 
 - Gesture negotiation includes macOS 27. The adapter adds its required local IOHID payload.

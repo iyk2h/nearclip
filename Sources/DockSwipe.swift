@@ -50,6 +50,19 @@ enum DockSwipeAdapter {
     }()
     static func supports(major: Int) -> Bool { (13...27).contains(major) }
     static var available: Bool { supports(major: systemMajor) }
+    static var naturalScrolling: Bool {
+        (CFPreferencesCopyAppValue("com.apple.swipescrolldirection" as CFString, kCFPreferencesAnyApplication) as? Bool) ?? true
+    }
+    static func renderingPacket(_ packet: DockSwipePacket, osMajor: Int, naturalScrolling: Bool) -> DockSwipePacket {
+        // Captured horizontal progress is a logical Dock direction. macOS 27
+        // posts that direction with the opposite sign, then applies the local
+        // natural-scroll preference. Vertical gestures use their existing path.
+        guard osMajor == 27, packet.axis == 1 else { return packet }
+        let sign = naturalScrolling ? -1.0 : 1.0
+        return DockSwipePacket(token: packet.token, axis: packet.axis, phase: packet.phase,
+            progress: packet.progress * sign, velocityX: packet.velocityX * sign,
+            velocityY: packet.velocityY, inverted: false)
+    }
     static let eventMask: CGEventMask = (1 << 29) | (1 << 30)
     static func nativeType(_ event: CGEvent) -> Int64 { event.getIntegerValueField(CGEventField(rawValue: 55)!) }
     private static func field(_ value: UInt32) -> CGEventField { CGEventField(rawValue: value)! }
@@ -71,9 +84,11 @@ enum DockSwipeAdapter {
         event.setIntegerValueField(field(135), value: 0)
         return event
     }
-    static func events(_ packet: DockSwipePacket, at point: CGPoint, marker: Int64, osMajor: Int = systemMajor) -> [CGEvent] {
+    static func events(_ packet: DockSwipePacket, at point: CGPoint, marker: Int64, osMajor: Int = systemMajor,
+                       naturalScrolling: Bool? = nil) -> [CGEvent] {
         guard supports(major: osMajor), (try? packet.validate()) != nil,
               let event = CGEvent(source: nil), let companion = CGEvent(source: nil) else { return [] }
+        let packet = renderingPacket(packet, osMajor: osMajor, naturalScrolling: naturalScrolling ?? Self.naturalScrolling)
         event.type = CGEventType(rawValue: 30)!
         companion.type = CGEventType(rawValue: 29)!
         for item in [event, companion] {

@@ -84,6 +84,8 @@ final class PeerLink {
     var onClip: ((PeerLink, ClipMessage) -> Void)?
     var onClose: ((PeerLink) -> Void)?
     var clockProvider: (() -> UInt64)?
+    // Injectable route lookup permits a delayed Network.framework path in tests.
+    var inputHostProvider: (() -> NWEndpoint.Host?)?
     var onClock: ((UInt64) -> Void)?
 
     init(connection: NWConnection, secret: SymmetricKey, device: String, name: String,
@@ -183,8 +185,15 @@ final class PeerLink {
     }
     private func dialInput() {
         guard !closed, authenticated, inputLink == nil, local.device < (remote?.device ?? ""),
-              let raw = remoteInputPort, let port = NWEndpoint.Port(rawValue: raw),
-              case .hostPort(let host, _) = connection.currentPath?.remoteEndpoint else { return }
+              let raw = remoteInputPort, let port = NWEndpoint.Port(rawValue: raw) else { return }
+        let host: NWEndpoint.Host?
+        if let inputHostProvider { host = inputHostProvider() }
+        else if case .hostPort(let value, _) = connection.currentPath?.remoteEndpoint { host = value }
+        else if case .hostPort(let value, _) = connection.endpoint { host = value }
+        else { host = nil }
+        // Bonjour can authenticate before its resolved path is available.
+        // Do not leave an authenticated parent waiting forever for input.
+        guard let host else { scheduleInputRetry(); return }
         startInput(NWConnection(host: host, port: port, using: LocalTransport.parameters(interactive: true)))
     }
     func reconnectInputNow() {

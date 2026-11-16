@@ -1,4 +1,4 @@
-# Experimental trackpad gestures — build 28
+# Experimental trackpad gestures — build 29
 
 NearClip forwards horizontal and vertical Dock swipes for Spaces, Mission Control, and App Exposé. It sends continuous progress and end or cancel phases. It does not replace a swipe with a fixed keyboard shortcut.
 
@@ -11,6 +11,10 @@ The adapter supports the native event layouts for macOS 13–27. This range is n
 Build 27 logs established that the affected peer reported macOS 27. The previous 13–26 gate disabled its gesture capability. Build 28 adds the IOHID payload that macOS 27 requires, rather than only extending that gate.
 
 NearClip constructs the payload locally from validated axis, phase, progress, and velocity fields. It does not accept serialized native events from a peer. The adapter restores the echo-prevention marker after native conversion, which otherwise clears that marker. On macOS 27, a neutral physical terminal event closes the source Dock gesture state after forwarding.
+
+Build 29 corrects horizontal posting direction on macOS 27. The receiving adapter applies the local natural-scroll preference to progress and horizontal velocity together. It leaves vertical gestures unchanged. The source gesture and wire packet retain their logical direction. The OS preference itself does not change.
+
+The reverse-direction test on build 28 reached the destination but moved desktops in the wrong direction. Automated build 29 tests cover both settings and signs. Physical confirmation of the corrected direction remains pending.
 
 ## Session boundaries
 
