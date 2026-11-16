@@ -100,3 +100,20 @@ Keep `build/keystore-cache` between release builds, or set `NEARCLIP_HELPER_CACH
 After initial authorization, run `NearClip.app/Contents/MacOS/NearClip --keychain-check`. This checks the existing item without prompting and prints only success/failure. Use `bash scripts/verify-keychain-update.sh OLD_APP NEW_APP` to check signing requirements, identical helper bytes, and prompt-free reads from both app builds. It does not create, reset, print, or export pairing keys.
 
 For patch builds of the same app version, use a release tag such as `v0.4.3-build17`. The update checker compares the three numeric version components, then the explicit build number. Use the existing `NearClip-VERSION-macOS.dmg` asset name. Keep draft or unvalidated builds unpublished; a local package is not automatically a GitHub release.
+
+## Publish an in-app update
+
+Use the same signing certificate and stable Keychain helper. Increase `CFBundleVersion` for every release, including same-version beta builds. Do not reuse a published build number or replace its assets.
+
+1. Run `bash scripts/package.sh PATH_TO_PACKAGE` and the regression/lifecycle checks.
+2. Copy the ZIP and DMG to filenames `NearClip-VERSION-buildBUILD-macOS.zip` and `.dmg` in the package directory. Recreate `SHA256SUMS.txt` for those two files.
+3. Commit the reviewed source and release notes.
+4. Run `bash scripts/release-update.sh PATH_TO_PACKAGE PATH_TO_RELEASE_NOTES`.
+
+The release script verifies the app signature and public update key, signs the archive and appcast, uploads a GitHub prerelease, then commits and pushes the signed feed. The feed is served from GitHub's raw HTTPS endpoint; no separate server or Pages configuration is required. A failure leaves the previous feed intact. Inspect any draft/release before retrying; the script does not overwrite existing assets.
+
+The `dev.nearclip.updates` keychain account holds the Ed25519 release key. Generate it once with Sparkle's `generate_keys --account dev.nearclip.updates`. Never commit or export the private key into the repository. `sign_update` may need a first-use Keychain approval on the signing Mac. End-user Macs use only the public key.
+
+`prepare-update-test.sh` creates an isolated older bundle with a test-only loopback feed override. Distribution builds do not define `NEARCLIP_UPDATE_TESTING`. Run the test fixture only against synthetic, signed archives. Do not ship it. The production helper accepts no arbitrary feed or target-path arguments.
+
+Unsigned/ad-hoc CI builds can run synthetic diagnostics but intentionally cannot launch the real updater. Production validation includes `--update-component-check` on the main executable and `--configuration-check` on its updater executable.

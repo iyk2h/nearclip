@@ -2,6 +2,14 @@
 
 Validated locally on macOS 15.7.2, Apple Silicon. File and mouse sharing are experimental. Receiving control from a second physical Mac was confirmed with build 12. The complete bidirectional input matrix remains unverified.
 
+## Build 21 in-app update validation
+
+326 regression checks and 44 packaged lifecycle checks passed. The app and updater validated each other's signed bundle identity; changing the updater's embedded resource caused both validation paths to reject the test copy. Build 20 and build 21 retained the same main-app designated requirement and identical Keychain helper, with prompt-free pairing reads.
+
+A separate older test app used a compile-time-only loopback feed override. Sparkle accepted a correctly signed feed and rejected a feed changed after signing. A corrupted download was rejected before installation, leaving the old app at build 20. With the correct signed archive restored, the user-facing update flow downloaded, verified, replaced the app with build 21, and automatically relaunched it from the same fixture path. The installed executable matched the target byte-for-byte; its bundle signature verified. It reconnected to the existing peer. The canonical installed app remained build 20 during this fixture test.
+
+The final distribution has no loopback feed override. It uses the pinned public HTTPS feed and signed archive. The final rebuild after the end-to-end test changed only the user guidance text; lifecycle and component-signature checks were rerun. These tests do not establish physical Wi-Fi/sleep recovery or Apple notarization.
+
 ## Build 20 recovery and menu validation
 
 326 automated checks passed. New loopback tests connect to a saved peer within a two-second bound before the four-second periodic retry, preserve the authenticated connection ID through path changes/manual retry, reconnect after a simulated unavailable/available path transition, clear warnings after authentication, and cancel queued recovery on stop. Error classification tests distinguish Bonjour PolicyDenied, network unavailability, and generic failures without assuming the peer app is closed.

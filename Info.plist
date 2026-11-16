@@ -7,7 +7,7 @@
 <key>CFBundleExecutable</key><string>NearClip</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.4.3</string>
-<key>CFBundleVersion</key><string>20</string>
+<key>CFBundleVersion</key><string>21</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>LSUIElement</key><true/>
 <key>NSHighResolutionCapable</key><true/>
@@ -15,4 +15,14 @@
 <key>NSPrincipalClass</key><string>NSApplication</string>
 <key>NSLocalNetworkUsageDescription</key><string>같은 네트워크에서 연결한 Mac을 찾고, 텍스트와 이미지 클립보드를 공유합니다.</string>
 <key>NSBonjourServices</key><array><string>_nearclip._tcp</string></array>
+<key>SUFeedURL</key><string>https://raw.githubusercontent.com/iyk2h/nearclip/main/updates/appcast.xml</string>
+<key>SUPublicEDKey</key><string>5g0cyfm7/x6KC1mG9WvthMaH1oBQtcbH4G4G1nTrOdw=</string>
+<key>SUEnableAutomaticChecks</key><false/>
+<key>SUAllowsAutomaticUpdates</key><false/>
+<key>SUAutomaticallyUpdate</key><false/>
+<key>SUEnableSystemProfiling</key><false/>
+<key>SUVerifyUpdateBeforeExtraction</key><true/>
+<key>SURequireSignedFeed</key><true/>
+<key>SURequireFeedBundleIdentifier</key><true/>
+<key>SUSignedFeedFailureExpirationInterval</key><integer>0</integer>
 </dict></plist>

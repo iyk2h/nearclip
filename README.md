@@ -1,12 +1,12 @@
 # NearClip
 
-**Share a clipboard, mouse, and files between two Macs.**
+**Share a clipboard, mouse, keyboard, and files between two Macs.**
 
 NearClip is a native macOS menu bar app for two Macs on the same local network. Different Apple accounts are supported. No account, cloud service, or third-party runtime is required.
 
-[**Download for macOS**](https://github.com/iyk2h/nearclip/releases/tag/v0.4.2) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Development](docs/DEVELOPMENT.md) · [Roadmap](docs/ROADMAP.md)
+[**Download for macOS**](https://github.com/iyk2h/nearclip/releases/tag/v0.4.3-build21) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Development](docs/DEVELOPMENT.md) · [Roadmap](docs/ROADMAP.md)
 
-> **Experimental public beta.** Version 0.4.2 is not notarized by Apple. Mouse and file sharing have automated coverage, but have not yet been validated on two physical Macs. The interface is Korean; this guide includes the button labels.
+> **Experimental public beta.** Version 0.4.3 build 21 is not notarized by Apple. Input sharing remains experimental; the full two-Mac sleep/network test matrix is pending. The interface is Korean; this guide includes the button labels.
 
 ![NearClip main screen](docs/connected.png)
 
@@ -15,7 +15,7 @@ NearClip is a native macOS menu bar app for two Macs on the same local network. 
 Use macOS 13 or later. Apple Silicon and Intel are supported. On both Macs:
 
 1. Quit the previous NearClip, if it is running.
-2. Download `NearClip-0.4.2-macOS.dmg` from the [release page](https://github.com/iyk2h/nearclip/releases/tag/v0.4.2).
+2. Download `NearClip-0.4.3-build21-macOS.dmg` from the [release page](https://github.com/iyk2h/nearclip/releases/tag/v0.4.3-build21).
 3. Open the DMG and drag **NearClip** to **Applications**.
 4. Open NearClip and allow local network access when macOS asks.
 
@@ -88,7 +88,11 @@ The first window close asks whether to quit or keep running in the menu bar. Qui
 
 ## Updates and connection diagnostics
 
-In build 17, open **Settings (`설정`) → Updates (`업데이트`)**. The app checks GitHub's public releases once a day, including beta releases. Turn off **Check automatically (`새 버전 자동 확인`)** to use manual checks only. **Download new version (`새 버전 다운로드`)** opens the official DMG download. Quit and replace the app on both Macs after downloading. NearClip does not install updates or quit for you. A local build newer than the public release is not offered a downgrade.
+From build 21, choose **Check for updates (`업데이트 확인…`)** in the menu bar or Settings. In the update window, choose **Install Update**, then **Install and Relaunch**. NearClip verifies the signed update, replaces the app, and opens it again. Pairing and settings stay in place. Finish or cancel file transfers first. Enable mouse and keyboard sharing again after the restart.
+
+Update each Mac separately. For build 20 or earlier, quit NearClip and replace it with build 21 once. Later updates can use the app's update window. Run the installed app from a writable folder, such as Applications, rather than from a mounted DMG.
+
+The app checks public GitHub releases once a day, including beta releases. Turn off **Check automatically (`새 버전 자동 확인`)** for manual checks only. Automatic checks do not install an update or interrupt sharing. **Public releases (`공개 배포 보기`)** remains available for manual downloads.
 
 **Connection diagnostics (`연결 진단`)** shows input-channel round-trip time, p95, variation between samples, and maximum recent input queue wait. Both Macs need build 17. These measurements exclude display rendering and are not full pointer-to-screen latency. The connection status at the top stays unchanged during normal handoffs.
 

@@ -18,7 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let updateChecker = UpdateChecker()
     private var updateTimer: Timer?
     private var updateDownload: URL?
-    private let updateLabel = NSTextField(wrappingLabelWithString: "GitHub에 공개된 새 버전을 확인해요. 베타 배포를 포함해요.")
+    private let updateLabel = NSTextField(wrappingLabelWithString: "새 버전을 확인하고 앱에서 설치할 수 있어요. 베타 배포를 포함해요.")
     private var updateButton: NSButton!
     private var updateDownloadButton: NSButton!
     private var autoUpdateToggle: NSButton!
@@ -50,7 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var lastActivity = "연결한 뒤 복사하는 내용부터 공유해요."
     private var networkNote: String?
     private var enabled = true
-    private let headlessDiagnostics = CommandLine.arguments.contains("--update-check") || CommandLine.arguments.contains("--render-preview") || CommandLine.arguments.contains("--smoke-test") || CommandLine.arguments.contains("--lifecycle-smoke")
+    private let headlessDiagnostics = CommandLine.arguments.contains("--update-component-check") || CommandLine.arguments.contains("--update-check") || CommandLine.arguments.contains("--render-preview") || CommandLine.arguments.contains("--smoke-test") || CommandLine.arguments.contains("--lifecycle-smoke")
     private let preview = CommandLine.arguments.contains("--render-preview") || CommandLine.arguments.contains("--preview") || CommandLine.arguments.contains("--smoke-test") || CommandLine.arguments.contains("--lifecycle-smoke")
     private let statusLabel = NSTextField(labelWithString: "연결할 Mac을 기다리고 있어요")
     private let activityLabel = NSTextField(wrappingLabelWithString: "연결한 뒤 복사하는 내용부터 공유해요.")
@@ -126,6 +126,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 }
             }
             return
+        }
+        if CommandLine.arguments.contains("--update-component-check") {
+            do { _ = try UpdateInstaller.verifiedHelper(); print("PASS: update component signature and nested code verified."); fflush(stdout); exit(0) }
+            catch { print("FAIL: update component rejected."); fflush(stdout); exit(1) }
         }
         if CommandLine.arguments.contains("--keychain-check") {
             let success = KeyStore.checkWithoutPrompt()
@@ -430,14 +434,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         relayToggle = NSButton(checkboxWithTitle: "받은 클립보드의 Apple 기기 재공유 막기", target: self, action: #selector(toggleAppleRelay))
         relayToggle.state = preventAppleRelay ? .on : .off
         updateButton = button("업데이트 확인", action: #selector(checkUpdates))
-        updateDownloadButton = button("새 버전 다운로드", action: #selector(downloadUpdate)); updateDownloadButton.isHidden = true
+        updateDownloadButton = button("업데이트 및 재시작…", action: #selector(downloadUpdate)); updateDownloadButton.isHidden = true
         autoUpdateToggle = NSButton(checkboxWithTitle: "새 버전 자동 확인 (하루 한 번)", target: self, action: #selector(toggleAutomaticUpdates))
         autoUpdateToggle.state = (UserDefaults.standard.object(forKey: "automaticUpdateChecks") as? Bool ?? true) ? .on : .off
         updateLabel.font = .systemFont(ofSize: 11); updateLabel.textColor = .secondaryLabelColor; updateLabel.maximumNumberOfLines = 3
         settingsContent = column([
             separator(), label("업데이트", size: 14, weight: .semibold), autoUpdateToggle, updateLabel,
             row([updateButton, updateDownloadButton, button("공개 배포 보기", action: #selector(openReleases)), flexible(NSView())]),
-            label("다운로드 후 두 Mac의 앱을 교체하세요. 자동으로 설치하거나 종료하지 않아요.", size: 11, color: .secondaryLabelColor),
+            label("설치를 선택하면 앱을 교체하고 다시 열어요. 연결 정보는 유지돼요. 두 Mac을 각각 업데이트하세요.", size: 11, color: .secondaryLabelColor),
             separator(), label("연결 진단", size: 14, weight: .semibold), healthLabel,
             label("왕복은 입력 채널의 응답 시간이에요. 실제 화면 반영 시간과는 달라요. 최근 최대 60회만 메모리에 보관해요.", size: 11, color: .secondaryLabelColor),
             separator(), label("클립보드 보호", size: 14, weight: .semibold), relayToggle,
@@ -1058,8 +1062,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         UserDefaults.standard.set(autoUpdateToggle.state == .on, forKey: "automaticUpdateChecks")
         if autoUpdateToggle.state == .on { automaticUpdateCheck() }
     }
-    @objc private func checkUpdates() {
-        showSettings(); performUpdateCheck()
+    @objc private func checkUpdates() { openUpdater() }
+    private func openUpdater() {
+        guard !preview, !terminating else { return }
+        guard !files.busy else { alert("파일 전송을 마치거나 취소한 뒤 업데이트해 주세요."); return }
+        updateButton.isEnabled = false; updateDownloadButton.isEnabled = false
+        updateLabel.stringValue = "업데이트 창을 열고 있어요…"
+        UpdateInstaller.open { [weak self] error in
+            guard let self else { return }
+            self.updateButton.isEnabled = true; self.updateDownloadButton.isEnabled = true
+            self.updateLabel.stringValue = error?.localizedDescription ?? "업데이트 창에서 설치를 선택하면 연결을 종료하고 앱을 다시 열어요."
+            if let error { self.alert(error.localizedDescription) }
+        }
     }
     private func performUpdateCheck() {
         guard !preview, !updateChecker.checking else { return }
@@ -1079,7 +1093,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     else { self.updateLabel.stringValue = "현재 공개된 최신 버전이에요." }
                 } else { self.updateLabel.stringValue = "아직 다운로드할 공개 배포가 없어요." }
                 self.updateDownloadButton.isHidden = self.updateDownload == nil
-                self.updateMenu?.title = self.updateDownload == nil ? "업데이트 확인…" : "새 버전 있음 · 다운로드…"
+                self.updateMenu?.title = self.updateDownload == nil ? "업데이트 확인…" : "새 버전 있음 · 업데이트…"
             case .failure:
                 self.updateLabel.stringValue = "업데이트 확인에 실패했어요. 네트워크를 확인하고 다시 눌러주세요."
             }
@@ -1087,8 +1101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
     @objc private func downloadUpdate() {
-        guard let url = updateDownload, PublicRelease.trustedURL(url, download: true) else { return }
-        NSWorkspace.shared.open(url)
+        openUpdater()
     }
     @objc private func openReleases() { NSWorkspace.shared.open(UpdateChecker.releasesURL) }
     private func updateSharingUI() {
