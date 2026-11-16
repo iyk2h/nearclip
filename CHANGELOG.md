@@ -1,6 +1,14 @@
 # Changelog
 
-## Unreleased — 0.4.4 build 26
+## 0.4.4 build 27 — 2026-11-16
+
+- The input channel sends up to four small frames without waiting for each send completion. Packet order and the queue limit stay fixed.
+- Input connections use responsive traffic priority and disable TCP acknowledgment stretching. Bulk connections keep their existing settings.
+- Active remote control prevents App Nap. Idle system sleep remains available.
+- The signed update feed includes this build. Existing users can update inside NearClip on both Macs.
+- This release includes the clipboard, gesture, and diagnostic changes from local builds 23–26. Physical four-finger behavior remains unverified.
+
+## Local test — 0.4.4 build 26
 
 - Read the kernel product version before falling back to Foundation for gesture compatibility checks.
 - Observe Dock-control and companion gesture events; suppress companions during a forwarded swipe.
@@ -8,7 +16,7 @@
 - Add bounded gesture/capability diagnostics without clipboard content, key codes, or coordinates.
 - The reported physical four-finger failure is not yet verified as resolved. Build 25 was a local diagnostics-only build.
 
-## Unreleased — 0.4.4 build 24
+## Local test — 0.4.4 build 24
 
 - Keep duplicate gesture-start events from reaching the source Mac's Dock during remote control.
 - Cancel a stalled swipe after eight seconds without gesture progress, even if heartbeats continue.
@@ -17,7 +25,7 @@
 - Explain gesture support and finger-count settings in expanded mouse controls.
 - Extend regression coverage for sleep/lock, stale file callbacks, destination races, and gestures during bulk transfers.
 
-## Unreleased — 0.4.4 build 23
+## Local test — 0.4.4 build 23
 
 - Add experimental continuous three-/four-finger Dock swipe forwarding during accepted remote control.
 - Cancel active swipe animations on session end and reject stale or malformed gesture packets.

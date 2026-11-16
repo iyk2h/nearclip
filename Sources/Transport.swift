@@ -72,6 +72,7 @@ final class PeerLink {
     }
     private let advertisedFeatures: [String]
     private var sending = false
+    private var inputFramesInFlight = 0
     private var featureQueue: [(String, Data, (Bool) -> Void, TimeInterval)] = []
     private(set) var features: Set<String> = []
     private(set) var peerOSMajor: Int?
@@ -113,7 +114,7 @@ final class PeerLink {
     private func beginHandshake() {
         guard !inputOnly, advertisedFeatures.contains(SharingFeature.inputChannel) else { sendHello(); return }
         do {
-            let listener = try NWListener(using: LocalTransport.parameters())
+            let listener = try NWListener(using: LocalTransport.parameters(interactive: true))
             inputListener = listener
             listener.newConnectionHandler = { [weak self] connection in
                 guard let self, !self.closed, self.inputLink == nil, self.pendingInputConnection == nil else { connection.cancel(); return }
@@ -184,7 +185,7 @@ final class PeerLink {
         guard !closed, authenticated, inputLink == nil, local.device < (remote?.device ?? ""),
               let raw = remoteInputPort, let port = NWEndpoint.Port(rawValue: raw),
               case .hostPort(let host, _) = connection.currentPath?.remoteEndpoint else { return }
-        startInput(NWConnection(host: host, port: port, using: LocalTransport.parameters()))
+        startInput(NWConnection(host: host, port: port, using: LocalTransport.parameters(interactive: true)))
     }
     func reconnectInputNow() {
         guard ready, canRecoverInput, !inputReady, !closed else { return }
@@ -380,18 +381,18 @@ final class PeerLink {
         enqueue(kind: "feature", data: data, completion: completion)
     }
     private func enqueue(kind: String, data: Data, completion: @escaping (Bool) -> Void) {
-        guard ready, !closed, featureQueue.count < 32 else { completion(false); return }
+        guard ready, !closed, featureQueue.count + inputFramesInFlight < 32 else { completion(false); return }
         featureQueue.append((kind, data, completion, ProcessInfo.processInfo.systemUptime))
         peakQueueDepth = max(peakQueueDepth, featureQueue.count); flush()
     }
     private func flush() {
+        if inputOnly { flushInput(); return }
         guard !sending, !closed, authenticated, let cipher else { return }
         if !featureQueue.isEmpty {
             let (kind, data, reply, queuedAt) = featureQueue.removeFirst(); sending = true
             let uptime = ProcessInfo.processInfo.systemUptime
             let waitMS = (uptime - queuedAt) * 1000
             maxQueueWaitMS = max(maxQueueWaitMS, waitMS)
-            if inputOnly && kind == "feature" { measurements.queueWait(waitMS) }
             if waitMS >= 50, uptime - lastSlowQueueLog >= 5 {
                 lastSlowQueueLog = uptime
                 logger.notice("send_queue_slow wait_ms=\(Int(waitMS), privacy: .public) remaining=\(self.featureQueue.count, privacy: .public)")
@@ -429,11 +430,38 @@ final class PeerLink {
             }
         }
     }
+    private func flushInput() {
+        // Submit small frames in sequence without waiting for each socket-send
+        // completion. Bound both the window and total queue; never reorder a
+        // modifier, click, key release, gesture boundary, or session transition.
+        guard ready, !closed, let cipher else { return }
+        while inputFramesInFlight < 4, !featureQueue.isEmpty, !closed {
+            let (kind, data, reply, queuedAt) = featureQueue.removeFirst()
+            let waitMS = (ProcessInfo.processInfo.systemUptime - queuedAt) * 1000
+            maxQueueWaitMS = max(maxQueueWaitMS, waitMS)
+            if kind == "feature" { measurements.queueWait(waitMS) }
+            do {
+                let frame = try Framing.encode(cipher.seal(kind: kind, data: data))
+                inputFramesInFlight += 1
+                connection.send(content: frame, completion: .contentProcessed { [weak self] error in
+                    guard let self else { reply(false); return }
+                    self.inputFramesInFlight -= 1
+                    if error != nil { self.close(.networkFailure) }
+                    reply(error == nil && !self.closed)
+                    self.flushInput()
+                })
+            } catch { reply(false); close(.invalidFrame) }
+        }
+    }
     func tick() {
         guard !closed else { return }
         inputLink?.tick()
         if (!ready && Date().timeIntervalSince(created) > 12) || Date().timeIntervalSince(lastReceived) > 90 {
             close(ready ? .idleTimeout : .handshakeTimeout); return
+        }
+        if inputOnly {
+            if ready { enqueue(kind: "ping", data: Data()) { _ in } }
+            return
         }
         guard authenticated, !sending, let cipher else { return }
         sending = true
@@ -492,11 +520,13 @@ final class LocalTransport {
         secret = try PairCode.key(code)
         prefix = "nc-" + (try PairCode.group(code)) + "-"
     }
-    static func parameters() -> NWParameters {
+    static func parameters(interactive: Bool = false) -> NWParameters {
         let tcp = NWProtocolTCP.Options(); tcp.noDelay = true
+        tcp.disableAckStretching = interactive
         tcp.enableKeepalive = true; tcp.keepaliveIdle = 15; tcp.keepaliveInterval = 5; tcp.keepaliveCount = 3
         let p = NWParameters(tls: nil, tcp: tcp)
         p.includePeerToPeer = false
+        if interactive { p.serviceClass = .responsiveData }
         return p
     }
     func start() {

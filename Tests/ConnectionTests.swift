@@ -218,3 +218,59 @@ func startupDialElectionTests() throws {
     RunLoop.main.run(until: Date().addingTimeInterval(4.7))
     try Check.that(higher.peerCount == 0 && lower.peerCount == 0, "stop cancels the deferred secondary dial")
 }
+
+func inputBurstNetworkTests() throws {
+    let code = try PairCode.create(), secret = try PairCode.key(code)
+    let local = UUID().uuidString, remote = UUID().uuidString, token = UUID()
+    let server = try LocalTransport(code: code, device: local, name: "Burst receiver", discovery: false)
+    var client: PeerLink?, received: [Data] = [], callbacks = 0, failed = 0, clipboardArrived = false
+    defer { client?.close(); server.stop() }
+    server.onListening = { port in
+        client = PeerLink(connection: NWConnection(host: "127.0.0.1", port: port, using: LocalTransport.parameters()),
+                          secret: secret, device: remote, name: "Burst sender")
+        client?.start()
+    }
+    server.onFeature = { _, packet in if let data = try? packet.encoded() { received.append(data) } }
+    server.onClip = { clipboardArrived = $0.payload.data.count == ClipPayload.maxBytes }
+    server.start(); waitFor({ client?.hasSeparateInput == true && server.peerCount == 1 })
+    try Check.that(client?.hasSeparateInput == true, "keyboard burst has an authenticated separate input channel")
+    let sequence = (0..<4).flatMap { _ in [
+        FeaturePacket(mouse: MousePacket(kind: .input, token: token, action: .move, dx: 1)),
+        FeaturePacket(keyboard: KeyboardPacket(token: token, action: .modifiers, keyCode: 55, flags: 0x100000)),
+        FeaturePacket(keyboard: KeyboardPacket(token: token, action: .down, keyCode: 8, flags: 0x100000)),
+        FeaturePacket(keyboard: KeyboardPacket(token: token, action: .down, keyCode: 8, flags: 0x100000, isRepeat: true)),
+        FeaturePacket(keyboard: KeyboardPacket(token: token, action: .up, keyCode: 8, flags: 0x100000)),
+        FeaturePacket(keyboard: KeyboardPacket(token: token, action: .modifiers, keyCode: 55))
+    ] }
+    // Bulk encryption and writing must not gate the independently sequenced input window.
+    client?.send(ClipMessage(id: UUID(), stamp: ClipStamp(counter: 1, device: remote),
+        payload: ClipPayload(type: "public.utf8-plain-text", data: Data(repeating: 65, count: ClipPayload.maxBytes))))
+    let start = ProcessInfo.processInfo.systemUptime
+    for packet in sequence { client?.sendFeature(packet) { callbacks += 1; if !$0 { failed += 1 } } }
+    client?.tick() // An interleaved keepalive must not race the cipher's sequence.
+    waitFor({ received.count == sequence.count && callbacks == sequence.count }, seconds: 3)
+    let elapsed = (ProcessInfo.processInfo.systemUptime - start) * 1000
+    // Compare decoded packets: JSON object key order is not a wire contract.
+    let decoded = try received.map { try FeaturePacket.decode($0) }
+    try Check.that(decoded.count == sequence.count && zip(decoded, sequence).allSatisfy {
+        $0.keyboard?.action == $1.keyboard?.action && $0.keyboard?.keyCode == $1.keyboard?.keyCode &&
+        $0.keyboard?.flags == $1.keyboard?.flags && $0.keyboard?.isRepeat == $1.keyboard?.isRepeat &&
+        $0.mouse?.action == $1.mouse?.action
+    }, "pipelined mouse, modifiers, repeats, and key releases retain exact order under bulk load")
+    try Check.that(callbacks == sequence.count && failed == 0 && client?.hasSeparateInput == true,
+                   "every input burst completion succeeds once with an interleaved keepalive")
+    print("MEASURE: 24 ordered input frames under 20 MiB clipboard load: \(Int(elapsed)) ms (loopback, not physical Wi-Fi)")
+    waitFor({ clipboardArrived }, seconds: 10)
+    try Check.that(clipboardArrived, "input burst preserves concurrent large clipboard delivery")
+    // Close while sends are pending: each accepted or rejected submission gets one callback.
+    var closeCallbacks = [Int](repeating: 0, count: 40), rejected = 0
+    for index in 0..<40 {
+        client?.sendFeature(sequence[index % sequence.count]) { success in
+            closeCallbacks[index] += 1; if !success { rejected += 1 }
+        }
+    }
+    client?.close()
+    waitFor({ closeCallbacks.allSatisfy { $0 == 1 } })
+    try Check.that(closeCallbacks.allSatisfy { $0 == 1 } && rejected >= 8,
+                   "input window stays bounded and shutdown completes every pending submission exactly once")
+}

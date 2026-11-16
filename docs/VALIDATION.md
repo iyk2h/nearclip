@@ -1,5 +1,19 @@
-# 0.4.3 local test build validation
+# Validation
 
+
+## 0.4.4 build 27 — November 16, 2026
+
+The regression suite passed 430 checks. The signed universal app passed 48 lifecycle checks and the packaged network smoke test.
+
+The input burst test sent 24 mouse and keyboard frames during a 20 MiB clipboard transfer. All frames arrived in order in 5 ms over loopback. Modifier transitions, repeat events, key releases, and an interleaved keepalive retained their order. Closing a saturated input channel completed each submission once. The total input queue stayed bounded.
+
+Physical logs before the change showed input-channel p95 around 200–250 ms and queue waits up to 47 ms. These are transport measurements, not key-to-screen measurements. The exact cause of the Wi-Fi delay is not established. Results with both physical Macs on build 27 remain pending.
+
+The input send window holds at most four frames. Input connections use [responsive traffic priority](https://developer.apple.com/documentation/network/nwparameters/serviceclass-swift.property) and [disable acknowledgment stretching](https://developer.apple.com/documentation/network/nwprotocoltcp/options/disableackstretching). Active control uses a [user-initiated activity that permits idle system sleep](https://developer.apple.com/documentation/foundation/processinfo/activityoptions/userinitiatedallowingidlesystemsleep). These changes reduce avoidable waiting without changing input authorization or packet order.
+
+Both bundles passed the same signing requirements and noninteractive pairing-key reads. The Keychain helper bytes stayed identical. The updater rejected modified host and updater test copies.
+
+Physical four-finger gestures remain unverified. Build 27 includes the capability diagnostics from build 26. The peer must update before those diagnostics can report its OS major version.
 
 ## 0.4.4 build 22 — November 16, 2026
 

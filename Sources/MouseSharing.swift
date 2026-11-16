@@ -82,6 +82,7 @@ final class MouseSharing {
     private var tap: CFMachPort?
     private var runSource: CFRunLoopSource?
     private var timer: Timer?
+    private var inputActivity: NSObjectProtocol?
     private let logger = Logger(subsystem: "dev.nearclip.mac", category: "input")
     private var controlStarted: TimeInterval?
     private var sentMoves = 0
@@ -203,6 +204,12 @@ final class MouseSharing {
     }
     private func updateTimer() {
         guard native else { return }
+        if active, inputActivity == nil {
+            inputActivity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep,
+                reason: "Interactive input sharing")
+        } else if !active, let activity = inputActivity {
+            ProcessInfo.processInfo.endActivity(activity); inputActivity = nil
+        }
         guard let interval = maintenanceInterval else { timer?.invalidate(); timer = nil; lastTick = nil; return }
         guard timer?.timeInterval != interval else { return }
         timer?.invalidate(); lastTick = nil
@@ -216,6 +223,9 @@ final class MouseSharing {
         if native { logger.notice("control_begin role=\(self.mode.rawValue, privacy: .public)") }
     }
     func stop() { try? setEnabled(false) }
+    deinit {
+        if let inputActivity { ProcessInfo.processInfo.endActivity(inputActivity) }
+    }
     private func advertise() { emit(MousePacket(kind: .availability, enabled: enabled, keyboardEnabled: enabled && keyboardSupported)) }
     func receive(_ packet: MousePacket, from sender: String, now: Date = Date()) {
         guard sender == peer, (try? packet.validate()) != nil else { return }
