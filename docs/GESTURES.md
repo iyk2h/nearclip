@@ -1,4 +1,4 @@
-# Trackpad swipe development build (24)
+# Trackpad swipe development build (26)
 
 Build 23 adds experimental forwarding of horizontal and vertical Dock swipes. These are the macOS gestures for Spaces, Mission Control, and App Exposé. It forwards continuous progress and end/cancel phases. It does not replace a swipe with a fixed keyboard shortcut.
 
@@ -25,3 +25,14 @@ Physical four-finger capture, suppression of the source Mac's Dock animation, an
 - [dockswipe](https://github.com/oomol-lab/dockswipe): independent implementation documents the companion marker and legacy Dock event field layout.
 
 The NearClip adapter uses those field definitions with its own typed transport and session state. It does not vendor either project or use private multitouch device access.
+
+
+## Build 26 investigation
+
+The physical connection reported both apps on build 24, but the receiver's authenticated handshake showed `gesture_local=true`, `gesture_peer=false`, and `gesture_ready=false`. Mouse control continued. This proves gesture capability negotiation failed; it does not prove why the peer omitted the capability. Its OS version was not independently established.
+
+Build 26 uses `kern.osproductversion` before the Foundation version to avoid SDK compatibility-version false negatives. The supported OS range remains 13–26; unknown native event layouts are not enabled by assumption. It subscribes to both native Dock-control and companion event types and suppresses companions while a remote swipe owns the stream. An optional bounded `osMajor` in the authenticated ready envelope lets a newer peer report its platform without asking the user.
+
+Diagnostics record capability booleans, OS major versions, gesture phase/axis, and current input role. Native observation logs are limited to one per five seconds. No clipboard content, key codes, positions, or raw native events are recorded. The native field reference remains InstantSpaceSwitcher, linked above.
+
+Build 26 passed 425 regression checks and 48 native lifecycle checks. Both app versions passed prompt-free Keychain access with the identical helper and designated signing requirement. Local build 26 is installed; the remote update and physical gesture retest are pending. These checks do not establish that the reported physical failure is fixed.

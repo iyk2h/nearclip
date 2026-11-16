@@ -6,6 +6,7 @@ struct ConnectedPeer {
     let connection: UUID
     let features: Set<String>
     var appVersion: AppVersion? = nil
+    var osMajor: Int? = nil
     var inputReady: Bool = true
     var inputSession: UUID? = nil
 }

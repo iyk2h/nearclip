@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import Darwin
 
 // A small, versioned allowlist. No serialized native event or arbitrary field
 // number is accepted from a peer. Finger count is resolved by the source OS.
@@ -28,10 +29,31 @@ struct DockSwipePacket: Codable {
 enum DockSwipeAdapter {
     // Undocumented Dock event layout: isolate it here and do not advertise on
     // unknown OS generations. References and test limits: docs/GESTURES.md.
-    static var available: Bool { (13...26).contains(ProcessInfo.processInfo.operatingSystemVersion.majorVersion) }
+    // ProcessInfo can expose the SDK compatibility version (10.16) in older
+    // launch environments. Read the product version from the kernel first.
+    static func supportedMajor(productVersion: String?, reportedMajor: Int) -> Int {
+        guard let value = productVersion, value.utf8.count <= 64,
+              let first = value.split(separator: ".").first,
+              !first.isEmpty, first.allSatisfy({ $0.isASCII && $0.isNumber }),
+              let major = Int(first), (10...99).contains(major) else { return reportedMajor }
+        return major
+    }
+    static let systemMajor: Int = {
+        var length = 0
+        guard sysctlbyname("kern.osproductversion", nil, &length, nil, 0) == 0,
+              length > 0, length <= 128 else { return ProcessInfo.processInfo.operatingSystemVersion.majorVersion }
+        var bytes = [CChar](repeating: 0, count: length)
+        guard sysctlbyname("kern.osproductversion", &bytes, &length, nil, 0) == 0 else {
+            return ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+        }
+        return supportedMajor(productVersion: String(cString: bytes), reportedMajor: ProcessInfo.processInfo.operatingSystemVersion.majorVersion)
+    }()
+    static var available: Bool { (13...26).contains(systemMajor) }
+    static let eventMask: CGEventMask = (1 << 29) | (1 << 30)
+    static func nativeType(_ event: CGEvent) -> Int64 { event.getIntegerValueField(CGEventField(rawValue: 55)!) }
     private static func field(_ value: UInt32) -> CGEventField { CGEventField(rawValue: value)! }
     static func read(_ event: CGEvent, token: UUID) -> DockSwipePacket? {
-        guard available, event.type.rawValue == 30,
+        guard available, nativeType(event) == 30,
               event.getIntegerValueField(field(110)) == 23 else { return nil }
         let packet = DockSwipePacket(token: token, axis: Int(event.getIntegerValueField(field(123))),
             phase: Int(event.getIntegerValueField(field(132))), progress: event.getDoubleValueField(field(124)),

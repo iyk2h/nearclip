@@ -1,6 +1,14 @@
 import AppKit
 
 func gestureSharingTests() throws {
+    try Check.that(DockSwipeAdapter.supportedMajor(productVersion: "15.7.2", reportedMajor: 10) == 15,
+        "kernel product version overrides SDK compatibility major 10")
+    try Check.that(DockSwipeAdapter.supportedMajor(productVersion: nil, reportedMajor: 15) == 15,
+        "unavailable kernel product version falls back to Foundation")
+    try Check.that(DockSwipeAdapter.supportedMajor(productVersion: "invalid", reportedMajor: 15) == 15,
+        "malformed kernel product version does not disable a known Foundation version")
+    try Check.that(DockSwipeAdapter.eventMask & (1 << 29) != 0 && DockSwipeAdapter.eventMask & (1 << 30) != 0,
+        "event tap observes both Dock-control and companion gesture events")
     let a = MouseSharing(local: "A", native: false), b = MouseSharing(local: "B", native: false)
     defer { a.stop(); b.stop(); a.send = nil; b.send = nil; a.sendGesture = nil }
     var queue: [(Bool, FeaturePacket)] = [], received: [DockSwipePacket] = []

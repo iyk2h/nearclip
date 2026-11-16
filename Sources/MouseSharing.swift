@@ -40,6 +40,7 @@ final class MouseSharing {
     private var sentGesture: DockSwipePacket?
     private var receivedGesture: DockSwipePacket?
     private var lastGestureHeard: Date?
+    private var lastGestureObservation: TimeInterval = -10
     var sendGesture: ((String, DockSwipePacket, @escaping (Bool) -> Void) -> Void)?
     var onGesture: ((DockSwipePacket) -> Void)?
     private(set) var remoteKeyboardEnabled = false
@@ -123,6 +124,7 @@ final class MouseSharing {
         endSession(notify: false, reason: .connectionChanged); self.peer = peer; remoteEnabled = false
         keyboardSupported = supportsKeyboard; remoteKeyboardEnabled = false
         gesturesSupported = supportsGestures && DockSwipeAdapter.available
+        if native { logger.notice("gesture_capability peer_present=\(peer != nil, privacy: .public) negotiated=\(supportsGestures, privacy: .public) enabled=\(self.gesturesSupported, privacy: .public)") }
         if let peer {
             if let savedLayout, savedLayout.isValid(local: local, peer: peer) { layout = savedLayout }
             else { layout = ScreenLayout(revision: 0, author: local, left: local, right: peer) }
@@ -326,6 +328,9 @@ final class MouseSharing {
         // Once a swipe belongs to the remote Mac, malformed sequence updates
         // must not leak into the source Dock. Ignore them but keep ownership.
         guard packet.phase == 1 ? sentGesture == nil : sentGesture?.axis == packet.axis else { return sentGesture != nil }
+        if native, packet.phase == 1 || packet.isTerminal {
+            logger.notice("gesture_send phase=\(packet.phase, privacy: .public) axis=\(packet.axis, privacy: .public)")
+        }
         var outgoing = packet; outgoing.token = token
         sentGesture = packet.isTerminal ? nil : outgoing
         flushMove(force: true)
@@ -341,6 +346,9 @@ final class MouseSharing {
         if secureInputEnabled() { endSession(reason: .secureInput); return }
         guard packet.phase == 1 ? receivedGesture == nil : receivedGesture?.axis == packet.axis else { return }
         lastHeard = now
+        if native, packet.phase == 1 || packet.isTerminal {
+            logger.notice("gesture_receive phase=\(packet.phase, privacy: .public) axis=\(packet.axis, privacy: .public)")
+        }
         receivedGesture = packet.isTerminal ? nil : packet
         lastGestureHeard = packet.isTerminal ? nil : now
         onGesture?(packet)
@@ -527,7 +535,7 @@ final class MouseSharing {
         guard tap == nil else { return }
         let types: [CGEventType] = [.mouseMoved, .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
             .otherMouseDown, .otherMouseUp, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .scrollWheel, .keyDown, .keyUp, .flagsChanged]
-        let gestureMask: CGEventMask = DockSwipeAdapter.available ? (1 << 30) : 0
+        let gestureMask: CGEventMask = DockSwipeAdapter.available ? DockSwipeAdapter.eventMask : 0
         let mask = types.reduce(gestureMask) { $0 | (1 << $1.rawValue) }
         guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
             eventsOfInterest: mask, callback: { _, type, event, context in
@@ -554,7 +562,19 @@ final class MouseSharing {
                                    flags: event.flags.rawValue, isRepeat: type == .keyDown && event.getIntegerValueField(.keyboardEventAutorepeat) != 0)
             return blocked ? nil : Unmanaged.passUnretained(event)
         }
-        if type.rawValue == 30, let packet = DockSwipeAdapter.read(event, token: token ?? UUID()) {
+        if type.rawValue == 29 || type.rawValue == 30 {
+            let now = ProcessInfo.processInfo.systemUptime
+            if now - lastGestureObservation >= 5 {
+                lastGestureObservation = now
+                let nativeType = DockSwipeAdapter.nativeType(event)
+                let hid = event.getIntegerValueField(CGEventField(rawValue: 110)!)
+                let phase = event.getIntegerValueField(CGEventField(rawValue: 132)!)
+                let axis = event.getIntegerValueField(CGEventField(rawValue: 123)!)
+                logger.notice("gesture_observed type=\(nativeType, privacy: .public) hid=\(hid, privacy: .public) phase=\(phase, privacy: .public) axis=\(axis, privacy: .public) role=\(self.mode.rawValue, privacy: .public) supported=\(self.gesturesSupported, privacy: .public)")
+            }
+        }
+        if DockSwipeAdapter.nativeType(event) == 29, mode == .controlling, sentGesture != nil { return nil }
+        if DockSwipeAdapter.nativeType(event) == 30, let packet = DockSwipeAdapter.read(event, token: token ?? UUID()) {
             return localGesture(packet) ? nil : Unmanaged.passUnretained(event)
         }
         let flags = event.flags.rawValue & 0x1E0000

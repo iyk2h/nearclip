@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased — 0.4.4 build 26
+
+- Read the kernel product version before falling back to Foundation for gesture compatibility checks.
+- Observe Dock-control and companion gesture events; suppress companions during a forwarded swipe.
+- Include an optional OS major version in the authenticated ready message and show clearer capability-failure guidance.
+- Add bounded gesture/capability diagnostics without clipboard content, key codes, or coordinates.
+- The reported physical four-finger failure is not yet verified as resolved. Build 25 was a local diagnostics-only build.
+
 ## Unreleased — 0.4.4 build 24
 
 - Keep duplicate gesture-start events from reaching the source Mac's Dock during remote control.

@@ -119,3 +119,6 @@ These key codes are macOS-specific. A Windows adapter needs an explicit key-code
 ### Experimental Dock swipes (build 23)
 
 `dock-swipe-v1` is negotiated on the parent and separate input connection. A `gesture` feature packet contains a current control `token`, `axis` (1 horizontal or 2 vertical), `phase` (1 began, 2 changed, 4 ended, 8 cancelled), finite `progress` (absolute value at most 16), bounded `velocityX/Y` (absolute value at most 10000), and boolean `inverted`. No arbitrary native event data is accepted. The receiving state requires a began phase before updates or termination, and the axis cannot change mid-gesture. Session teardown emits a local cancel for any active received swipe. From build 24, eight seconds without gesture progress also ends control and cancels the swipe; heartbeats do not extend this gesture deadline. Old peers never receive this feature. See [gesture limits](GESTURES.md).
+
+
+Build 26 ready envelopes may include `osMajor` (integer 10–99). It is diagnostic metadata inside the authenticated message; older peers may omit or ignore it. It does not grant input permission or override negotiated capabilities. Capability logs distinguish the local advertisement, peer advertisement, and negotiated result.

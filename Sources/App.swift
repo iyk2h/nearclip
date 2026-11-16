@@ -929,7 +929,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         require(gestureHint.stringValue.contains("연결하면"), "disconnected gesture guidance explains capability check")
         let fixturePeer = ConnectedPeer(device: "gesture-peer", name: "Gesture fixture", connection: UUID(), features: [SharingFeature.mouse, SharingFeature.keyboard])
         updateFeaturePeer([fixturePeer])
-        require(gestureHint.stringValue.contains("아직 지원하지"), "legacy peer explains why gestures stay local")
+        require(gestureHint.stringValue.contains("기능 확인"), "legacy peer explains why gestures stay local")
         let capablePeer = ConnectedPeer(device: "gesture-peer", name: "Gesture fixture", connection: UUID(), features: Set(SharingFeature.supported))
         updateFeaturePeer([capablePeer])
         require(gestureHint.stringValue.contains("조작하는 Mac"), "gesture guidance identifies which Mac supplies finger-count settings")
@@ -1187,7 +1187,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let supportsMouse = featurePeer?.features.contains(SharingFeature.mouse) == true
         if !DockSwipeAdapter.available { gestureHint.stringValue = "제스처 베타 · 현재 macOS 버전은 지원하지 않아요. 마우스·키보드는 계속 사용할 수 있어요." }
         else if !supportsMouse { gestureHint.stringValue = "제스처 베타 · 연결하면 상대 앱의 지원 여부를 확인해요." }
-        else if !mouse.gesturesSupported { gestureHint.stringValue = "제스처 베타 · 상대 앱이 아직 지원하지 않아요. 마우스·키보드는 계속 사용할 수 있어요." }
+        else if !mouse.gesturesSupported {
+            let platform = featurePeer?.osMajor.map { "상대 macOS \($0) · " } ?? ""
+            gestureHint.stringValue = "제스처 연결 안 됨 · " + platform + "상대 앱의 기능 확인이 필요해요. 운영체제 호환성 확인에 실패하면 꺼져요."
+        }
         else { gestureHint.stringValue = "제스처 베타 · 3·4손가락으로 데스크탑·Mission Control 전환. 손가락 수는 조작하는 Mac의 설정을 따라요." }
         fileButton.isEnabled = enabled && supportsFiles && !files.busy
         fileActions?.isHidden = fileCancel.isHidden && revealButton.isHidden

@@ -74,6 +74,7 @@ final class PeerLink {
     private var sending = false
     private var featureQueue: [(String, Data, (Bool) -> Void, TimeInterval)] = []
     private(set) var features: Set<String> = []
+    private(set) var peerOSMajor: Int?
     var onFeature: ((PeerLink, FeaturePacket) -> Void)?
     private var pendingClip: ClipMessage?
     private var lastReceived = Date()
@@ -310,8 +311,13 @@ final class PeerLink {
                 guard version.components != nil else { throw ClipError.invalid("버전 정보가 올바르지 않아요.") }
                 appVersion = version
             }
+            if let major = message.osMajor {
+                guard (10...99).contains(major) else { throw ClipError.invalid("운영체제 버전 정보가 올바르지 않아요.") }
+                peerOSMajor = major
+            }
             if let clock = message.clock { onClock?(clock) }
             features = Set((message.features ?? []).prefix(8)).intersection(advertisedFeatures)
+            logger.notice("input_capabilities input_only=\(self.inputOnly, privacy: .public) gesture_local=\(self.advertisedFeatures.contains(SharingFeature.gestures), privacy: .public) gesture_peer=\((message.features ?? []).contains(SharingFeature.gestures), privacy: .public) gesture_ready=\(self.features.contains(SharingFeature.gestures), privacy: .public) os_major=\(DockSwipeAdapter.systemMajor, privacy: .public) reported_major=\(ProcessInfo.processInfo.operatingSystemVersion.majorVersion, privacy: .public) peer_os_major=\(message.osMajor ?? 0, privacy: .public)")
             authenticated = true
             if features.contains(SharingFeature.inputChannel) {
                 guard let data = message.data, let offer = try? JSONDecoder().decode(InputOffer.self, from: data),
@@ -728,7 +734,7 @@ final class LocalTransport {
     private func publishPeers() {
         let peers = links.values.filter(\.ready).compactMap { link -> ConnectedPeer? in
             guard let remote = link.remote else { return nil }
-            return ConnectedPeer(device: remote.device, name: remote.name, connection: link.id, features: link.features, appVersion: link.appVersion, inputReady: link.inputReady, inputSession: link.inputLink?.ready == true ? link.inputLink?.id : nil)
+            return ConnectedPeer(device: remote.device, name: remote.name, connection: link.id, features: link.features, appVersion: link.appVersion, osMajor: link.peerOSMajor, inputReady: link.inputReady, inputSession: link.inputLink?.ready == true ? link.inputLink?.id : nil)
         }
         onPeers?(peers.map(\.name).sorted()); onPeerDetails?(peers)
         publishStatus()
