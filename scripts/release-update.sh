@@ -12,6 +12,14 @@ tag="v$version-build$build"
 zip="$package/NearClip-$version-build$build-macOS.zip"
 dmg="$package/NearClip-$version-build$build-macOS.dmg"
 [[ -f "$zip" && -f "$dmg" && -f "$notes" ]] || exit 1
+# Do not publish stale packages or mismatched checksum files under a new tag.
+[[ "$version" == "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Info.plist)" &&
+   "$build" == "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' Info.plist)" ]] || {
+  echo 'Package version differs from committed source.' >&2; exit 1;
+}
+(cd "$package" && shasum -a 256 -c SHA256SUMS.txt)
+lipo "$package/NearClip.app/Contents/MacOS/NearClip" -verify_arch arm64 x86_64
+bash scripts/verify-updater.sh "$package/NearClip.app"
 python3 scripts/prepare-update.py "$package/NearClip.app" "$zip" "$package/appcast.xml"
 git push origin HEAD:main
 gh release create "$tag" "$zip" "$dmg" "$package/SHA256SUMS.txt" --repo iyk2h/nearclip \

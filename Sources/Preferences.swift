@@ -29,6 +29,17 @@ enum CloseBehavior: Int {
     case ask = 0, keepRunning = 1, quit = 2
 }
 
+// A remembered choice is bound to the authenticated device AND pairing key.
+// A new pairing must never inherit an old input-sharing choice.
+struct InputConsent: Codable, Equatable {
+    let peer: String
+    let group: String
+    func peer(for pairingCode: String) -> String? {
+        guard UUID(uuidString: peer) != nil, (try? PairCode.group(pairingCode)) == group else { return nil }
+        return peer
+    }
+}
+
 // Discovery is open on first use. A trusted setup requires an explicit invitation.
 // Re-authenticating an existing peer must not cancel an invitation the user opened.
 struct PairingAccess {

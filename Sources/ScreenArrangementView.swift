@@ -90,8 +90,7 @@ final class ScreenArrangementView: NSView {
     }
     override func draw(_ dirtyRect: NSRect) {
         let background = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 10, yRadius: 10)
-        NSColor.controlBackgroundColor.setFill(); background.fill()
-        NSColor.separatorColor.withAlphaComponent(0.4).setStroke(); background.lineWidth = 1; background.stroke()
+        NSColor.windowBackgroundColor.withAlphaComponent(0.55).setFill(); background.fill()
         let side = draggingLocal == nil ? peerSide : proposedSide
         if let local = draggingLocal {
             let target = NSBezierPath(roundedRect: frame(local: local, side: side).insetBy(dx: -4, dy: -4), xRadius: 10, yRadius: 10)
@@ -116,9 +115,9 @@ final class ScreenArrangementView: NSView {
         let body = NSBezierPath(roundedRect: screen, xRadius: 7, yRadius: 7)
         NSGraphicsContext.saveGraphicsState()
         if lifted { let shadow = NSShadow(); shadow.shadowBlurRadius = 8; shadow.shadowOffset = NSSize(width: 0, height: -3); shadow.shadowColor = NSColor.black.withAlphaComponent(0.22); shadow.set() }
-        (connected ? NSColor.controlAccentColor.withAlphaComponent(local ? 0.16 : 0.09) : NSColor.quaternaryLabelColor.withAlphaComponent(0.12)).setFill(); body.fill()
+        (connected ? (local ? NSColor.controlBackgroundColor : NSColor.systemTeal.withAlphaComponent(0.10)) : NSColor.quaternaryLabelColor.withAlphaComponent(0.12)).setFill(); body.fill()
         NSGraphicsContext.restoreGraphicsState()
-        (connected ? NSColor.controlAccentColor.withAlphaComponent(lifted ? 0.9 : 0.45) : NSColor.separatorColor).setStroke()
+        (connected && !local ? NSColor.systemTeal.withAlphaComponent(lifted ? 0.9 : 0.55) : NSColor.separatorColor).setStroke()
         body.lineWidth = lifted ? 2 : 1; body.stroke()
         if local {
             NSColor.labelColor.withAlphaComponent(0.55).setFill()

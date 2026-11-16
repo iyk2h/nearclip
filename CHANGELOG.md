@@ -1,6 +1,18 @@
 # Changelog
 
-## Unreleased — 0.4.3 test build
+## 0.4.4 build 22 — 2026-11-16
+
+- Use compact native cards for clipboard, input, and files. Keep screen arrangement optional and move diagnostics into Settings.
+- Remember input sharing for the same authenticated pairing across app restarts and updates. Explicit stop and emergency stop clear the choice.
+- Use a fresh discovered route after a short saved-address attempt. Retry failed connections with bounded backoff.
+- Give one peer priority for startup dialing. Keep a timed direct fallback when discovery cannot connect.
+- Hide permission repair buttons after approval. Retry a remembered choice when permissions become available, without another permission prompt.
+- Keep the existing signing identity, Keychain helper, and signed update channel.
+
+## 0.4.3 builds 13–21 — 2026-11-16
+
+- Add signed in-app updates, a separate input connection, input recovery, and connection diagnostics.
+
 
 - Build 15 moves bulk clipboard preparation and large-frame decoding off the input thread, bounds ordinary movement in flight, and reduces idle input maintenance to 1 Hz.
 - Add content-free input/transport diagnostic logs and a scoped collection script. See the measured [runtime review](docs/PERFORMANCE-REVIEW.md) for evidence and remaining bottlenecks.

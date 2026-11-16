@@ -96,6 +96,7 @@ final class MouseSharing {
     var send: ((String, MousePacket, @escaping (Bool) -> Void) -> Void)?
     var sendKeyboard: ((String, KeyboardPacket, @escaping (Bool) -> Void) -> Void)?
     var onChange: (() -> Void)?
+    var onConsentChange: ((String?) -> Void)?
     var onEdgeProgress: ((CGPoint?, ScreenSide, Double) -> Void)?
     var onLayout: ((ScreenLayout) -> Void)?
     var onInput: ((MousePacket, CGPoint) -> Void)?
@@ -112,7 +113,7 @@ final class MouseSharing {
     }
     func setPeer(_ peer: String?, savedLayout: ScreenLayout? = nil, supportsKeyboard: Bool = false) {
         if self.peer != peer && enabled { try? applyEnabled(false) }
-        if let peer, requestedPeer != peer { requestedPeer = nil }
+        if let peer, requestedPeer != nil, requestedPeer != peer { requestedPeer = nil; onConsentChange?(nil) }
         endSession(notify: false, reason: .connectionChanged); self.peer = peer; remoteEnabled = false
         keyboardSupported = supportsKeyboard; remoteKeyboardEnabled = false
         if let peer {
@@ -153,10 +154,18 @@ final class MouseSharing {
         if !value { requestedPeer = nil }
         try applyEnabled(value)
         if value { requestedPeer = peer }
+        onConsentChange?(requestedPeer)
         onChange?()
     }
+    // Restore only a stored local choice. This does not restore remote consent,
+    // session tokens, or held input, and cannot bypass native permissions.
+    func restoreConsent(for peer: String) {
+        guard !enabled, self.peer == nil else { return }
+        requestedPeer = peer
+    }
+    func retryRequestedSharing() { restoreIfReady() }
     // Suspend capture, not the user's choice. Consent is scoped to this peer
-    // and this app run; a new device or an explicit stop never inherits it.
+    // and its pairing; a new device or an explicit stop never inherits it.
     func suspend(_ reason: Suspension) {
         if native { logger.notice("input_suspend reason=\(String(describing: reason), privacy: .public)") }
         suspensions.insert(reason); try? applyEnabled(false)

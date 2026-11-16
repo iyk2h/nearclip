@@ -68,7 +68,7 @@ Only horizontal left/right arrangement is supported in 0.4. The operating system
 
 ## Mouse control
 
-`availability` advertises explicit local opt-in. It is separate from capability support. Both peers must opt in. Opt-in is not saved across app restarts. Losing the peer stops capture and ends its input session. The current test build retains opt-in for that same peer in memory, so temporary reconnect and wake can restore readiness after all sleep/lock/session suspension reasons clear. Explicit stop, pause, a different peer, and new pairing clear it.
+`availability` advertises explicit local opt-in. It is separate from capability support. Both peers must opt in. From build 22, local opt-in is saved for a device ID and pairing-group fingerprint. Losing the peer stops capture and ends its input session. Reconnect, wake, and restart can restore readiness for the same authenticated pairing after sleep/lock/session suspensions clear and native permissions pass. Remote availability and control-session tokens are never restored. Explicit stop, pause, a different peer, and new pairing clear it.
 
 1. Push against the configured outer edge for at least 150 ms with no buttons or modifiers held.
 2. Send `enter` with a fresh UUID `token`, the receiver's entry `side`, and vertical `fraction` from 0 to 1.

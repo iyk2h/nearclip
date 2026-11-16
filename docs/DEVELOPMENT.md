@@ -44,7 +44,7 @@ build/NearClip.app/Contents/MacOS/NearClip --lifecycle-smoke
 build/NearClip.app/Contents/MacOS/NearClip --update-check
 ```
 
-The update check contacts only the public GitHub release API and prints the latest tag and whether it is newer; it does not touch the Keychain or clipboard. The first smoke test checks Bonjour, encrypted clipboard/file transfer, and shared layout under the actual app identity. The second checks menu entries, inline mouse/settings expansion, pause/resume, input consent, hiding/reopening, stable geometry, and quit cleanup. Both exit when complete. Render and diagnostic modes keep their windows offscreen and use accessory activation so they do not occupy the Dock or steal focus. Tests create native mouse event objects but never post them, install real input hooks, move the system cursor, or request input permissions.
+The update check contacts only the public GitHub release API and prints the latest tag and whether it is newer; it does not touch the Keychain or clipboard. The first smoke test checks Bonjour, encrypted clipboard/file transfer, and shared layout under the actual app identity. The second checks menu entries, inline mouse expansion, focused settings, pause/resume, input consent, hiding/reopening, stable geometry, and quit cleanup. Both exit when complete. Render and diagnostic modes keep their windows offscreen and use accessory activation so they do not occupy the Dock or steal focus. Tests create native mouse event objects but never post them, install real input hooks, move the system cursor, or request input permissions.
 
 ## Release
 
@@ -117,3 +117,5 @@ The `dev.nearclip.updates` keychain account holds the Ed25519 release key. Gener
 `prepare-update-test.sh` creates an isolated older bundle with a test-only loopback feed override. Distribution builds do not define `NEARCLIP_UPDATE_TESTING`. Run the test fixture only against synthetic, signed archives. Do not ship it. The production helper accepts no arbitrary feed or target-path arguments.
 
 Unsigned/ad-hoc CI builds can run synthetic diagnostics but intentionally cannot launch the real updater. Production validation includes `--update-component-check` on the main executable and `--configuration-check` on its updater executable.
+
+Release publishing checks package versions, SHA-256 sums, both CPU architectures, and updater component validation before upload. It rejects stale packages.

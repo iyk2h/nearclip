@@ -1,5 +1,20 @@
 # 0.4.3 local test build validation
 
+
+## 0.4.4 build 22 — November 16, 2026
+
+The final regression suite passed 344 checks. The signed universal app passed 45 lifecycle checks. The packaged Bonjour, clipboard, file, and screen-layout smoke test passed before the final startup-dial adjustment. The final transport suite covers that adjustment, startup fallback, repeated peer restart, and cancellation on shutdown.
+
+New tests cover a stalled saved address plus a working discovery result. The final local TCP run restored the separate input connection in 811 ms, before the 12-second handshake timeout. This is a local test, not a Wi-Fi latency claim. Tests also cover saved input choices, pairing-key replacement, locked startup, fresh remote consent, emergency stop, and different-peer rejection.
+
+Light and dark main views, first connection, focused Settings, and expanded arrangement were inspected. Settings stays in a compact scrollable window. The input switch keeps its state when arrangement is collapsed. Diagnostics and return reasons stay in Settings.
+
+The current Mac retained Accessibility and Input Monitoring approval. The old and new bundles passed noninteractive Keychain checks with identical helper bytes. No Keychain password was requested during the observed app replacements. Native input permission continuity on other Macs is not established by this check.
+
+A physical restart reproduced about 26 seconds of input preparation with the earlier startup logic. After giving one device priority for startup dialing, one observed restart restored input in about 1.6 seconds. The input switch stayed enabled without a click. A subsequent receiving-control session lasted 3.8 seconds and ended at the return edge. The peer did not report a build number. These observations do not establish sustained latency, both directions, or results with both Macs on build 22.
+
+Remaining physical checks: both Macs on build 22, repeated sleep/wake and lock/unlock, Wi-Fi changes, sustained bidirectional keyboard/mouse use, and simultaneous large transfers. Apple Developer ID notarization is unavailable because no Developer ID account/certificate is configured. The beta retains its existing local signing identity.
+
 Validated locally on macOS 15.7.2, Apple Silicon. File and mouse sharing are experimental. Receiving control from a second physical Mac was confirmed with build 12. The complete bidirectional input matrix remains unverified.
 
 ## Build 21 in-app update validation

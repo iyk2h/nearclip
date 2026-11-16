@@ -4,9 +4,9 @@
 
 NearClip is a native macOS menu bar app for two Macs on the same local network. Different Apple accounts are supported. No account, cloud service, or third-party runtime is required.
 
-[**Download for macOS**](https://github.com/iyk2h/nearclip/releases/tag/v0.4.3-build21) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Development](docs/DEVELOPMENT.md) · [Roadmap](docs/ROADMAP.md)
+[**Download for macOS**](https://github.com/iyk2h/nearclip/releases/tag/v0.4.4-build22) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Development](docs/DEVELOPMENT.md) · [Roadmap](docs/ROADMAP.md)
 
-> **Experimental public beta.** Version 0.4.3 build 21 is not notarized by Apple. Input sharing remains experimental; the full two-Mac sleep/network test matrix is pending. The interface is Korean; this guide includes the button labels.
+> **Experimental public beta.** Version 0.4.4 build 22 is not notarized by Apple. Input sharing remains experimental; the full two-Mac sleep/network test matrix is pending. The interface is Korean; this guide includes the button labels.
 
 ![NearClip main screen](docs/connected.png)
 
@@ -15,7 +15,7 @@ NearClip is a native macOS menu bar app for two Macs on the same local network. 
 Use macOS 13 or later. Apple Silicon and Intel are supported. On both Macs:
 
 1. Quit the previous NearClip, if it is running.
-2. Download `NearClip-0.4.3-build21-macOS.dmg` from the [release page](https://github.com/iyk2h/nearclip/releases/tag/v0.4.3-build21).
+2. Download `NearClip-0.4.4-build22-macOS.dmg` from the [release page](https://github.com/iyk2h/nearclip/releases/tag/v0.4.4-build22).
 3. Open the DMG and drag **NearClip** to **Applications**.
 4. Open NearClip and allow local network access when macOS asks.
 
@@ -27,7 +27,7 @@ If macOS blocks the first launch, use the [first-launch instructions](docs/TROUB
 2. Click **Connect (`연결`)** beside the other Mac's name.
 3. Compare the six digits. If they match, click **Confirm (`숫자가 같아요 · 연결`)** on both Macs.
 
-The saved Macs reconnect automatically. Build 20 retries as soon as a network path returns and dials the saved peer on wake. **Find again (`연결 다시 찾기`)** preserves working connections and file transfers. To replace a pairing, click **Connect another Mac (`다른 Mac 연결`)** on each previously paired Mac. New pairing opens for two minutes and still requires both confirmations.
+Saved Macs reconnect automatically after wake or a network change. A stale saved address does not block a newly discovered route. **Find again (`연결 다시 찾기`)** preserves working connections and file transfers. To replace a pairing, click **Change Mac (`Mac 변경…`)** on each paired Mac. New pairing opens for two minutes and requires both confirmations.
 
 If no Mac appears, expand **Mac not visible? (`Mac이 보이지 않나요?`)**. Use the other Mac's displayed address through **Connect by address (`주소로 연결…`)**.
 
@@ -39,19 +39,23 @@ Copies made before connection or while paused are not sent automatically. Use **
 
 ## Mouse, keyboard, and screen layout
 
-Use 0.4.2 or later for graphical arrangement. The 0.4.3 test build adds the edge bar and keyboard sharing; both Macs need this build for keyboard input. The current public download above remains 0.4.2.
+Install the current version on both Macs. The main window groups clipboard, input, and file controls. Settings contains version details and diagnostics.
 
-1. On the main screen, expand **Screen arrangement and permissions (`화면 배치 · 권한`)** below the connected Mac.
+1. On the main screen, expand **Screen arrangement (`화면 배치`)** below the connected Mac.
 2. Drag either monitor card to match the Macs' physical left-to-right order. Release it to apply the same order on both Macs. You can also use **Swap order (`순서 바꾸기`)**.
-3. Enable **Mouse and keyboard sharing (`마우스·키보드 공유 켜기`)** on both Macs. This expands setup automatically. You can collapse setup while sharing stays on.
+3. Turn on the **Mouse and keyboard (`마우스·키보드`)** switch on both Macs. Screen arrangement can stay collapsed while sharing is on.
 4. Allow the missing permissions shown in the app. The app checks again when you return from System Settings. Then enable sharing again. Restart only if macOS requires it or the permission still has not taken effect.
 5. Push the cursor against the configured outer edge. A vertical bar fills as the handoff starts. After acceptance, it becomes a thin bar and the keyboard follows the pointer. Return through the edge where it entered.
 
-**Press `⌃⌥Esc` to disable mouse sharing and reclaim control.** Local mouse or keyboard input on the receiving Mac also reclaims control. A lost connection releases held buttons and keys and returns control. The current test build keeps your choice during sleep and temporary disconnection. After unlock, sharing resumes only with the same authenticated Mac. Pause, explicit stop, emergency stop, a new pairing, and app restart require you to enable it again. Install the same build on both Macs; the footer shows the build number. Build 16 separates input from clipboard/file traffic when both Macs support it. Build 17 can recover the input connection while clipboard and file transfers continue. Both Macs need build 17 for this recovery; older peers keep their previous behavior. The main screen shows both versions when available.
+**Press `⌃⌥Esc` to disable input sharing and reclaim control.** Physical input on the receiving Mac also returns control.
+
+Build 22 remembers your input-sharing choice for the paired Mac across sleep, disconnection, app restart, and later updates. Readiness resumes after the same Mac authenticates and native permissions pass. Each handoff still needs the other Mac's input-sharing approval. Pause, explicit stop, emergency stop, permission loss, and pairing replacement clear the choice. Enable the switch once after upgrading from an older build.
+
+Input uses a separate encrypted connection from clipboard and file traffic. Both Macs need build 17 or later to recover input without interrupting a file transfer.
 
 Movement, left/right/middle clicks, dragging within the receiving Mac, and scrolling are supported. Keyboard letters, shortcuts, modifiers, and repeat events use the receiving Mac’s input source. Select the desired input language there. Media keys, Touch ID, and three- or four-finger system gestures are not shared. The test build preserves two-finger scroll and momentum phases; it does not change your trackpad settings. Secure Event Input returns control; enter protected input on that Mac directly. With an older mouse-only peer, typing stays local and ends control. This version does not drag files across the screen boundary. Each card represents one Mac, including its attached displays. This version sets horizontal Mac order; individual monitor placement and vertical arrangements are not included. Press Escape while dragging to cancel. End remote mouse control before changing the arrangement.
 
-NearClip does not change Apple Universal Control settings. If another Apple device also takes the pointer, use the **Apple mouse sharing help (`Apple 마우스 공유와 겹치나요?`)** button in the expanded setup.
+NearClip does not change Apple Universal Control settings. If another Apple device also takes the pointer, use the **Apple mouse sharing guide (`Apple 마우스 공유 안내`)** button in Settings → Connection diagnostics.
 
 ## Apple clipboard relay
 
@@ -88,9 +92,9 @@ The first window close asks whether to quit or keep running in the menu bar. Qui
 
 ## Updates and connection diagnostics
 
-From build 21, choose **Check for updates (`업데이트 확인…`)** in the menu bar or Settings. In the update window, choose **Install Update**, then **Install and Relaunch**. NearClip verifies the signed update, replaces the app, and opens it again. Pairing and settings stay in place. Finish or cancel file transfers first. Enable mouse and keyboard sharing again after the restart.
+From build 21, choose **Check for updates (`업데이트 확인…`)** in the menu bar or Settings. In the update window, choose **Install Update**, then **Install and Relaunch**. NearClip verifies the signed update, replaces the app, and opens it again. Pairing and settings stay in place. Finish or cancel file transfers first. From build 22, an enabled input-sharing choice also stays in place for the same pairing.
 
-Update each Mac separately. For build 20 or earlier, quit NearClip and replace it with build 21 once. Later updates can use the app's update window. Run the installed app from a writable folder, such as Applications, rather than from a mounted DMG.
+Update each Mac separately. For build 20 or earlier, quit NearClip and replace it with the current download once. Later updates can use the app's update window. Run the installed app from a writable folder, such as Applications, rather than from a mounted DMG.
 
 The app checks public GitHub releases once a day, including beta releases. Turn off **Check automatically (`새 버전 자동 확인`)** for manual checks only. Automatic checks do not install an update or interrupt sharing. **Public releases (`공개 배포 보기`)** remains available for manual downloads.
 

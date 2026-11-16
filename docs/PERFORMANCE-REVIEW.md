@@ -66,3 +66,12 @@ bash scripts/diagnostics.sh "/path/to/NearClip.app" 10m
 ```
 
 This reads only NearClip's input and transport categories from the local macOS log. It does not upload anything. Look for `control_end`, `send_queue_slow`, `send_queue_full`, `clipboard_prepare_slow`, and `frame_decode_slow`. A processing-duration notice does not by itself mean that the main thread was blocked.
+
+
+## Changes in build 22
+
+A working discovery result can replace an unauthenticated saved-address attempt after a 750 ms head start. The old direct attempt is closed before the replacement starts. This keeps the legacy duplicate-election rule from receiving two outgoing connections from one device. Tests use a TCP listener that accepts but never authenticates the old route. The final local run reached separate-input readiness in 811 ms.
+
+The lower device identity starts direct dialing immediately. The higher identity gives that peer a startup opportunity, then uses a 4.5-second fallback if necessary. Failed connections retry with bounded backoff. Stop cancels route replacement, retry, and fallback work. Tests cover primary dialing, secondary fallback without discovery, repeated server restarts, and shutdown.
+
+Before this change, two physical starts authenticated bulk traffic promptly but needed about 26 seconds to prepare input. After the change, one physical start restored input in about 1.6 seconds, measured from the first startup recovery event to local input enablement. It then received control for 3.8 seconds and returned at the edge. The remote build remains unknown. This supports further testing of startup election; it does not prove the complete cause of every previous timeout or a general Wi-Fi speed guarantee.

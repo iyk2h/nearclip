@@ -2,7 +2,7 @@
 
 ## macOS blocks the first launch
 
-Versions through 0.4.2 have ad-hoc signatures. The 0.4.3 test build has a persistent self-signed certificate. Neither has an Apple Developer ID signature or notarization. First check that you downloaded it from this repository's release page.
+Versions through 0.4.2 have ad-hoc signatures. Current builds have a persistent self-signed certificate. Neither has an Apple Developer ID signature or notarization. First check that you downloaded it from this repository's release page.
 
 1. Try to open NearClip from Applications.
 2. Open **System Settings → Privacy & Security**.
@@ -38,16 +38,16 @@ NearClip tries to reconnect after wake. If the saved address is no longer valid 
 ## Mouse sharing does not start
 
 1. Use NearClip 0.4 or later on both Macs.
-2. On the main screen, enable Mouse and keyboard sharing (`마우스·키보드 공유 켜기`) on both. Setup expands below the checkbox.
+2. On the main screen, turn on Mouse and keyboard (`마우스·키보드`) on both. Expand Screen arrangement (`화면 배치`) to change order or inspect permissions.
 3. Allow NearClip in **System Settings → Privacy & Security → Accessibility** and **Input Monitoring**. Return to the app; it checks permissions again. Use **Check again (`다시 확인`)** if needed, then enable sharing. Arrange screens and change app options without restarting. Restart the app only if macOS requires it or granted permissions still have not taken effect.
-4. Expand **Screen arrangement and permissions (`화면 배치 · 권한`)**, then drag the monitor cards into the correct left-to-right order. Both Macs receive the layout. End remote mouse control before rearranging.
+4. Expand **Screen arrangement (`화면 배치`)**, then drag the monitor cards into the correct left-to-right order. Both Macs receive the layout. End remote mouse control before rearranging.
 5. Push against the outer edge briefly with no mouse buttons or modifier keys held. A boundary between this Mac's own monitors does not hand off.
 
-Press `⌃⌥Esc` to stop mouse sharing. On 0.4.3, the keyboard follows the pointer. Physical typing on the receiving Mac returns control. Re-enable sharing after a pause, disconnect, or app restart. A slow network or a large clipboard frame can trigger the watchdog and return control; this behavior fails safely but can interrupt use.
+Press `⌃⌥Esc` to stop mouse sharing. On 0.4.3, the keyboard follows the pointer. Physical typing on the receiving Mac returns control. From build 22, the choice survives disconnection and restart for the same pairing. Re-enable sharing after pause or explicit stop. A slow network or a large clipboard frame can trigger the watchdog and return control; this behavior fails safely but can interrupt use.
 
 ## Mouse control returns immediately
 
-The 0.4.3 test build ignores receiver mouse events with zero movement. It also shows **Last return (`마지막 복귀`)** below the mouse toggle after control ends. Install this build on both Macs to see the reason from either side.
+NearClip ignores receiver mouse events with zero movement. Settings → Connection diagnostics shows the last return reason after control ends. Install the current build on both Macs to see the reason from either side.
 
 Leave the receiving Mac's mouse, trackpad, and keyboard untouched. Push the controlling Mac's pointer across the configured edge. If it returns, note which Mac ended control and the reason shown. The reason distinguishes local input, the return edge, a rejected handoff, a timeout, and a send failure. It stays in memory and clears on the next handoff. This diagnostic does not record clipboard contents or input history.
 

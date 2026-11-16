@@ -106,8 +106,8 @@ func recoveryWakeTests() throws {
     try Check.that(NetworkNotice.classify(.dns(-65555)) == .recovering, "generic DNS authorization error does not misidentify privacy settings")
     try Check.that(NearbyPairing.failureMessage(.posix(.ETIMEDOUT)) == NetworkNotice.recovering.message, "pairing timeout uses the same factual recovery guidance")
     let code = try PairCode.create()
-    let server = try LocalTransport(code: code, device: UUID().uuidString, name: "Wake server", discovery: false)
-    let client = try LocalTransport(code: code, device: UUID().uuidString, name: "Wake client", discovery: false)
+    let server = try LocalTransport(code: code, device: "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF", name: "Wake server", discovery: false)
+    let client = try LocalTransport(code: code, device: "00000000-0000-0000-0000-000000000001", name: "Wake client", discovery: false)
     defer { server.stop(); client.stop() }
     var port: UInt16?, connection: UUID?, note: String?
     server.onListening = { port = $0.rawValue }
@@ -130,8 +130,91 @@ func recoveryWakeTests() throws {
     server.start(); client.networkPathChanged(available: true)
     waitFor({ client.peerCount == 1 }, seconds: 2)
     try Check.that(client.peerCount == 1 && connection != original && note == nil, "network restoration reconnects and authenticates before the periodic retry")
+    for cycle in 1...3 {
+        let prior = connection
+        server.stop(); waitFor({ client.peerCount == 0 })
+        server.start()
+        // No synthetic path notification: peer closure itself schedules recovery.
+        waitFor({ client.separateInputPeerCount == 1 }, seconds: 3)
+        try Check.that(client.separateInputPeerCount == 1 && connection != prior,
+                       "peer restart \(cycle) recovers input without waiting for a network-path notification")
+    }
     client.networkPathChanged(available: true); client.stop()
     RunLoop.main.run(until: Date().addingTimeInterval(0.3))
     client.networkPathChanged(available: true); client.reconnectNow()
     try Check.that(client.peerCount == 0, "stop cancels queued path recovery and ignores later wake events")
+}
+
+func staleRouteTests() throws {
+    let code = try PairCode.create()
+    let client = try LocalTransport(code: code, device: "00000000-0000-0000-0000-000000000001", name: "Route client", discovery: false)
+    let server = try LocalTransport(code: code, device: "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF", name: "Route server", discovery: false)
+    // The old address accepts TCP but never authenticates, like a stale route
+    // pointing at a different service. A live discovery result must win promptly.
+    let stalled = try NWListener(using: LocalTransport.parameters(), on: .any)
+    var held: [NWConnection] = [], realPort: NWEndpoint.Port?
+    stalled.newConnectionHandler = { connection in held.append(connection); connection.start(queue: .main) }
+    defer { held.forEach { $0.cancel() }; stalled.cancel(); client.stop(); server.stop() }
+    server.onListening = { realPort = $0 }; server.start(); stalled.start(queue: .main)
+    waitFor({ realPort != nil && stalled.port != nil })
+    guard let realPort, let oldPort = stalled.port else { throw ClipError.invalid("Route fixture unavailable") }
+    client.setDirectPeer(DirectPeer(host: "127.0.0.1", port: oldPort.rawValue, device: server.device)); client.start()
+    waitFor({ !held.isEmpty }, seconds: 2)
+    let started = ProcessInfo.processInfo.systemUptime
+    client.discovered(["fresh-service": (.hostPort(host: "127.0.0.1", port: realPort), server.device)])
+    waitFor({ client.separateInputPeerCount == 1 && server.separateInputPeerCount == 1 }, seconds: 3)
+    try Check.that(client.separateInputPeerCount == 1 && server.separateInputPeerCount == 1,
+                   "fresh discovery authenticates input despite a stalled saved-address handshake")
+    try Check.that(ProcessInfo.processInfo.systemUptime - started < 3, "working route does not wait for the twelve-second handshake deadline")
+    print("MEASURE: stalled-route recovery \(Int((ProcessInfo.processInfo.systemUptime - started) * 1000)) ms on local TCP")
+    for _ in 0..<5 { client.discovered(["fresh-service": (.hostPort(host: "127.0.0.1", port: realPort), server.device)]) }
+    RunLoop.main.run(until: Date().addingTimeInterval(0.9))
+    try Check.that(client.peerCount == 1 && server.peerCount == 1, "repeated discovery retains one authenticated peer")
+    client.stop(); server.stop()
+    RunLoop.main.run(until: Date().addingTimeInterval(0.9))
+    try Check.that(client.peerCount == 0 && server.peerCount == 0, "stop cancels delayed route races and retry attempts")
+}
+
+func persistedInputConsentTests() throws {
+    let code = try PairCode.create(), id = UUID().uuidString
+    let saved = InputConsent(peer: id, group: try PairCode.group(code))
+    let restored = try JSONDecoder().decode(InputConsent.self, from: JSONEncoder().encode(saved))
+    try Check.that(restored.peer(for: code) == id, "input choice survives serialization for the same pairing")
+    try Check.that(restored.peer(for: try PairCode.create()) == nil, "new pairing key rejects the remembered input choice")
+    let mouse = MouseSharing(local: UUID().uuidString, native: false)
+    var remembered: String? = id
+    mouse.onConsentChange = { remembered = $0 }
+    mouse.suspend(.screenLock); mouse.restoreConsent(for: id)
+    try Check.that(!mouse.enabled && mouse.sharingRequested, "restoring input choice alone never installs capture")
+    mouse.setPeer(id, supportsKeyboard: true)
+    try Check.that(!mouse.enabled && mouse.sharingRequested, "restored choice remains suspended at a locked launch")
+    mouse.resume(.screenLock)
+    try Check.that(mouse.enabled && !mouse.remoteEnabled && mouse.mode == .local, "unlock restores same-peer readiness without remote consent or a control session")
+    mouse.setPeer(nil)
+    try Check.that(remembered == id && !mouse.enabled, "network outage keeps persistent choice without capturing input")
+    mouse.setPeer(id); mouse.emergencyStop()
+    try Check.that(remembered == nil && !mouse.sharingRequested, "emergency stop revokes the persisted choice")
+    try mouse.setEnabled(true); mouse.setPeer(UUID().uuidString)
+    try Check.that(remembered == nil && !mouse.enabled, "another authenticated device cannot inherit the stored choice")
+    mouse.stop()
+}
+
+func startupDialElectionTests() throws {
+    let code = try PairCode.create()
+    let lower = try LocalTransport(code: code, device: "00000000-0000-0000-0000-000000000001", name: "Lower", discovery: false)
+    let higher = try LocalTransport(code: code, device: "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF", name: "Higher", discovery: false)
+    defer { lower.stop(); higher.stop() }
+    var port: NWEndpoint.Port?
+    lower.onListening = { port = $0 }; lower.start(); waitFor({ port != nil })
+    guard let port else { throw ClipError.invalid("Election fixture unavailable") }
+    higher.setDirectPeer(DirectPeer(host: "127.0.0.1", port: port.rawValue, device: lower.device))
+    higher.start()
+    RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+    try Check.that(higher.peerCount == 0, "secondary dialer gives the preferred peer a startup opportunity")
+    waitFor({ higher.separateInputPeerCount == 1 && lower.separateInputPeerCount == 1 }, seconds: 6)
+    try Check.that(higher.separateInputPeerCount == 1 && lower.separateInputPeerCount == 1,
+                   "secondary direct fallback connects when discovery and primary dialing are unavailable")
+    higher.stop(); higher.start(); higher.stop()
+    RunLoop.main.run(until: Date().addingTimeInterval(4.7))
+    try Check.that(higher.peerCount == 0 && lower.peerCount == 0, "stop cancels the deferred secondary dial")
 }

@@ -25,6 +25,7 @@ final class PeerLink {
     enum CloseReason: String { case stopped, networkFailure, invalidFrame, peerClosed, handshakeTimeout, idleTimeout, duplicate }
     private let logger = Logger(subsystem: "dev.nearclip.mac", category: "transport")
     private let createdAt = ProcessInfo.processInfo.systemUptime
+    var connectingFor: TimeInterval { ProcessInfo.processInfo.systemUptime - createdAt }
     private var peakQueueDepth = 0
     private var maxQueueWaitMS = 0.0
     private var lastSlowQueueLog = -Double.infinity
@@ -153,7 +154,7 @@ final class PeerLink {
                 }
                 self.retryInputWork?.cancel(); self.retryInputWork = nil; self.inputRetry = 0
                 let wasReady = self.ready; self.ready = true
-                self.logger.notice("input_channel_ready")
+                self.logger.notice("input_channel_ready elapsed_ms=\(Int((ProcessInfo.processInfo.systemUptime - self.createdAt) * 1000), privacy: .public)")
                 if wasReady { self.onInputChange?(self) } else { self.onReady?(self) }
             }
             child.onFeature = { [weak self, weak child] _, packet in
@@ -328,7 +329,7 @@ final class PeerLink {
                 inputListener?.cancel(); inputListener = nil
                 ready = true; startMetrics(); onReady?(self)
             }
-            logger.notice("connection_ready elapsed_ms=\(Int((ProcessInfo.processInfo.systemUptime - self.createdAt) * 1000), privacy: .public)")
+            logger.notice("connection_ready input_only=\(self.inputOnly, privacy: .public) elapsed_ms=\(Int((ProcessInfo.processInfo.systemUptime - self.createdAt) * 1000), privacy: .public)")
             return
         }
         try handleMessage(message)
@@ -454,6 +455,9 @@ final class LocalTransport {
     private var running = false
     private var pathMonitor: NWPathMonitor?
     private var recoveryWork: DispatchWorkItem?
+    private var routeRaceWork: DispatchWorkItem?
+    private var retryWork: DispatchWorkItem?
+    private var retryCount = 0
     private var pathAvailable: Bool?
     private var listenerIssue: NetworkNotice?
     private var browserIssue: NetworkNotice?
@@ -462,6 +466,8 @@ final class LocalTransport {
     private var preferredPort: UInt16
     private var directPeer: DirectPeer?
     private var directAttempts = 0
+    private var directFallbackAt: TimeInterval = 0
+    private var directFallbackWork: DispatchWorkItem?
     var onPeers: (([String]) -> Void)?
     var onPeerDetails: (([ConnectedPeer]) -> Void)?
     var onMetrics: ((String, InputHealth) -> Void)?
@@ -489,6 +495,15 @@ final class LocalTransport {
     }
     func start() {
         guard !running else { return }; running = true
+        // The lower identity owns startup dialing, just as it owns Bonjour and
+        // input dialing. Let legacy peers finish their four-second retry before
+        // the other side falls back to a direct connection.
+        directFallbackAt = ProcessInfo.processInfo.systemUptime + 4.5
+        let fallback = DispatchWorkItem { [weak self] in
+            self?.directFallbackWork = nil; self?.connectDirectPeer(immediate: true)
+        }
+        directFallbackWork = fallback
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4.5, execute: fallback)
         startListener()
         if discovery {
             startBrowser()
@@ -512,6 +527,9 @@ final class LocalTransport {
     func stop() {
         running = false; timer?.invalidate(); timer = nil
         recoveryWork?.cancel(); recoveryWork = nil
+        routeRaceWork?.cancel(); routeRaceWork = nil
+        retryWork?.cancel(); retryWork = nil; retryCount = 0
+        directFallbackWork?.cancel(); directFallbackWork = nil
         pathMonitor?.pathUpdateHandler = nil; pathMonitor?.cancel(); pathMonitor = nil
         pathAvailable = nil; listenerIssue = nil; browserIssue = nil; connectionIssue = nil
         listener?.stateUpdateHandler = nil; listener?.cancel(); listener = nil
@@ -602,7 +620,7 @@ final class LocalTransport {
                     found[name] = (result.endpoint, peer)
                 }
             }
-            self.endpoints = found; self.connectDiscovered()
+            self.discovered(found)
         }
         browser.stateUpdateHandler = { [weak self, weak browser] state in
             guard let self, let browser, self.browser === browser, self.running else { return }
@@ -622,10 +640,39 @@ final class LocalTransport {
         for (key, (endpoint, peer)) in endpoints {
             // Only one side dials, so each pair has exactly one duplex connection.
             guard device < peer, !links.values.contains(where: {
-                $0.endpointKey == key || $0.remote?.device == peer || $0.expectedDevice == peer
+                $0.endpointKey == key || ($0.ready && $0.remote?.device == peer) ||
+                ($0.expectedDevice == peer && $0.connectingFor < 0.75)
             }), links.count < 8 else { continue }
+            // Replace only the stale outbound direct attempt. Two concurrent
+            // outgoing sessions would defeat the legacy direction-based election.
+            for stale in Array(links.values) where !stale.ready && stale.endpointKey == nil && stale.expectedDevice == peer {
+                stale.close(.stopped)
+            }
             accept(NWConnection(to: endpoint, using: Self.parameters()), key: key, expected: peer)
         }
+    }
+    // Bonjour may advertise a working route while a saved address stalls.
+    // Give the direct attempt a short head start, then use the service route.
+    // The replacement still authenticates the expected identity.
+    func discovered(_ found: [String: (NWEndpoint, String)]) {
+        guard running else { return }
+        endpoints = found; connectDiscovered()
+        guard routeRaceWork == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            self?.routeRaceWork = nil; self?.connectDiscovered()
+        }
+        routeRaceWork = work; DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: work)
+    }
+    private func retrySoon() {
+        guard running, peerCount == 0, retryWork == nil else { return }
+        let delay = min(4.0, 0.5 * pow(2, Double(min(retryCount, 3))))
+        retryCount += 1
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.running else { return }
+            self.retryWork = nil
+            self.connectDiscovered(); self.connectDirectPeer(immediate: true)
+        }
+        retryWork = work; DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
     func setDirectPeer(_ peer: DirectPeer?) {
         directPeer = peer; directAttempts = 0; connectDirectPeer()
@@ -636,6 +683,7 @@ final class LocalTransport {
               let port = NWEndpoint.Port(rawValue: peer.port) else { return }
         // Give Bonjour a chance first, then let either side recover a broken connection.
         directAttempts += 1
+        guard device < peer.device || ProcessInfo.processInfo.systemUptime >= directFallbackAt else { return }
         guard immediate || directAttempts >= 2 else { return }
         accept(NWConnection(host: .init(peer.host), port: port, using: Self.parameters()), expected: peer.device)
     }
@@ -655,6 +703,7 @@ final class LocalTransport {
         link.onReady = { [weak self] link in
             guard let self else { return }
             self.connectionIssue = nil
+            self.retryWork?.cancel(); self.retryWork = nil; self.retryCount = 0
             if let existing = self.links.values.first(where: { $0.id != link.id && $0.ready && $0.remote?.device == link.remote?.device }) {
                 // Both devices select the same physical connection when they dial at once.
                 let preferOutgoing = self.device < (link.remote?.device ?? "")
@@ -671,7 +720,9 @@ final class LocalTransport {
             if let peer = link.remote?.device { self?.onFeature?(peer, packet) }
         }
         link.onClip = { [weak self] _, clip in self?.onClip?(clip) }
-        link.onClose = { [weak self] link in self?.links.removeValue(forKey: link.id); self?.publishPeers() }
+        link.onClose = { [weak self] link in
+            self?.links.removeValue(forKey: link.id); self?.publishPeers(); self?.retrySoon()
+        }
         link.start()
     }
     private func publishPeers() {

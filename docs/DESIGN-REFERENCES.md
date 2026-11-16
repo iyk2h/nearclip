@@ -40,3 +40,17 @@ The expected reduction in setup effort comes from removing the device picker and
 Discovery does not establish trust. Device names and short identifiers help locate a Mac, but the numeric comparison remains necessary. The UI never claims that installing the app alone makes another device trusted.
 
 The macOS menu bar remains the persistent control surface. Closing the window and quitting the app have distinct, explicit behavior. The connection window supports light and dark appearance and uses text as well as icons to describe state.
+
+
+## Build 22 refresh — November 16, 2026
+
+This pass inspected current official screenshots in a browser. It did not reuse product assets or copy a complete screen.
+
+| Reference | Observed pattern | Change |
+| --- | --- | --- |
+| [Raycast Clipboard History](https://www.raycast.com/core-features/clipboard-history) | Compact rows, secondary metadata, quiet dividers | Reduce status size and group controls by function. |
+| [Lunar](https://lunar.fyi/) | A monitor representation with nearby controls and optional details | Keep arrangement inside the input card. Use neutral local and teal peer screens. |
+| [LocalSend](https://localsend.org/) | File rows with visible progress and separate cancellation | Keep file state and actions together. Hide idle cancellation controls. |
+| [Tailscale macOS documentation](https://tailscale.com/docs/install/mac) | Menu-bar access and explicit setup steps | Keep menu-bar actions and move diagnostics into Settings. This reference was text-only. |
+
+The main view has one connection line, one saved-device card, and three feature cards. First connection shows discovery without inactive feature cards. Settings uses a focused scrollable view with a Done button, instead of extending the main screen. Native switches, buttons, system colors, and text remain accessible in light and dark appearance. Permission repair buttons disappear when all permissions are granted. Routine handoffs do not change the main status. The accepted compact menu-bar glyph remains unchanged.
