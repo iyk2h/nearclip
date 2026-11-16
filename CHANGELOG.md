@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased — 0.4.4 build 23
+
+- Add experimental continuous three-/four-finger Dock swipe forwarding during accepted remote control.
+- Cancel active swipe animations on session end and reject stale or malformed gesture packets.
+- Keep legacy peers compatible through capability negotiation. Physical gesture behavior is not yet verified.
+
 ## 0.4.4 build 22 — 2026-11-16
 
 - Use compact native cards for clipboard, input, and files. Keep screen arrangement optional and move diagnostics into Settings.

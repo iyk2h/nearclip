@@ -145,7 +145,7 @@ final class PeerLink {
         do {
             let key = try Self.inputKey(secret: secret, local: local, remote: remote)
             let child = PeerLink(connection: connection, secret: key, device: local.device, name: local.name,
-                expectedDevice: remote.device, advertisedFeatures: [SharingFeature.mouse, SharingFeature.keyboard] + (features.contains(SharingFeature.inputMetrics) ? [SharingFeature.inputMetrics] : []), inputOnly: true)
+                expectedDevice: remote.device, advertisedFeatures: [SharingFeature.mouse, SharingFeature.keyboard] + (features.contains(SharingFeature.gestures) ? [SharingFeature.gestures] : []) + (features.contains(SharingFeature.inputMetrics) ? [SharingFeature.inputMetrics] : []), inputOnly: true)
             inputLink = child
             child.onReady = { [weak self] _ in
                 guard let self, !self.closed else { return }

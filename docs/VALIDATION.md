@@ -112,3 +112,12 @@ Before treating input sharing as stable, test:
 6. Intel GUI behavior, login startup, and accessibility.
 
 The earlier clipboard-only 0.2 build worked on two physical Macs in this project. A user also confirmed a real Mac-to-Mac text paste with 0.4.1. These results do not validate native mouse or file behavior. The current-host-only option is covered by local clipboard write paths; prevention of Apple relay still needs a physical multi-device check. Windows interoperability and a Windows client are not implemented. No independent security audit has been performed.
+
+## 2026-11-16 — build 23 gesture development check
+
+- Regression suite: 367 checks passed, including gesture state/codec tests and real encrypted loopback delivery on the input connection. Initial sandbox runs could not open test listeners; the full run passed outside the sandbox. A fixture layout error was corrected before the passing run.
+- Signed universal app: arm64 and x86_64 compilation passed; packaged lifecycle suite: 45 checks passed.
+- Build 22 and build 23 satisfy the same designated code-signing requirement. NearClipKeyStore is byte-identical.
+- Canonical local app was replaced with build 23. The main window showed `0.4.4 · 23`; the remembered input-sharing switch remained on. No permission or Keychain prompt appeared during this launch.
+- ZIP: `NearClip-0.4.4-build23-test-macOS.zip`. Public update feed remains build 22.
+- No physical four-finger input, remote Dock animation, or two-Mac build 23 test was performed. See GESTURES.md for scope and compatibility limits.

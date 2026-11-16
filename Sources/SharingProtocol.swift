@@ -14,10 +14,11 @@ enum SharingFeature {
     static let files = "files-v1"
     static let mouse = "mouse-v1"
     static let keyboard = "keyboard-v1"
+    static let gestures = "dock-swipe-v1"
     static let inputChannel = "input-channel-v1"
     static let inputRecovery = "input-recovery-v1"
     static let inputMetrics = "input-metrics-v1"
-    static let supported = [files, mouse, keyboard, inputChannel, inputRecovery, inputMetrics]
+    static let supported = [files, mouse, keyboard, inputChannel, inputRecovery, inputMetrics] + (DockSwipeAdapter.available ? [gestures] : [])
     static let maxPacket = 128 * 1024
 }
 
@@ -25,10 +26,11 @@ struct FeaturePacket: Codable {
     var file: FilePacket? = nil
     var mouse: MousePacket? = nil
     var keyboard: KeyboardPacket? = nil
-    var feature: String { file != nil ? SharingFeature.files : keyboard != nil ? SharingFeature.keyboard : SharingFeature.mouse }
+    var gesture: DockSwipePacket? = nil
+    var feature: String { gesture != nil ? SharingFeature.gestures : file != nil ? SharingFeature.files : keyboard != nil ? SharingFeature.keyboard : SharingFeature.mouse }
     func encoded() throws -> Data {
-        guard [file != nil, mouse != nil, keyboard != nil].filter({ $0 }).count == 1 else { throw ClipError.invalid("잘못된 공유 메시지예요.") }
-        try file?.validate(); try mouse?.validate(); try keyboard?.validate()
+        guard [file != nil, mouse != nil, keyboard != nil, gesture != nil].filter({ $0 }).count == 1 else { throw ClipError.invalid("잘못된 공유 메시지예요.") }
+        try file?.validate(); try mouse?.validate(); try keyboard?.validate(); try gesture?.validate()
         let data = try JSONEncoder().encode(self)
         guard data.count <= SharingFeature.maxPacket else { throw ClipError.invalid("공유 메시지가 너무 커요.") }
         return data

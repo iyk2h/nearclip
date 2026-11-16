@@ -427,6 +427,11 @@ func featureNetworkTests() throws {
     a.sendFeature(FeaturePacket(keyboard: KeyboardPacket(token: UUID(), action: .down, keyCode: 8, flags: 0x100000)), to: idB)
     waitFor({ keyboardArrived })
     try Check.that(keyboardArrived && features.contains(SharingFeature.keyboard), "keyboard packets cross negotiated encrypted TCP without posting system input")
+    var gestureArrived = false
+    b.onFeature = { _, packet in gestureArrived = packet.gesture?.phase == 1 && packet.gesture?.axis == 1 }
+    a.sendFeature(FeaturePacket(gesture: DockSwipePacket(token: UUID(), axis: 1, phase: 1, progress: 0.01)), to: idB)
+    waitFor({ gestureArrived })
+    try Check.that(gestureArrived && features.contains(SharingFeature.gestures), "Dock swipe crosses negotiated encrypted input TCP without posting system input")
 }
 
 func legacyCapabilityTests() throws {

@@ -638,6 +638,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 }
                 if let mouse = packet.mouse { self.mouse.receive(mouse, from: peer) }
                 if let keyboard = packet.keyboard { self.mouse.receiveKeyboard(keyboard, from: peer) }
+                if let gesture = packet.gesture { self.mouse.receiveGesture(gesture, from: peer) }
             }
             transport.onClip = { [weak self] clip in self?.sync.receive(clip) }
             transport.onStatus = { [weak self] note in
@@ -1032,6 +1033,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard let self, let transport = self.transport else { reply(false); return }
             transport.sendFeature(FeaturePacket(mouse: packet), to: peer, completion: reply)
         }
+        mouse.sendGesture = { [weak self] peer, packet, reply in
+            guard let transport = self?.transport else { reply(false); return }
+            transport.sendFeature(FeaturePacket(gesture: packet), to: peer, completion: reply)
+        }
         mouse.sendKeyboard = { [weak self] peer, packet, reply in
             guard let transport = self?.transport else { reply(false); return }
             transport.sendFeature(FeaturePacket(keyboard: packet), to: peer, completion: reply)
@@ -1084,7 +1089,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let saved = UserDefaults.standard.data(forKey: "screenLayout").flatMap { try? JSONDecoder().decode(ScreenLayout.self, from: $0) }
             if next?.inputReady == true {
                 mouse.setPeer(next?.features.contains(SharingFeature.mouse) == true ? next?.device : nil, savedLayout: saved,
-                              supportsKeyboard: next?.features.contains(SharingFeature.keyboard) == true)
+                              supportsKeyboard: next?.features.contains(SharingFeature.keyboard) == true,
+                              supportsGestures: next?.features.contains(SharingFeature.gestures) == true)
             }
         }
         updateSharingUI()
@@ -1187,7 +1193,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         else if !mouse.enabled { mouseHint.stringValue = mouseSetupError ?? (mouse.keyboardSupported ? "양쪽에서 켠 뒤 화면 가장자리로 이동하세요." : "상대 Mac을 업데이트하면 키보드도 공유해요.") }
         else if !mouse.remoteEnabled { mouseHint.stringValue = "이 Mac은 준비됐어요. 상대 Mac에서도 마우스 공유를 켜주세요." }
         else {
-            mouseHint.stringValue = "사용 중 · 화면 가장자리로 밀어 이동하세요."
+            mouseHint.stringValue = mouse.gesturesSupported ? "사용 중 · 화면 가장자리로 이동 · 3·4손가락 쓸어넘기기 베타" : "사용 중 · 화면 가장자리로 밀어 이동하세요."
         }
         menuMouseToggle?.state = mouse.sharingRequested ? .on : .off
         menuMouseToggle?.isEnabled = mouse.sharingRequested || mouseToggle.isEnabled

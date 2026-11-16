@@ -36,6 +36,11 @@ final class MouseSharing {
     private(set) var enabled = false
     private(set) var remoteEnabled = false
     private(set) var keyboardSupported = false
+    private(set) var gesturesSupported = false
+    private var sentGesture: DockSwipePacket?
+    private var receivedGesture: DockSwipePacket?
+    var sendGesture: ((String, DockSwipePacket, @escaping (Bool) -> Void) -> Void)?
+    var onGesture: ((DockSwipePacket) -> Void)?
     private(set) var remoteKeyboardEnabled = false
     var keyboardActive: Bool { enabled && keyboardSupported && remoteKeyboardEnabled }
     private(set) var lastEndReason: MouseEndReason?
@@ -111,11 +116,12 @@ final class MouseSharing {
         self.local = local; self.native = native
         if native { secureInputEnabled = { IsSecureEventInputEnabled() } }
     }
-    func setPeer(_ peer: String?, savedLayout: ScreenLayout? = nil, supportsKeyboard: Bool = false) {
+    func setPeer(_ peer: String?, savedLayout: ScreenLayout? = nil, supportsKeyboard: Bool = false, supportsGestures: Bool = false) {
         if self.peer != peer && enabled { try? applyEnabled(false) }
         if let peer, requestedPeer != nil, requestedPeer != peer { requestedPeer = nil; onConsentChange?(nil) }
         endSession(notify: false, reason: .connectionChanged); self.peer = peer; remoteEnabled = false
         keyboardSupported = supportsKeyboard; remoteKeyboardEnabled = false
+        gesturesSupported = supportsGestures && DockSwipeAdapter.available
         if let peer {
             if let savedLayout, savedLayout.isValid(local: local, peer: peer) { layout = savedLayout }
             else { layout = ScreenLayout(revision: 0, author: local, left: local, right: peer) }
@@ -308,6 +314,38 @@ final class MouseSharing {
         emit(MousePacket(kind: .input, token: token, action: action, button: button, clicks: max(1, min(3, clicks)), flags: flags & 0x1E0000))
         return true
     }
+    // Only normalized Dock swipe fields cross the network, never opaque CGEvent data.
+    func localGesture(_ packet: DockSwipePacket) -> Bool {
+        guard enabled, (try? packet.validate()) != nil else { return false }
+        if mode == .receiving || mode == .requesting { endSession(reason: .localScroll); return false }
+        guard mode == .controlling, gesturesSupported, remoteEnabled, let token,
+              let peer, let sendGesture else { return false }
+        if secureInputEnabled() { endSession(reason: .secureInput); return false }
+        guard packet.phase == 1 ? sentGesture == nil : sentGesture?.axis == packet.axis else { return false }
+        var outgoing = packet; outgoing.token = token
+        sentGesture = packet.isTerminal ? nil : outgoing
+        flushMove(force: true)
+        sendGesture(peer, outgoing) { [weak self] success in
+            guard let self, !success, self.token == token else { return }
+            self.endSession(notify: false, reason: .sendFailed)
+        }
+        return true
+    }
+    func receiveGesture(_ packet: DockSwipePacket, from sender: String, now: Date = Date()) {
+        guard enabled, remoteEnabled, gesturesSupported, mode == .receiving,
+              sender == peer, packet.token == token, (try? packet.validate()) != nil else { return }
+        if secureInputEnabled() { endSession(reason: .secureInput); return }
+        guard packet.phase == 1 ? receivedGesture == nil : receivedGesture?.axis == packet.axis else { return }
+        lastHeard = now
+        receivedGesture = packet.isTerminal ? nil : packet
+        onGesture?(packet)
+        if native { postGesture(packet) }
+    }
+    private func postGesture(_ packet: DockSwipePacket) {
+        for event in DockSwipeAdapter.events(packet, at: position, marker: Self.marker) {
+            event.post(tap: .cgSessionEventTap)
+        }
+    }
     func emergencyStop() { try? setEnabled(false) }
     // Called only by the enabled input tap. Key codes follow the receiving Mac's
     // input source; text and keyboard history are never collected.
@@ -423,6 +461,12 @@ final class MouseSharing {
     }
     func endSession(notify: Bool = true, fraction: Double? = nil, reason: MouseEndReason = .stopped, byPeer: Bool = false) {
         let old = mode, oldToken = token
+        if let gesture = receivedGesture {
+            let cancelled = gesture.cancelled
+            onGesture?(cancelled)
+            if native { postGesture(cancelled) }
+        }
+        sentGesture = nil; receivedGesture = nil
         if old != .local, native {
             let duration = Int((ProcessInfo.processInfo.systemUptime - (controlStarted ?? ProcessInfo.processInfo.systemUptime)) * 1000)
             logger.notice("control_end role=\(old.rawValue, privacy: .public) reason=\(reason.rawValue, privacy: .public) peer_ended=\(byPeer, privacy: .public) duration_ms=\(duration, privacy: .public) sent_moves=\(self.sentMoves, privacy: .public) received_moves=\(self.receivedMoves, privacy: .public) max_timer_delay_ms=\(Int(self.maxTimerDelayMS), privacy: .public)")
@@ -473,7 +517,8 @@ final class MouseSharing {
         guard tap == nil else { return }
         let types: [CGEventType] = [.mouseMoved, .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
             .otherMouseDown, .otherMouseUp, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .scrollWheel, .keyDown, .keyUp, .flagsChanged]
-        let mask = types.reduce(CGEventMask(0)) { $0 | (1 << $1.rawValue) }
+        let gestureMask: CGEventMask = DockSwipeAdapter.available ? (1 << 30) : 0
+        let mask = types.reduce(gestureMask) { $0 | (1 << $1.rawValue) }
         guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
             eventsOfInterest: mask, callback: { _, type, event, context in
                 guard let context else { return Unmanaged.passUnretained(event) }
@@ -498,6 +543,9 @@ final class MouseSharing {
             let blocked = localKey(action: action, keyCode: Int(event.getIntegerValueField(.keyboardEventKeycode)),
                                    flags: event.flags.rawValue, isRepeat: type == .keyDown && event.getIntegerValueField(.keyboardEventAutorepeat) != 0)
             return blocked ? nil : Unmanaged.passUnretained(event)
+        }
+        if type.rawValue == 30, let packet = DockSwipeAdapter.read(event, token: token ?? UUID()) {
+            return localGesture(packet) ? nil : Unmanaged.passUnretained(event)
         }
         let flags = event.flags.rawValue & 0x1E0000
         switch type {
