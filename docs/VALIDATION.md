@@ -121,3 +121,10 @@ The earlier clipboard-only 0.2 build worked on two physical Macs in this project
 - Canonical local app was replaced with build 23. The main window showed `0.4.4 · 23`; the remembered input-sharing switch remained on. No permission or Keychain prompt appeared during this launch.
 - ZIP: `NearClip-0.4.4-build23-test-macOS.zip`. Public update feed remains build 22.
 - No physical four-finger input, remote Dock animation, or two-Mac build 23 test was performed. See GESTURES.md for scope and compatibility limits.
+
+
+## 2026-11-16 — build 24 sequential ten-round review
+
+See [the ten-round review](REVIEW-10-ROUNDS.md) for each reproduction, change, result, and remaining limit. Combined regression: **421 checks passed**. Signed-app lifecycle: **48 checks passed**. Packaged Bonjour/clipboard/file/layout smoke passed. Fixed signing identity, identical Keychain helper, prompt-free reads across build 23/24, and updater tamper rejection passed. Dark/light expanded layouts were visually inspected.
+
+Build 24 is installed locally, with the enabled input-sharing choice preserved after restart. ZIP: `NearClip-0.4.4-build24-test-macOS.zip`. Physical gesture and remote-Mac behavior remain unverified; public feed remains build 22.

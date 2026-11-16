@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased — 0.4.4 build 24
+
+- Keep duplicate gesture-start events from reaching the source Mac's Dock during remote control.
+- Cancel a stalled swipe after eight seconds without gesture progress, even if heartbeats continue.
+- Stop received mouse input immediately when Secure Event Input becomes active.
+- Reject truncated PNG clipboard data before replacing existing content.
+- Explain gesture support and finger-count settings in expanded mouse controls.
+- Extend regression coverage for sleep/lock, stale file callbacks, destination races, and gestures during bulk transfers.
+
 ## Unreleased — 0.4.4 build 23
 
 - Add experimental continuous three-/four-finger Dock swipe forwarding during accepted remote control.

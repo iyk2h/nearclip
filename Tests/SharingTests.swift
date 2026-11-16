@@ -345,6 +345,7 @@ func mousePacingTests() throws {
 
 func mouseResumeTests() throws {
     let mouse = MouseSharing(local: "A", native: false)
+    mouse.displays = { [CGRect(x: 0, y: 0, width: 1000, height: 600)] }
     defer { mouse.stop() }
     mouse.setPeer("B", supportsKeyboard: true)
     try mouse.setEnabled(true)
@@ -395,7 +396,7 @@ func featureNetworkTests() throws {
     let b = try LocalTransport(code: key, device: idB, name: "File B", discovery: false)
     let fa = FileTransfer(), fb = FileTransfer()
     defer { fa.stop(); fb.stop(); a.stop(); b.stop() }
-    var features: Set<String> = [], done = false, inputDuringFile = false, inputSent = false
+    var features: Set<String> = [], done = false, inputDuringFile = false, gestureDuringFile = false, inputSent = false
     b.onListening = { a.connectLoopback(port: $0, expected: idB) }
     a.onPeerDetails = { features = $0.first?.features ?? [] }
     fa.send = { peer, packet, reply in a.sendFeature(FeaturePacket(file: packet), to: peer, completion: reply) }
@@ -407,8 +408,10 @@ func featureNetworkTests() throws {
             if file.kind == .chunk && !inputSent {
                 inputSent = true
                 a.sendFeature(FeaturePacket(mouse: MousePacket(kind: .availability, enabled: false)), to: idB)
+                a.sendFeature(FeaturePacket(gesture: DockSwipePacket(token: UUID(), axis: 1, phase: 1, progress: 0.01)), to: idB)
             }
         } else if packet.mouse?.kind == .availability { inputDuringFile = !done }
+        else if packet.gesture?.phase == 1 { gestureDuringFile = !done }
     }
     fb.onOffer = { _, packet in fb.accept(id: packet.id, destination: destination) }
     fa.onComplete = { _ in done = true }
@@ -416,7 +419,7 @@ func featureNetworkTests() throws {
     try Check.that(features.contains(SharingFeature.files) && features.contains(SharingFeature.mouse), "authenticated ready negotiates file and mouse capabilities")
     try fa.offer(url: source, to: idB); waitFor({ done }, seconds: 10)
     try Check.that(done && (try Data(contentsOf: destination)) == data, "real encrypted TCP streams files through background I/O workers")
-    try Check.that(inputDuringFile, "input arrives during an 8 MiB streamed file without waiting for completion")
+    try Check.that(inputDuringFile && gestureDuringFile, "mouse and gesture input arrive during an 8 MiB streamed file before completion")
     var layoutArrived = false
     b.onFeature = { _, packet in layoutArrived = packet.mouse?.layout?.left == idA }
     a.sendFeature(FeaturePacket(mouse: MousePacket(kind: .layout, layout: ScreenLayout(revision: 1, author: idA, left: idA, right: idB))), to: idB)

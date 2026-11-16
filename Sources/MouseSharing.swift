@@ -39,6 +39,7 @@ final class MouseSharing {
     private(set) var gesturesSupported = false
     private var sentGesture: DockSwipePacket?
     private var receivedGesture: DockSwipePacket?
+    private var lastGestureHeard: Date?
     var sendGesture: ((String, DockSwipePacket, @escaping (Bool) -> Void) -> Void)?
     var onGesture: ((DockSwipePacket) -> Void)?
     private(set) var remoteKeyboardEnabled = false
@@ -246,6 +247,7 @@ final class MouseSharing {
             emit(MousePacket(kind: .accepted, token: token)); onChange?(); return
         }
         guard let token, token == packet.token, enabled else { return }
+        if secureInputEnabled() { endSession(reason: .secureInput); return }
         lastHeard = now
         switch packet.kind {
         case .accepted:
@@ -321,7 +323,9 @@ final class MouseSharing {
         guard mode == .controlling, gesturesSupported, remoteEnabled, let token,
               let peer, let sendGesture else { return false }
         if secureInputEnabled() { endSession(reason: .secureInput); return false }
-        guard packet.phase == 1 ? sentGesture == nil : sentGesture?.axis == packet.axis else { return false }
+        // Once a swipe belongs to the remote Mac, malformed sequence updates
+        // must not leak into the source Dock. Ignore them but keep ownership.
+        guard packet.phase == 1 ? sentGesture == nil : sentGesture?.axis == packet.axis else { return sentGesture != nil }
         var outgoing = packet; outgoing.token = token
         sentGesture = packet.isTerminal ? nil : outgoing
         flushMove(force: true)
@@ -338,6 +342,7 @@ final class MouseSharing {
         guard packet.phase == 1 ? receivedGesture == nil : receivedGesture?.axis == packet.axis else { return }
         lastHeard = now
         receivedGesture = packet.isTerminal ? nil : packet
+        lastGestureHeard = packet.isTerminal ? nil : now
         onGesture?(packet)
         if native { postGesture(packet) }
     }
@@ -409,6 +414,11 @@ final class MouseSharing {
             if enabled && !Self.permissionsGranted { emergencyStop(); return }
         }
         guard active else { return }
+        // Heartbeats prove liveness, not progress of an interactive Dock swipe.
+        // Bound a missing ended/cancelled event so its animation cannot stay open.
+        if receivedGesture != nil, let lastGestureHeard, now.timeIntervalSince(lastGestureHeard) > 8 {
+            endSession(reason: .timeout); return
+        }
         if secureInputEnabled() { endSession(reason: .secureInput); return }
         if now.timeIntervalSince(lastHeard) > (mode == .requesting ? 1 : 2) { endSession(reason: .timeout); return }
         flushMove()
@@ -466,7 +476,7 @@ final class MouseSharing {
             onGesture?(cancelled)
             if native { postGesture(cancelled) }
         }
-        sentGesture = nil; receivedGesture = nil
+        sentGesture = nil; receivedGesture = nil; lastGestureHeard = nil
         if old != .local, native {
             let duration = Int((ProcessInfo.processInfo.systemUptime - (controlStarted ?? ProcessInfo.processInfo.systemUptime)) * 1000)
             logger.notice("control_end role=\(old.rawValue, privacy: .public) reason=\(reason.rawValue, privacy: .public) peer_ended=\(byPeer, privacy: .public) duration_ms=\(duration, privacy: .public) sent_moves=\(self.sentMoves, privacy: .public) received_moves=\(self.receivedMoves, privacy: .public) max_timer_delay_ms=\(Int(self.maxTimerDelayMS), privacy: .public)")

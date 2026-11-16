@@ -35,6 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var swapScreens: NSButton!
     private let arrangementHint = NSTextField(wrappingLabelWithString: "화면을 드래그해 실제 Mac의 좌우 순서에 맞춰주세요.")
     private let mouseHint = NSTextField(wrappingLabelWithString: "양쪽에서 마우스 공유를 켜주세요.")
+    private let gestureHint = NSTextField(wrappingLabelWithString: "")
     private let fileLabel = NSTextField(wrappingLabelWithString: "파일 하나를 선택하면 상대가 저장 위치를 정해요.")
     private let fileProgress = NSProgressIndicator()
     private var receivePanel: NSSavePanel?
@@ -421,9 +422,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         permissionLabel.font = .systemFont(ofSize: 11); permissionLabel.textColor = .secondaryLabelColor
         permissionLabel.maximumNumberOfLines = 3
         permissionActions = row([button("손쉬운 사용", action: #selector(accessibilitySettings)), button("입력 모니터링", action: #selector(inputSettings)), button("다시 확인", action: #selector(recheckPermissions)), flexible(NSView())])
+        gestureHint.font = .systemFont(ofSize: 11); gestureHint.textColor = .secondaryLabelColor
+        gestureHint.maximumNumberOfLines = 3
         mouseDetails = column([
             separator(), row([flexible(label("화면 배치", size: 12, weight: .semibold)), swapScreens]),
-            arrangement, arrangementHint, permissionLabel, permissionActions
+            arrangement, arrangementHint, gestureHint, permissionLabel, permissionActions
         ], spacing: 8)
         mouseDetails.isHidden = true
         peerVersionLabel.font = .systemFont(ofSize: 11); peerVersionLabel.textColor = .secondaryLabelColor
@@ -531,7 +534,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if CommandLine.arguments.contains("--sharing") { mouseDetailsExpanded = true }
         if !peers.isEmpty {
             featurePeer = ConnectedPeer(device: "B0000000-0000-0000-0000-000000000001", name: peers[0], connection: UUID(), features: Set(SharingFeature.supported), appVersion: AppVersion.current)
-            mouse.setPeer(featurePeer!.device, supportsKeyboard: true)
+            mouse.setPeer(featurePeer!.device, supportsKeyboard: true, supportsGestures: true)
         }
         if CommandLine.arguments.contains("--light") { NSApp.appearance = NSAppearance(named: .aqua) }
         if CommandLine.arguments.contains("--dark") { NSApp.appearance = NSAppearance(named: .darkAqua) }
@@ -923,6 +926,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         require(!menuSwapScreens.isEnabled && !menuMouseToggle.isEnabled && menuScreenOrder.title.contains("연결 대기"),
                 "disconnected menu disables new sharing and layout changes")
         mouse.send = originalSend
+        require(gestureHint.stringValue.contains("연결하면"), "disconnected gesture guidance explains capability check")
+        let fixturePeer = ConnectedPeer(device: "gesture-peer", name: "Gesture fixture", connection: UUID(), features: [SharingFeature.mouse, SharingFeature.keyboard])
+        updateFeaturePeer([fixturePeer])
+        require(gestureHint.stringValue.contains("아직 지원하지"), "legacy peer explains why gestures stay local")
+        let capablePeer = ConnectedPeer(device: "gesture-peer", name: "Gesture fixture", connection: UUID(), features: Set(SharingFeature.supported))
+        updateFeaturePeer([capablePeer])
+        require(gestureHint.stringValue.contains("조작하는 Mac"), "gesture guidance identifies which Mac supplies finger-count settings")
+        updateFeaturePeer([])
         showSettings(); require(!settingsContent.isHidden && sharingContent.isHidden && statusSummary.isHidden, "settings focus on preferences without duplicating sharing controls")
         require(window.frame.height < 760, "settings remain a compact scrollable window")
         toggleSettings(); require(settingsContent.isHidden, "settings can collapse without leaving sharing")
@@ -1174,6 +1185,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         updateHealthUI()
         let supportsFiles = featurePeer?.features.contains(SharingFeature.files) == true
         let supportsMouse = featurePeer?.features.contains(SharingFeature.mouse) == true
+        if !DockSwipeAdapter.available { gestureHint.stringValue = "제스처 베타 · 현재 macOS 버전은 지원하지 않아요. 마우스·키보드는 계속 사용할 수 있어요." }
+        else if !supportsMouse { gestureHint.stringValue = "제스처 베타 · 연결하면 상대 앱의 지원 여부를 확인해요." }
+        else if !mouse.gesturesSupported { gestureHint.stringValue = "제스처 베타 · 상대 앱이 아직 지원하지 않아요. 마우스·키보드는 계속 사용할 수 있어요." }
+        else { gestureHint.stringValue = "제스처 베타 · 3·4손가락으로 데스크탑·Mission Control 전환. 손가락 수는 조작하는 Mac의 설정을 따라요." }
         fileButton.isEnabled = enabled && supportsFiles && !files.busy
         fileActions?.isHidden = fileCancel.isHidden && revealButton.isHidden
         swapScreens.isEnabled = supportsMouse && !mouse.active

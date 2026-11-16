@@ -1,4 +1,4 @@
-# Trackpad swipe development build (23)
+# Trackpad swipe development build (24)
 
 Build 23 adds experimental forwarding of horizontal and vertical Dock swipes. These are the macOS gestures for Spaces, Mission Control, and App Exposé. It forwards continuous progress and end/cancel phases. It does not replace a swipe with a fixed keyboard shortcut.
 
@@ -10,11 +10,13 @@ Apple does not expose a public API for forwarding these system gestures. The ada
 
 An authenticated session token, current receiving role, both input opt-ins, and the negotiated capability are required. Secure Event Input stops control. A disconnect, timeout, lock, pause, or handoff end cancels an active received gesture. Events carry the existing input marker to prevent feedback.
 
+Build 24 suppresses duplicate starts during a remote swipe. If a received swipe makes no progress for eight seconds, control ends and the native swipe is cancelled, even while connection heartbeats continue. Expanded mouse controls show whether the peer supports this beta feature.
+
 ## Validation
 
 Tests construct native events without posting them. They cover the codec, native field round trip, phase ordering, stale tokens, unknown senders, terminal cancellation, invalid values, and legacy fallback. A local encrypted TCP test checks capability negotiation and delivery through the separate input connection.
 
-Physical four-finger capture, suppression of the source Mac's Dock animation, and the destination's animation remain unverified. Do not treat build 23 as a verified system-gesture release. The public update feed remains on build 22 until these behaviors are checked.
+Physical four-finger capture, suppression of the source Mac's Dock animation, and the destination's animation remain unverified. Do not treat this development build as a verified system-gesture release. The public update feed remains on build 22 until these behaviors are checked.
 
 ## References
 

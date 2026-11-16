@@ -161,13 +161,17 @@ func networkTests() throws {
     var order: [String] = []
     let bulk = ClipMessage(id: UUID(), stamp: ClipStamp(counter: 803, device: idA), payload: ClipPayload(type: "public.utf8-plain-text", data: Data(repeating: 65, count: ClipPayload.maxBytes)))
     b.onClip = { clip in if clip.id == bulk.id && clip.payload == bulk.payload { order.append("clip") } }
-    b.onFeature = { _, packet in if packet.mouse?.kind == .availability { order.append("input") } }
+    b.onFeature = { _, packet in
+        if packet.mouse?.kind == .availability { order.append("input") }
+        if packet.gesture?.phase == 1 { order.append("gesture") }
+    }
     let enqueueStart = ProcessInfo.processInfo.systemUptime
     a.send(bulk)
     print("METRIC: 20 MiB clipboard send() return_ms=\((ProcessInfo.processInfo.systemUptime - enqueueStart) * 1000)")
     a.sendFeature(FeaturePacket(mouse: MousePacket(kind: .availability, enabled: false)), to: idB)
-    waitFor({ order.count == 2 }, seconds: 15)
-    try Check.that(order == ["input", "clip"], "dedicated input overtakes 20 MiB clipboard without corrupting either channel")
+    a.sendFeature(FeaturePacket(gesture: DockSwipePacket(token: UUID(), axis: 1, phase: 1, progress: 0.01)), to: idB)
+    waitFor({ order.count == 3 }, seconds: 15)
+    try Check.that(order == ["input", "gesture", "clip"], "mouse and gesture input overtake 20 MiB clipboard in order without corrupting either channel")
     b.onClip = savedClipHandler; b.onFeature = nil
     a.send(bulk) // Closing during encoding must not deliver this on a new connection.
     a.stop(); b.stop(); receivedText = false; receivedImage = false; didSend = false
@@ -357,7 +361,33 @@ func directPairingTests() throws {
 struct TestMain {
     static func main() {
         do {
-            try persistedInputConsentTests(); try staleRouteTests(); try startupDialElectionTests()
+            if CommandLine.arguments.contains("--gestures") {
+                try gestureSharingTests()
+                print("All \(Check.count) gesture checks passed. No system input was posted.")
+                return
+            }
+            if CommandLine.arguments.contains("--input-boundary") {
+                try inputBoundaryTests()
+                print("All \(Check.count) input boundary checks passed."); return
+            }
+            if CommandLine.arguments.contains("--interruptions") {
+                try inputInterruptionTests(); try mouseResumeTests(); try persistedInputConsentTests()
+                print("All \(Check.count) interruption checks passed."); return
+            }
+            if CommandLine.arguments.contains("--files") {
+                try fileRaceTests(); try fileTransferTests()
+                print("All \(Check.count) file checks passed."); return
+            }
+            if CommandLine.arguments.contains("--clipboard") {
+                try clipboardBoundaryTests(); try clipboardTests()
+                print("All \(Check.count) clipboard checks passed. General clipboard was not accessed."); return
+            }
+            if CommandLine.arguments.contains("--network") {
+                try staleRouteTests(); try startupDialElectionTests(); try inputRecoveryNetworkTests()
+                try recoveryWakeTests(); try featureNetworkTests(); try legacyCapabilityTests(); try networkTests(); try cryptoTests()
+                print("All \(Check.count) network and crypto checks passed."); return
+            }
+            try finalBoundaryTests(); try clipboardBoundaryTests(); try fileRaceTests(); try inputInterruptionTests(); try inputBoundaryTests(); try persistedInputConsentTests(); try staleRouteTests(); try startupDialElectionTests()
             try connectionHealthTests(); try updateReleaseTests(); try inputRecoveryNetworkTests(); try sharingProtocolTests(); try fileTransferTests(); try mouseSharingTests(); try mousePacingTests(); try mouseResumeTests(); try mouseAdapterTests(); try keyboardSharingTests(); try keyboardAdapterTests(); try gestureSharingTests(); try featureNetworkTests(); try legacyCapabilityTests()
             try expiredInvitationTests(); try pairingAccessTests(); try addressTests(); try directPairingTests(); try recoveryWakeTests(); try cryptoTests(); try clipboardTests(); try networkTests(); try discoveryTests(); try numericPairingTests()
             print("\nAll \(Check.count) checks passed. General clipboard was not accessed.")
