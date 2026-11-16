@@ -1,38 +1,34 @@
-# Trackpad swipe development build (26)
+# Experimental trackpad gestures — build 28
 
-Build 23 adds experimental forwarding of horizontal and vertical Dock swipes. These are the macOS gestures for Spaces, Mission Control, and App Exposé. It forwards continuous progress and end/cancel phases. It does not replace a swipe with a fixed keyboard shortcut.
+NearClip forwards horizontal and vertical Dock swipes for Spaces, Mission Control, and App Exposé. It sends continuous progress and end or cancel phases. It does not replace a swipe with a fixed keyboard shortcut.
 
-Both peers must advertise `dock-swipe-v1`. Mouse sharing must be enabled on both peers, and a pointer handoff must be accepted before any gesture is sent. The source Mac recognizes three- or four-finger swipes according to its trackpad settings. NearClip does not change either Mac's settings. The destination handles the resulting Dock gesture; this is not a copy of its finger-count preferences. Pinch, rotation, and arbitrary touch contacts are excluded.
+Both peers must advertise `dock-swipe-v1`. Both users must enable input sharing, and the pointer must cross to the other Mac first. The source Mac recognizes three- or four-finger swipes from its trackpad settings. NearClip does not change those settings. Pinch, rotation, and arbitrary touch contacts are excluded.
 
-## Implementation limits
+## macOS compatibility
 
-Apple does not expose a public API for forwarding these system gestures. The adapter isolates undocumented type 30/subtype 23 fields. It advertises support only on macOS 13–26. This range is a compatibility gate, not a claim of physical testing on every version. Unknown OS generations leave gestures local. The implementation sends a bounded typed packet, never an opaque native event or arbitrary field list.
+The adapter supports the native event layouts for macOS 13–27. This range is not a claim of physical testing on each version. Unknown OS generations keep gestures local.
 
-An authenticated session token, current receiving role, both input opt-ins, and the negotiated capability are required. Secure Event Input stops control. A disconnect, timeout, lock, pause, or handoff end cancels an active received gesture. Events carry the existing input marker to prevent feedback.
+Build 27 logs established that the affected peer reported macOS 27. The previous 13–26 gate disabled its gesture capability. Build 28 adds the IOHID payload that macOS 27 requires, rather than only extending that gate.
 
-Build 24 suppresses duplicate starts during a remote swipe. If a received swipe makes no progress for eight seconds, control ends and the native swipe is cancelled, even while connection heartbeats continue. Expanded mouse controls show whether the peer supports this beta feature.
+NearClip constructs the payload locally from validated axis, phase, progress, and velocity fields. It does not accept serialized native events from a peer. The adapter restores the echo-prevention marker after native conversion, which otherwise clears that marker. On macOS 27, a neutral physical terminal event closes the source Dock gesture state after forwarding.
 
-## Validation
+## Session boundaries
 
-Tests construct native events without posting them. They cover the codec, native field round trip, phase ordering, stale tokens, unknown senders, terminal cancellation, invalid values, and legacy fallback. A local encrypted TCP test checks capability negotiation and delivery through the separate input connection.
+A current authenticated session, receiving role, both input choices, and the negotiated capability are required. Secure Event Input stops control. Disconnect, timeout, lock, pause, and session end cancel the active received gesture. A swipe without progress for eight seconds also cancels, even if connection heartbeats continue.
 
-Physical four-finger capture, suppression of the source Mac's Dock animation, and the destination's animation remain unverified. Do not treat this development build as a verified system-gesture release. The public update feed remains on build 22 until these behaviors are checked.
+Duplicate starts cannot leak to the source Dock during remote control. Companion events remain suppressed while NearClip owns the swipe.
 
-## References
+## Validation limits
 
-- [Apple: Handling Trackpad Events](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/EventOverview/HandlingTouchEvents/HandlingTouchEvents.html): system-wide gestures take precedence over ordinary app handlers.
-- [InstantSpaceSwitcher event definitions](https://github.com/jurplel/InstantSpaceSwitcher/blob/main/Sources/ISS/ISS.c): Dock event type, subtype, phase, progress, and axis field definitions.
-- [dockswipe](https://github.com/oomol-lab/dockswipe): independent implementation documents the companion marker and legacy Dock event field layout.
+Tests construct and inspect native events without posting system input. Coverage includes byte offsets, signed fixed-point values, native conversion, the echo marker, phase ordering, stale tokens, unknown senders, cancellation, and legacy fallback.
 
-The NearClip adapter uses those field definitions with its own typed transport and session state. It does not vendor either project or use private multitouch device access.
+The build 28 adapter tests run on macOS 15.7.2. They do not establish that physical capture or animation works on macOS 27. Both-device gesture testing remains pending. The signed update feed distributes this experimental beta through the existing updater.
 
+Diagnostics record capability flags, OS major versions, gesture phase and axis, and input role. They exclude clipboard content, key codes, pointer positions, and raw native events.
 
-## Build 26 investigation
+## References and license
 
-The physical connection reported both apps on build 24, but the receiver's authenticated handshake showed `gesture_local=true`, `gesture_peer=false`, and `gesture_ready=false`. Mouse control continued. This proves gesture capability negotiation failed; it does not prove why the peer omitted the capability. Its OS version was not independently established.
-
-Build 26 uses `kern.osproductversion` before the Foundation version to avoid SDK compatibility-version false negatives. The supported OS range remains 13–26; unknown native event layouts are not enabled by assumption. It subscribes to both native Dock-control and companion event types and suppresses companions while a remote swipe owns the stream. An optional bounded `osMajor` in the authenticated ready envelope lets a newer peer report its platform without asking the user.
-
-Diagnostics record capability booleans, OS major versions, gesture phase/axis, and current input role. Native observation logs are limited to one per five seconds. No clipboard content, key codes, positions, or raw native events are recorded. The native field reference remains InstantSpaceSwitcher, linked above.
-
-Build 26 passed 425 regression checks and 48 native lifecycle checks. Both app versions passed prompt-free Keychain access with the identical helper and designated signing requirement. Local build 26 is installed; the remote update and physical gesture retest are pending. These checks do not establish that the reported physical failure is fixed.
+- [Apple trackpad event handling](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/EventOverview/HandlingTouchEvents/HandlingTouchEvents.html) describes system gesture precedence.
+- [InstantSpaceSwitcher](https://github.com/jurplel/InstantSpaceSwitcher/blob/main/Sources/ISS/ISS.c) defines Dock fields and the macOS 27 terminal-event handling.
+- [InstantSpaceSwitcher IOHID serialization](https://github.com/jurplel/InstantSpaceSwitcher/blob/main/Sources/ISS/event_serialize.c) defines the macOS 27 payload layout.
+- [Third-party notices](../THIRD_PARTY_NOTICES.md) includes the MIT license for the adapted layout. The app bundle also includes this notice.

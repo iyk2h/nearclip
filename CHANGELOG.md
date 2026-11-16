@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.4 build 28 — 2026-11-16
+
+- Gesture negotiation includes macOS 27. The adapter adds its required local IOHID payload.
+- The source Mac receives a neutral terminal event after a forwarded swipe to close local Dock tracking.
+- The adapter restores the echo-prevention marker after native event conversion.
+- Unknown OS generations remain disabled. Peer messages still contain only validated gesture fields.
+- Physical gestures on macOS 27 remain experimental. This release does not claim to fix the remaining network latency spikes.
+
 ## 0.4.4 build 27 — 2026-11-16
 
 - The input channel sends up to four small frames without waiting for each send completion. Packet order and the queue limit stay fixed.

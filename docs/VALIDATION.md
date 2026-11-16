@@ -1,5 +1,17 @@
 # Validation
 
+## 0.4.4 build 28 — November 16, 2026
+
+The final suite passed 451 checks. The signed universal app passed 48 lifecycle checks, packaged network smoke, update identity, and prompt-free Keychain access.
+
+The affected physical peer reported OS major 27 in its authenticated ready message. Both apps showed build 27 in connection diagnostics. The 13–26 gesture gate explained why that peer did not advertise gesture support.
+
+The new adapter constructs the macOS 27 IOHID payload locally from validated fields. Tests cover both axes, all four phases, signed fixed-point values, zero velocity, and tiny progress. They also cover unknown OS rejection and neutral source termination.
+
+An initial native conversion test failed because CGEvent deserialization cleared the echo marker. The adapter now restores the marker after conversion. The final test passed. Native conversion tests ran on macOS 15.7.2 without posting input. Physical macOS 27 capture and animation remain unverified.
+
+With both physical peers on build 27, individual RTT log samples included 17–50 ms. The rolling p95 remained around 240–270 ms. Local queue wait displayed 0 ms, and observed control sessions reported timer delays of 0–3 ms. These measurements do not establish end-to-end keyboard latency or resolution of intermittent stalls. Build 28 changes gestures, not the input transport.
+
 
 ## 0.4.4 build 27 — November 16, 2026
 

@@ -4,9 +4,9 @@
 
 NearClip is a native macOS menu bar app for two Macs on the same local network. Different Apple accounts are supported. No account, cloud service, or third-party runtime is required.
 
-[**Download for macOS**](https://github.com/iyk2h/nearclip/releases/tag/v0.4.4-build27) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Development](docs/DEVELOPMENT.md) · [Roadmap](docs/ROADMAP.md)
+[**Download for macOS**](https://github.com/iyk2h/nearclip/releases/tag/v0.4.4-build28) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Development](docs/DEVELOPMENT.md) · [Roadmap](docs/ROADMAP.md)
 
-> **Experimental public beta.** Version 0.4.4 build 27 is not notarized by Apple. Input sharing remains experimental; the full two-Mac sleep/network test matrix is pending. The interface is Korean; this guide includes the button labels.
+> **Experimental public beta.** Version 0.4.4 build 28 is not notarized by Apple. Input sharing remains experimental; the full two-Mac sleep/network test matrix is pending. The interface is Korean; this guide includes the button labels.
 
 ![NearClip main screen](docs/connected.png)
 
@@ -15,7 +15,7 @@ NearClip is a native macOS menu bar app for two Macs on the same local network. 
 Use macOS 13 or later. Apple Silicon and Intel are supported. On both Macs:
 
 1. Quit the previous NearClip, if it is running.
-2. Download `NearClip-0.4.4-build27-macOS.dmg` from the [release page](https://github.com/iyk2h/nearclip/releases/tag/v0.4.4-build27).
+2. Download `NearClip-0.4.4-build28-macOS.dmg` from the [release page](https://github.com/iyk2h/nearclip/releases/tag/v0.4.4-build28).
 3. Open the DMG and drag **NearClip** to **Applications**.
 4. Open NearClip and allow local network access when macOS asks.
 
@@ -53,7 +53,7 @@ Build 22 remembers your input-sharing choice for the paired Mac across sleep, di
 
 Input uses a separate encrypted connection from clipboard and file traffic. Both Macs need build 17 or later to recover input without interrupting a file transfer.
 
-Movement, left/right/middle clicks, dragging within the receiving Mac, and scrolling are supported. Keyboard letters, shortcuts, modifiers, and repeat events use the receiving Mac’s input source. Select the desired input language there. Media keys and Touch ID are not shared. Build 27 includes [experimental three- and four-finger swipes](docs/GESTURES.md). Physical gesture behavior is not yet validated. NearClip preserves two-finger scroll and momentum phases. It does not change your trackpad settings. Secure Event Input returns control; enter protected input on that Mac directly. With an older mouse-only peer, typing stays local and ends control. This version does not drag files across the screen boundary. Each card represents one Mac, including its attached displays. This version sets horizontal Mac order; individual monitor placement and vertical arrangements are not included. Press Escape while dragging to cancel. End remote mouse control before changing the arrangement.
+Movement, left/right/middle clicks, dragging within the receiving Mac, and scrolling are supported. Keyboard letters, shortcuts, modifiers, and repeat events use the receiving Mac’s input source. Select the desired input language there. Media keys and Touch ID are not shared. Build 28 includes [experimental three- and four-finger swipes](docs/GESTURES.md). Physical gesture behavior is not yet validated. NearClip preserves two-finger scroll and momentum phases. It does not change your trackpad settings. Secure Event Input returns control; enter protected input on that Mac directly. With an older mouse-only peer, typing stays local and ends control. This version does not drag files across the screen boundary. Each card represents one Mac, including its attached displays. This version sets horizontal Mac order; individual monitor placement and vertical arrangements are not included. Press Escape while dragging to cancel. End remote mouse control before changing the arrangement.
 
 NearClip does not change Apple Universal Control settings. If another Apple device also takes the pointer, use the **Apple mouse sharing guide (`Apple 마우스 공유 안내`)** button in Settings → Connection diagnostics.
 

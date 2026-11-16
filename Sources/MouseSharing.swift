@@ -585,7 +585,13 @@ final class MouseSharing {
         }
         if DockSwipeAdapter.nativeType(event) == 29, mode == .controlling, sentGesture != nil { return nil }
         if DockSwipeAdapter.nativeType(event) == 30, let packet = DockSwipeAdapter.read(event, token: token ?? UUID()) {
-            return localGesture(packet) ? nil : Unmanaged.passUnretained(event)
+            if localGesture(packet) {
+                if let terminal = DockSwipeAdapter.localTermination(event, packet: packet) {
+                    return Unmanaged.passUnretained(terminal)
+                }
+                return nil
+            }
+            return Unmanaged.passUnretained(event)
         }
         let flags = event.flags.rawValue & 0x1E0000
         switch type {

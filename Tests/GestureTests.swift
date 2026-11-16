@@ -70,6 +70,47 @@ func gestureSharingTests() throws {
                 DockSwipePacket(token: token, axis: 1, phase: 1, progress: 17)] {
         try Check.that((try? bad.validate()) == nil, "reject unknown axis/phase and nonfinite or oversized gesture progress")
     }
+    try Check.that(DockSwipeAdapter.supports(major: 27) && !DockSwipeAdapter.supports(major: 28),
+        "macOS 27 negotiates gestures while unknown native layouts remain disabled")
+    func integer(_ data: Data, _ offset: Int, _ size: Int) -> UInt64 {
+        (0..<size).reduce(0) { $0 | (UInt64(data[offset + $1]) << ($1 * 8)) }
+    }
+    for axis in [1, 2] {
+        for phase in [1, 2, 4, 8] {
+            let packet = DockSwipePacket(token: token, axis: axis, phase: phase, progress: -0.5, velocityX: 2, velocityY: -3)
+            let payload = DockSwipeAdapter.hidPayload(packet, timestamp: 123)!
+            try Check.that(payload.count == 96 && integer(payload, 0, 8) == 123 && integer(payload, 24, 4) == 2 &&
+                integer(payload, 28, 4) == 40 && integer(payload, 32, 4) == 23 && integer(payload, 36, 4) == UInt64(phase) << 24 &&
+                integer(payload, 60, 2) == UInt64(axis) && integer(payload, 62, 2) == 3 &&
+                integer(payload, 64, 4) == UInt64(UInt32(bitPattern: -32768)) &&
+                integer(payload, 68, 4) == 28 && integer(payload, 72, 4) == 9 && integer(payload, 80, 4) == 1 &&
+                integer(payload, 84, 4) == 131072 && integer(payload, 88, 4) == UInt64(UInt32(bitPattern: -196608)),
+                "modern HID payload preserves axis, phase, signed progress and velocity with fixed byte offsets")
+            let modern = DockSwipeAdapter.events(packet, at: CGPoint(x: 100, y: 200), marker: 123, osMajor: 27)
+            let reread = modern.first.flatMap { DockSwipeAdapter.read($0, token: token) }
+            try Check.that(modern.count == 2 && reread?.axis == axis && reread?.phase == phase && reread?.progress == -0.5 &&
+                modern.allSatisfy { $0.getIntegerValueField(.eventSourceUserData) == 123 },
+                "modern native event conversion retains gesture fields and echo marker without posting")
+        }
+    }
+    let tiny = DockSwipePacket(token: token, axis: 1, phase: 2, progress: -0.0000001)
+    let minimal = DockSwipeAdapter.hidPayload(tiny, timestamp: 1)!
+    try Check.that(minimal.count == 68 && integer(minimal, 24, 4) == 1 && integer(minimal, 64, 4) == UInt64(UInt32.max),
+        "modern payload omits unused velocity and preserves sub-unit progress sign")
+    let ended = DockSwipePacket(token: token, axis: 1, phase: 4, progress: 0)
+    try Check.that(DockSwipeAdapter.hidPayload(ended, timestamp: 1)?.count == 96,
+        "ended gesture carries the velocity child even at zero velocity")
+    try Check.that(DockSwipeAdapter.hidPayload(DockSwipePacket(token: token, axis: 1, phase: 2, progress: .nan), timestamp: 1) == nil &&
+        DockSwipeAdapter.events(sample, at: .zero, marker: 123, osMajor: 28).isEmpty,
+        "invalid packets and unsupported OS layouts cannot construct modern native events")
+    let terminalPacket = DockSwipePacket(token: token, axis: 1, phase: 4, progress: 0.8, velocityX: 5)
+    let terminalEvent = DockSwipeAdapter.events(terminalPacket, at: .zero, marker: 123, osMajor: 15)[0]
+    let neutral = DockSwipeAdapter.localTermination(terminalEvent, packet: terminalPacket, osMajor: 27)
+    let neutralPacket = neutral.flatMap { DockSwipeAdapter.read($0, token: token) }
+    try Check.that(neutralPacket?.phase == 4 && neutralPacket?.progress == 0 && neutralPacket?.velocityX == 0 &&
+        DockSwipeAdapter.localTermination(terminalEvent, packet: sample, osMajor: 27) == nil &&
+        DockSwipeAdapter.localTermination(terminalEvent, packet: terminalPacket, osMajor: 15) == nil,
+        "only modern terminal capture releases a neutral event to close local Dock tracking")
     a.setPeer("B", supportsGestures: false)
     try Check.that(!a.gesturesSupported && !a.localGesture(sample), "legacy peers keep gestures local")
 }

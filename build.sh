@@ -11,6 +11,7 @@ for arch in arm64 x86_64; do
 done
 xcrun lipo -create "$out/NearClip-arm64" "$out/NearClip-x86_64" -output "$out/NearClip.app/Contents/MacOS/NearClip"
 cp Info.plist "$out/NearClip.app/Contents/Info.plist"
+cp THIRD_PARTY_NOTICES.md "$out/NearClip.app/Contents/Resources/THIRD_PARTY_NOTICES.md"
 xcrun swift -module-cache-path "$out/module-cache" scripts/make-icon.swift "$out/AppIcon.iconset"
 xcrun iconutil -c icns "$out/AppIcon.iconset" -o "$out/NearClip.app/Contents/Resources/AppIcon.icns"
 bash scripts/build-keychain-helper.sh "$out/NearClip.app"
