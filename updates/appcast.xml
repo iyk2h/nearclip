@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><!-- sparkle-sign-warning:
+IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
+--><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+  <channel>
+    <title>NearClip updates</title>
+    <link>https://github.com/iyk2h/nearclip/releases</link>
+    <description>Signed NearClip beta updates for macOS.</description>
+    <sparkle:bundleIdentifier>dev.nearclip.mac</sparkle:bundleIdentifier>
+    <item>
+      <title>NearClip 0.4.3 · build 21 beta</title>
+      <pubDate>Mon, 16 Nov 2026 04:50:21 +0000</pubDate>
+      <sparkle:version>21</sparkle:version>
+      <sparkle:shortVersionString>0.4.3 (build 21)</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <description>Update within NearClip, then restart. Pairing and settings are kept. Input sharing remains experimental.</description>
+      <enclosure url="https://github.com/iyk2h/nearclip/releases/download/v0.4.3-build21/NearClip-0.4.3-build21-macOS.zip" sparkle:edSignature="58IHbWxUMmcBApNEmJDEgcgHtm3tQvjtkwJbSRluEy72vZ9LFH0HhzInnOJa7pf2XcwQ6dv35Yz53QwtG2c9DA==" length="2481386" type="application/octet-stream"></enclosure>
+    </item>
+  </channel>
+</rss><!-- sparkle-signatures:
+edSignature: fmJLYEuh9Ln+JHKM7zfrKYs0+YLbeAo+DtA/7qzys8JBv3temH3SU33DTunJsvWdn/Ud3sC13NQ9XDKsaTEGDA==
+length: 1414
+-->
