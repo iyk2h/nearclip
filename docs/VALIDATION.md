@@ -4,6 +4,8 @@
 
 The final suite passed 451 checks. The signed universal app passed 48 lifecycle checks, packaged network smoke, update identity, and prompt-free Keychain access.
 
+The public updater installed build 28 on the local Mac. The app reconnected with input sharing enabled. The installed executable matched the signed release package. The peer still advertised no gesture support during this observation, so physical gesture testing remains pending its update.
+
 The affected physical peer reported OS major 27 in its authenticated ready message. Both apps showed build 27 in connection diagnostics. The 13–26 gesture gate explained why that peer did not advertise gesture support.
 
 The new adapter constructs the macOS 27 IOHID payload locally from validated fields. Tests cover both axes, all four phases, signed fixed-point values, zero velocity, and tiny progress. They also cover unknown OS rejection and neutral source termination.
