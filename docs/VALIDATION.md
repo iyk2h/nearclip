@@ -8,6 +8,8 @@ The direction matrix covers macOS 15, 26, and 27 adapters, both axes, both signs
 
 The user confirmed reversed horizontal desktop movement when the macOS 27 Mac received control on build 28. Build 29 corrects the destination posting sign. Physical confirmation after this update remains pending. These checks do not establish that intermittent network latency is resolved.
 
+The public updater downloaded and installed build 29, then relaunched the local app. The installed executable matched the release package and passed strict signature verification. The saved peer and enabled input-sharing choice remained in place. No Keychain prompt appeared during this launch. The peer was offline, so reconnect and corrected remote direction could not be checked.
+
 ## 0.4.4 build 28 — November 16, 2026
 
 ### Physical test after peer restart

@@ -33,4 +33,6 @@ The direction and retry changes do not claim to solve latency spikes. A physical
 
 ## Remaining physical checks
 
+The public updater installed build 29 and relaunched the local app. The executable matched the release package and passed signature verification. The saved peer and enabled input-sharing choice remained in place, with no Keychain prompt during this launch. The peer was offline.
+
 Corrected left/right desktop direction on the macOS 27 destination needs user confirmation after installation. Repeat sleep/wake and updates on both physical Macs also remain unverified. The existing source-Mac-to-local-Mac gesture and typing success is recorded in `VALIDATION.md`.
