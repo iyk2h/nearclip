@@ -22,7 +22,7 @@ Duplicate starts cannot leak to the source Dock during remote control. Companion
 
 Tests construct and inspect native events without posting system input. Coverage includes byte offsets, signed fixed-point values, native conversion, the echo marker, phase ordering, stale tokens, unknown senders, cancellation, and legacy fallback.
 
-The build 28 adapter tests run on macOS 15.7.2. They do not establish that physical capture or animation works on macOS 27. Both-device gesture testing remains pending. The signed update feed distributes this experimental beta through the existing updater.
+The build 28 adapter tests run on macOS 15.7.2. A physical test forwarded gestures from macOS 27 to macOS 15.7.2 after a peer restart. The user confirmed horizontal swipes, vertical gestures, and typing. Logs recorded six horizontal and two vertical gestures with matching start and end phases. The reverse direction and gesture rendering on a macOS 27 destination remain unverified. The signed update feed distributes this experimental beta through the existing updater.
 
 Diagnostics record capability flags, OS major versions, gesture phase and axis, and input role. They exclude clipboard content, key codes, pointer positions, and raw native events.
 

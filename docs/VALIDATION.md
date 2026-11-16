@@ -2,6 +2,18 @@
 
 ## 0.4.4 build 28 — November 16, 2026
 
+### Physical test after peer restart
+
+The user reported that horizontal swipes, vertical gestures, and typing worked after restarting the peer. Local logs recorded six horizontal and two vertical gestures. Each gesture had a matching began and ended phase. The local Mac received control from the macOS 27 peer on macOS 15.7.2. This confirms that direction only, not gesture rendering on a macOS 27 destination.
+
+Two observed control sessions lasted about 43 and 21 seconds. Both ended at the return edge. The later session received 426 movement packets and reported a maximum timer delay of 10 ms. No active-session disconnect occurred in these two observed sessions. An unrelated unauthenticated handshake timed out during the earlier session without ending control.
+
+The input channel became ready in 217 ms after the peer restart. The preceding connection authenticated its bulk channel but did not finish input setup before another peer disconnect. The reason for that initial setup stall remains unresolved.
+
+Recent rolling p95 RTT values remained about 213–241 ms. Local send queue wait displayed 0 ms. These are transport measurements, not key-to-screen latency. Restart recovery and intermittent latency remain open issues.
+
+### Automated and release checks
+
 The final suite passed 451 checks. The signed universal app passed 48 lifecycle checks, packaged network smoke, update identity, and prompt-free Keychain access.
 
 The public updater installed build 28 on the local Mac. The app reconnected with input sharing enabled. The installed executable matched the signed release package. The peer still advertised no gesture support during this observation, so physical gesture testing remains pending its update.
