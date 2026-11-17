@@ -29,3 +29,9 @@ The worker prevents clipboard IPC in the sharing engine from blocking the main t
 ## Packaged discovery limitation
 
 The final 671-check regression suite and 51 packaged lifecycle checks passed. Fixed signing identity, prompt-free Keychain reads, and updater integrity checks passed. Packaged Bonjour smoke failed to discover its synthetic peer in two attempts. The already-installed build 32 failed the same packaged discovery check on the current macOS 27.2.1 system. This does not isolate the cause of that failure and is not recorded as a pass. The real saved-peer connection was still active. The application transport changes in build 33 are diagnostic logging only; the functional change is clipboard scheduling.
+
+## Installation and initial runtime check
+
+The public updater verified the signed feed and update archive, but its installer agent did not establish its connection before the timeout on this macOS 27.2.1 system. Automatic installation failed; it is not recorded as a successful update. The validated app was then installed at the existing path after quitting the old process, with build 32 retained as a local backup. No permissions or Keychain records were reset.
+
+The installed executable matched the release package and passed strict signature verification. Saved pairing and enabled input sharing were retained without a Keychain prompt. Input authenticated in 348 ms. The first 55 probe samples had no disconnect, but the peer still advertised build 32. Network RTT variation remained, including a 350 ms sample. Both-peer slow-provider and long-duration tests remain pending.
