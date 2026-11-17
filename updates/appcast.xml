@@ -7,16 +7,16 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <description>Signed NearClip beta updates for macOS.</description>
     <sparkle:bundleIdentifier>dev.nearclip.mac</sparkle:bundleIdentifier>
     <item>
-      <title>NearClip 0.4.4 · build 30 beta</title>
-      <pubDate>Tue, 17 Nov 2026 01:21:01 +0000</pubDate>
-      <sparkle:version>30</sparkle:version>
-      <sparkle:shortVersionString>0.4.4 (build 30)</sparkle:shortVersionString>
+      <title>NearClip 0.4.4 · build 31 beta</title>
+      <pubDate>Tue, 17 Nov 2026 01:34:48 +0000</pubDate>
+      <sparkle:version>31</sparkle:version>
+      <sparkle:shortVersionString>0.4.4 (build 31)</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
       <description>Update within NearClip, then restart. Pairing and settings are kept. Input sharing remains experimental.</description>
-      <enclosure url="https://github.com/iyk2h/nearclip/releases/download/v0.4.4-build30/NearClip-0.4.4-build30-macOS.zip" sparkle:edSignature="icuDv1LJLk4Qk6ePcYP52U09719+WixA9trnsYGGj2Fc3Z3sJzq5lwe6B+yh1ak0PYUuLWRn2Rz9FNnxLkmbCg==" length="2563789" type="application/octet-stream"></enclosure>
+      <enclosure url="https://github.com/iyk2h/nearclip/releases/download/v0.4.4-build31/NearClip-0.4.4-build31-macOS.zip" sparkle:edSignature="2ihzM2iCmm508yGrtyNsOc10DKLYIl8yUZfHwnfeJkhuQPfoAnlEfXayVi+dZ7cVGzHK2fq2c84DyACT+PwADg==" length="2576664" type="application/octet-stream"></enclosure>
     </item>
   </channel>
 </rss><!-- sparkle-signatures:
-edSignature: 6Zv/Ha53Zk6WHk1Q5/lIoAW9HzNa0M7XGYOtHE95ovCQh9LkJZJjZdLEpgQFvTwsoYqn1Qm7nPMA3hLY4j92Dg==
+edSignature: kRdY8bzEeGjOPPx7mhBbQN/qtG2/pGTr52kthrpGjcl3LopCi34f9G7zJKwJ8U6Aflf9xvpWZNL8SIeH7BfbAA==
 length: 1414
 -->
