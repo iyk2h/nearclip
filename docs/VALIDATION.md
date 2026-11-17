@@ -4,7 +4,7 @@
 
 The regression suite passed 657 checks. The packaged app passed 51 lifecycle checks and encrypted network smoke. Fixed signing identity, prompt-free Keychain reads, and updater tamper rejection passed. Both architectures compiled; runtime tests used Apple Silicon. A clipboard worker held for 4.2 seconds did not block the main thread: `poll()` returned in 0.007 ms, four real TCP latency replies arrived, and the input connection stayed open. This is a controlled worker-delay test, not a physical latency claim. The suite also covers stale results, confidential clipboard filtering, malformed images, late diagnostic replies, dead-peer timeout, and authenticated peer-close reports during a file transfer. [Build 32 review](REVIEW-BUILD32.md) records the findings and remaining physical confirmation.
 
-Both physical Macs subsequently displayed build 32. The first three-minute observation had no authenticated input disconnect. A 33-second receive session returned normally at the screen edge. Long clipboard-provider delay did not recur in that window; combined-load and long-term stability remain unverified.
+Both physical Macs subsequently displayed build 32. The first three-minute observation had no authenticated input disconnect. A 33-second receive session returned normally at the screen edge. Long clipboard-provider delay did not recur in that initial window. Later observation found three authenticated peer-reported idle timeouts of 3.5–4 seconds, including two overlapping slow local clipboard reads. The user did not perceive a disconnect, but automatic recovery does not constitute a stability pass. The underlying delivery pause remains unresolved.
 
 ## 0.4.4 build 31 — November 17, 2026
 
