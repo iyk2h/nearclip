@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.4 build 31 — 2026-11-17
+
+- Read available input bytes in bounded chunks. Complete frames run in order without separate header and body callbacks for every message.
+- Keep a 4 KiB input frame limit and a 64 KiB receive limit. Partial frames stay bounded. Authentication and replay checks remain unchanged.
+- Measure mouse send and receive intervals. The diagnostics distinguish steady source input from delivery bursts without synchronizing the Macs' clocks.
+- No prediction or intentional smoothing delay is added. Physical smoothness and network latency need a controlled two-Mac comparison.
+
 ## 0.4.4 build 30 — 2026-11-17
 
 - Show which Mac has Secure Event Input active. Keep the sharing choice and clear the pause after protected input ends.

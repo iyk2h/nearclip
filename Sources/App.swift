@@ -432,7 +432,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         peerVersionLabel.font = .systemFont(ofSize: 11); peerVersionLabel.textColor = .secondaryLabelColor
         peerVersionLabel.maximumNumberOfLines = 3
         healthLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
-        healthLabel.textColor = .secondaryLabelColor; healthLabel.maximumNumberOfLines = 3
+        healthLabel.textColor = .secondaryLabelColor; healthLabel.maximumNumberOfLines = 5
         let clipboardCard = panel(row([
             symbol("doc.on.clipboard", size: 20),
             flexible(column([label("클립보드", size: 13, weight: .semibold), activityLabel], spacing: 5)), sendButton
@@ -1123,6 +1123,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         else if let inputHealth { healthLabel.stringValue = "입력 전용 연결 · " + inputHealth.label }
         else if peer.features.contains(SharingFeature.inputMetrics) { healthLabel.stringValue = "입력 전용 연결 · 왕복 지연 측정 중…" }
         else { healthLabel.stringValue = "상대도 최신 빌드로 업데이트하면 왕복 지연을 확인할 수 있어요." }
+        if let timing = mouse.motionTimingLabel { healthLabel.stringValue += "\n" + timing }
         if !mouse.active, let message = mouse.lastEndMessage { healthLabel.stringValue += "\n" + message }
     }
     private func configureUpdates() {

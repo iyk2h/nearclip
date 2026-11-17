@@ -142,7 +142,11 @@ struct MousePacket: Codable {
     var scrollPhase: Int? = nil
     var momentumPhase: Int? = nil
     var secureInputActive: Bool? = nil
+    var motionSentAt: Double? = nil
     func validate() throws {
+        if let motionSentAt {
+            guard kind == .input, action == .move, motionSentAt.isFinite, motionSentAt >= 0 else { throw ClipError.invalid("잘못된 이동 시간이에요.") }
+        }
         if secureInputActive != nil && kind != .availability { throw ClipError.invalid("잘못된 보안 입력 상태예요.") }
         if scrollPhase != nil || momentumPhase != nil {
             guard kind == .input, action == .scroll,

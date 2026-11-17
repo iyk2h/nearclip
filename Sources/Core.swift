@@ -198,3 +198,26 @@ enum Framing {
         return Int(n)
     }
 }
+
+// Input frames have a much smaller limit than clipboard frames. One receive
+// callback can hold several frames, but never an unbounded peer-supplied buffer.
+struct InputFrameBuffer {
+    static let frameLimit = 4096
+    static let chunkLimit = 64 * 1024
+    private var bytes = Data()
+    var pendingBytes: Int { bytes.count }
+    mutating func append(_ chunk: Data) throws -> [Data] {
+        guard chunk.count <= Self.chunkLimit else { throw ClipError.invalid("입력 수신 크기를 초과했어요.") }
+        bytes.append(chunk)
+        var offset = 0
+        var frames: [Data] = []
+        while bytes.count - offset >= 4 {
+            let size = try Framing.length(bytes.subdata(in: offset..<(offset + 4)), limit: Self.frameLimit)
+            guard bytes.count - offset - 4 >= size else { break }
+            frames.append(bytes.subdata(in: (offset + 4)..<(offset + 4 + size)))
+            offset += 4 + size
+        }
+        if offset > 0 { bytes = Data(bytes.dropFirst(offset)) }
+        return frames
+    }
+}

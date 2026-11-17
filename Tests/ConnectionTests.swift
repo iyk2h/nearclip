@@ -223,14 +223,19 @@ func inputBurstNetworkTests() throws {
     let code = try PairCode.create(), secret = try PairCode.key(code)
     let local = UUID().uuidString, remote = UUID().uuidString, token = UUID()
     let server = try LocalTransport(code: code, device: local, name: "Burst receiver", discovery: false)
+    var echoed: [Data] = []
     var client: PeerLink?, received: [Data] = [], callbacks = 0, failed = 0, clipboardArrived = false
     defer { client?.close(); server.stop() }
     server.onListening = { port in
         client = PeerLink(connection: NWConnection(host: "127.0.0.1", port: port, using: LocalTransport.parameters()),
                           secret: secret, device: remote, name: "Burst sender")
+        client?.onFeature = { _, packet in if let data = try? packet.encoded() { echoed.append(data) } }
         client?.start()
     }
-    server.onFeature = { _, packet in if let data = try? packet.encoded() { received.append(data) } }
+    server.onFeature = { _, packet in
+        if let data = try? packet.encoded() { received.append(data) }
+        server.sendFeature(packet, to: remote)
+    }
     server.onClip = { clipboardArrived = $0.payload.data.count == ClipPayload.maxBytes }
     server.start(); waitFor({ client?.hasSeparateInput == true && server.peerCount == 1 })
     try Check.that(client?.hasSeparateInput == true, "keyboard burst has an authenticated separate input channel")
@@ -262,6 +267,11 @@ func inputBurstNetworkTests() throws {
     print("MEASURE: 24 ordered input frames under 20 MiB clipboard load: \(Int(elapsed)) ms (loopback, not physical Wi-Fi)")
     waitFor({ clipboardArrived }, seconds: 10)
     try Check.that(clipboardArrived, "input burst preserves concurrent large clipboard delivery")
+    waitFor({ echoed.count == sequence.count })
+    try Check.that(echoed.count == sequence.count, "batched input receive preserves a full-duplex mixed input burst")
+    if let input = client?.inputLink {
+        print("METRIC: input_receive frames=\(input.inputFramesReceived) callbacks=\(input.inputReadCallbacks); old exact-read path requires two callbacks per frame")
+    }
     // Close while sends are pending: each accepted or rejected submission gets one callback.
     var closeCallbacks = [Int](repeating: 0, count: 40), rejected = 0
     for index in 0..<40 {
@@ -308,4 +318,66 @@ func delayedInputRouteTests() throws {
     RunLoop.main.run(until: Date().addingTimeInterval(0.65))
     try Check.that(attempts == stoppedAttempts && client?.closed == true,
         "shutdown cancels the initial unresolved-route retry")
+}
+
+func inputFramingAndCadenceTests() throws {
+    let payloads = [Data([1]), Data(repeating: 2, count: 80), Data(repeating: 3, count: 4096)]
+    let wire = try payloads.reduce(into: Data()) { $0.append(try Framing.encode($1)) }
+    var batched = InputFrameBuffer()
+    try Check.that(try batched.append(wire) == payloads && batched.pendingBytes == 0,
+                   "coalesced input frames drain in order in one receive callback")
+    for split in [1, 2, 3, 4, 5, 6, 84, 85, 86, 87, wire.count - 1] {
+        var parser = InputFrameBuffer()
+        let first = try parser.append(Data(wire.prefix(split)))
+        let last = try parser.append(Data(wire.dropFirst(split)))
+        try Check.that(first + last == payloads && parser.pendingBytes == 0,
+                       "fragmented header/body and consecutive frames preserve byte order")
+    }
+    var bytewise = InputFrameBuffer(), decoded: [Data] = []
+    var bounded = true
+    for byte in wire {
+        decoded += try bytewise.append(Data([byte]))
+        bounded = bounded && bytewise.pendingBytes <= InputFrameBuffer.frameLimit + 3
+    }
+    try Check.that(bounded, "partial input frame remains bounded across every single-byte fragment")
+    try Check.that(decoded == payloads, "single-byte TCP delivery reconstructs every input frame")
+    for header in [Data([0, 0, 0, 0]), Data([0, 0, 16, 1]), Data([255, 255, 255, 255])] {
+        try Check.rejects("input parser rejects zero or oversized lengths before allocating their body") {
+            var parser = InputFrameBuffer(); _ = try parser.append(header)
+        }
+    }
+    try Check.rejects("input parser bounds one supplied receive chunk") {
+        var parser = InputFrameBuffer(); _ = try parser.append(Data(repeating: 0, count: InputFrameBuffer.chunkLimit + 1))
+    }
+    var partial = InputFrameBuffer()
+    _ = try partial.append(Data([0, 0, 0, 3, 42]))
+    try Check.that(partial.pendingBytes == 5, "truncated EOF remains detectable instead of dispatching partial input")
+
+    var steady = MotionCadence(), bursty = MotionCadence()
+    for n in 0..<120 {
+        let sent = 10000 + Double(n) / 120
+        steady.record(sent: sent, arrived: 20000 + Double(n) / 120)
+        bursty.record(sent: sent, arrived: 20000 + Double(n / 6) / 20)
+    }
+    try Check.that(steady.sourceP95 == 8 && steady.arrivalP95 == 8 && steady.excessP95 == 0,
+                   "cadence uses clock-independent intervals without mistaking uptime offset for latency")
+    try Check.that(bursty.sourceP95 == 8 && bursty.arrivalP95 == 50 && bursty.excessP95 == 42 && bursty.bursts > 0,
+                   "same 120Hz input reveals 50ms network batching rather than a slow source device")
+    let count = steady.count
+    steady.record(sent: 10050, arrived: 20100)
+    try Check.that(steady.count == count, "deliberate idle time is excluded from movement cadence")
+    steady.record(sent: nil, arrived: 20101)
+    steady.record(sent: 10051, arrived: 20102)
+    try Check.that(steady.count == count, "legacy peer without timing resets interval comparison")
+    for n in 0..<500 { steady.record(sent: 20000 + Double(n) / 120, arrived: 30000 + Double(n) / 120) }
+    try Check.that(steady.count == 240, "cadence windows remain bounded during long sessions")
+    let token = UUID()
+    let motion = MousePacket(kind: .input, token: token, action: .move, dx: 3, motionSentAt: 500)
+    try Check.that(try FeaturePacket.decode(FeaturePacket(mouse: motion).encoded()).mouse?.motionSentAt == 500,
+                   "optional motion timing survives validated wire encoding")
+    for packet in [MousePacket(kind: .input, token: token, action: .move, motionSentAt: -1),
+                   MousePacket(kind: .input, token: token, action: .move, motionSentAt: .nan),
+                   MousePacket(kind: .heartbeat, token: token, motionSentAt: 1)] {
+        try Check.rejects("invalid or misplaced motion timing is rejected") { try packet.validate() }
+    }
 }

@@ -1,5 +1,9 @@
 # Validation
 
+## 0.4.4 build 31 — November 17, 2026
+
+The regression suite passed 632 checks. The packaged app passed 51 lifecycle checks and encrypted network smoke. Fixed code identity, prompt-free Keychain reads, and updater tamper rejection passed. Both architectures compiled; runtime tests used Apple Silicon. A local full-duplex input burst received 26 frames in 10 callbacks, compared with at least 52 callbacks in the previous receiver structure. This is not a physical latency measurement. [Build 31 review](REVIEW-BUILD31.md) records coverage and limits. [Input responsiveness](INPUT-PERFORMANCE.md) defines the two-Mac comparison.
+
 ## 0.4.4 build 30 — November 17, 2026
 
 The final regression suite passed 603 checks. The packaged app passed 51 lifecycle checks and the encrypted network smoke test. Fixed signing identity, prompt-free Keychain access, and updater tamper rejection passed. Both architectures compiled; runtime checks used Apple Silicon. [Build 30 review](REVIEW-BUILD30.md) records the secure-input interruption, re-entry fix, local processing benchmark, and physical limits. The suite covers input order, secure-input recovery, stale completions, encryption, file transfer, clipboard behavior, and network recovery.

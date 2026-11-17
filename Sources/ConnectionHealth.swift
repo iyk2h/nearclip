@@ -73,3 +73,39 @@ struct InputMeasurements {
             jitterMS: jitter.isEmpty ? 0 : jitter.reduce(0, +) / Double(jitter.count), queueMaxMS: queueSamples.max() ?? 0)
     }
 }
+
+struct MotionCadence {
+    private var previous: (sent: Double, arrived: Double)?
+    private var sentIntervals: [Double] = []
+    private var arrivalIntervals: [Double] = []
+    private var excessIntervals: [Double] = []
+    private(set) var bursts = 0
+    var count: Int { sentIntervals.count }
+    // Compare intervals on each Mac's own monotonic clock. Clock origins need
+    // not agree. This measures delivery jitter, never absolute one-way latency.
+    mutating func record(sent: Double?, arrived: Double) {
+        guard let sent, sent.isFinite, sent >= 0, arrived.isFinite else { previous = nil; return }
+        defer { previous = (sent, arrived) }
+        guard let previous else { return }
+        let source = sent - previous.sent, arrival = arrived - previous.arrived
+        // Ignore deliberate pauses, changed clock origins, and invalid ordering.
+        guard source > 0, source <= 0.1, arrival >= 0 else { return }
+        sentIntervals.append(source * 1000); arrivalIntervals.append(arrival * 1000)
+        excessIntervals.append(max(0, arrival - source) * 1000)
+        if source >= 0.004 && arrival < 0.002 { bursts += 1 }
+        if sentIntervals.count > 240 {
+            sentIntervals.removeFirst(); arrivalIntervals.removeFirst(); excessIntervals.removeFirst()
+        }
+    }
+    private func p95(_ values: [Double]) -> Int {
+        guard !values.isEmpty else { return 0 }
+        return Int(values.sorted()[max(0, Int(ceil(Double(values.count) * 0.95)) - 1)].rounded())
+    }
+    var sourceP95: Int { p95(sentIntervals) }
+    var arrivalP95: Int { p95(arrivalIntervals) }
+    var excessP95: Int { p95(excessIntervals) }
+    var label: String? {
+        guard count >= 10 else { return nil }
+        return "마우스 간격 p95 · 보냄 \(sourceP95)ms / 받음 \(arrivalP95)ms · 추가 흔들림 \(excessP95)ms"
+    }
+}

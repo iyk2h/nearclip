@@ -41,6 +41,9 @@ final class PeerLink {
     private(set) var authenticated = false
     private(set) var closed = false
     private var cipher: SessionCipher?
+    private var inputFrames = InputFrameBuffer()
+    private(set) var inputReadCallbacks = 0
+    private(set) var inputFramesReceived = 0
     private let inputOnly: Bool
     private var inputListener: NWListener?
     private(set) var inputLink: PeerLink?
@@ -141,7 +144,10 @@ final class PeerLink {
         } catch { close(.networkFailure) }
     }
     private func sendHello() {
-        do { try sendFrame(JSONEncoder().encode(local)); readFrame() }
+        do {
+            try sendFrame(JSONEncoder().encode(local))
+            if inputOnly { readInputChunk() } else { readFrame() }
+        }
         catch { close(.invalidFrame) }
     }
     private func startInput(_ connection: NWConnection) {
@@ -256,6 +262,27 @@ final class PeerLink {
             guard let self, !self.closed else { return }
             if error != nil { self.close(.networkFailure) } else { completion?() }
         })
+    }
+    private func readInputChunk() {
+        guard !closed else { return }
+        // A minimum of one byte never waits for a full chunk. Parse all complete
+        // input frames already available; retain only a bounded partial frame.
+        connection.receive(minimumIncompleteLength: 1, maximumLength: InputFrameBuffer.chunkLimit) { [weak self] data, _, complete, error in
+            guard let self, !self.closed else { return }
+            self.inputReadCallbacks += 1
+            do {
+                let frames = try self.inputFrames.append(data ?? Data())
+                for frame in frames {
+                    guard !self.closed else { return }
+                    try self.handle(frame)
+                    self.inputFramesReceived += 1
+                    self.lastReceived = Date()
+                }
+                if complete || error != nil {
+                    self.close(error != nil ? .networkFailure : self.inputFrames.pendingBytes > 0 ? .invalidFrame : .peerClosed)
+                } else { self.readInputChunk() }
+            } catch { self.close(.invalidFrame) }
+        }
     }
     private func readExactly(_ size: Int, partial: Data = Data(), completion: @escaping (Data) -> Void) {
         guard !closed else { return }

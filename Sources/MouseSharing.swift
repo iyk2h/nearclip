@@ -94,6 +94,9 @@ final class MouseSharing {
     private var controlStarted: TimeInterval?
     private var sentMoves = 0
     private var receivedMoves = 0
+    private var motionCadence = MotionCadence()
+    private var lastCadenceLog = -Double.infinity
+    var motionTimingLabel: String? { motionCadence.label }
     private var lastTick: TimeInterval?
     private var maxTimerDelayMS = 0.0
     var maintenanceInterval: TimeInterval? {
@@ -130,6 +133,7 @@ final class MouseSharing {
         if self.peer != peer && enabled { try? applyEnabled(false) }
         if let peer, requestedPeer != nil, requestedPeer != peer { requestedPeer = nil; onConsentChange?(nil) }
         endSession(notify: false, reason: .connectionChanged); self.peer = peer; remoteEnabled = false; remoteSecureInputBlocked = false
+        motionCadence = MotionCadence()
         keyboardSupported = supportsKeyboard; remoteKeyboardEnabled = false
         gesturesSupported = supportsGestures && DockSwipeAdapter.available
         if native { logger.notice("gesture_capability peer_present=\(peer != nil, privacy: .public) negotiated=\(supportsGestures, privacy: .public) enabled=\(self.gesturesSupported, privacy: .public)") }
@@ -224,6 +228,7 @@ final class MouseSharing {
         self.timer = timer; RunLoop.main.add(timer, forMode: .common)
     }
     private func beganControl() {
+        motionCadence = MotionCadence(); lastCadenceLog = -Double.infinity
         controlStarted = ProcessInfo.processInfo.systemUptime
         sentMoves = 0; receivedMoves = 0; maxTimerDelayMS = 0
         updateTimer()
@@ -482,7 +487,7 @@ final class MouseSharing {
         sentMoves += 1
         movesInFlight += 1
         let session = token
-        emit(MousePacket(kind: .input, token: token, action: .move, dx: dx, dy: dy, flags: pendingFlags)) { [weak self] success in
+        emit(MousePacket(kind: .input, token: token, action: .move, dx: dx, dy: dy, flags: pendingFlags, motionSentAt: ProcessInfo.processInfo.systemUptime)) { [weak self] success in
             guard let self, self.token == session else { return }
             self.movesInFlight = max(0, self.movesInFlight - 1)
             // Drain accumulated motion as soon as the socket accepts input.
@@ -495,6 +500,12 @@ final class MouseSharing {
         switch action {
         case .move:
             receivedMoves += 1
+            let uptime = ProcessInfo.processInfo.systemUptime
+            motionCadence.record(sent: packet.motionSentAt, arrived: uptime)
+            if native, motionCadence.count >= 10, uptime - lastCadenceLog >= 5 {
+                lastCadenceLog = uptime
+                logger.notice("motion_cadence samples=\(self.motionCadence.count, privacy: .public) source_p95_ms=\(self.motionCadence.sourceP95, privacy: .public) arrival_p95_ms=\(self.motionCadence.arrivalP95, privacy: .public) excess_p95_ms=\(self.motionCadence.excessP95, privacy: .public) bursts=\(self.motionCadence.bursts, privacy: .public)")
+            }
             let next = CGPoint(x: position.x + packet.dx, y: position.y + packet.dy)
             let atReturnEdge = entrySide == .left ? next.x <= entryRect.minX + 1 && packet.dx < 0 : next.x >= entryRect.maxX - 1 && packet.dx > 0
             // Entry is only four points inside the screen. Do not interpret a
