@@ -26,4 +26,14 @@ The final regression suite passed 603 checks. The packaged app passed 51 lifecyc
 
 Before this change, recent input RTT p95 values were about 220–250 ms. A separate TCP snapshot showed a smoothed RTT of 70–100 ms. These measurements cover different windows. They do not measure key-to-screen latency.
 
-This build does not establish that those network spikes are resolved. The exact desktop-switch sequence and a two-Mac speed comparison still need physical validation after both apps update.
+This build does not establish that those network spikes are resolved. A controlled two-Mac speed comparison still needs physical validation after both apps update.
+
+## Installed app and physical follow-up
+
+The public updater installed build 30 and relaunched the local app. The installed executable matched the release package and passed signature verification. Pairing and the enabled sharing choice remained in place. The input connection became ready in 253 ms. No Keychain prompt appeared during this launch.
+
+The user confirmed that desktop switching, returning, and entering the remote Mac again now worked. Logs also recorded two horizontal gestures and one vertical gesture with matching start and end phases. The remote build was 28 before the local update; its version after the user's follow-up was not independently checked.
+
+Recent input RTT samples were 13–22 ms, with rolling p95 near 99 ms. Similar lower readings appeared before installation, so this is not evidence that build 30 fixed physical network latency.
+
+One later control session ended after missing heartbeats. The input connection then hit its probe timeout and recovered automatically in about 1.65 seconds, preserving the bulk connection. A new control session followed. The cause of that gap is not established; intermittent connectivity remains an open issue.
