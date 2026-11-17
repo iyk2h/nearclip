@@ -21,3 +21,7 @@ Final results are recorded in [Validation](VALIDATION.md). The worker test holds
 ## Limits
 
 The original peer's detailed reason was not available. These changes fix identified blocking and timeout paths, but do not establish that every physical disconnect had that cause. Both Macs must update to obtain remote close diagnostics and apply the worker fix on each side. A controlled physical test remains necessary. Network latency and clipboard-server stalls during the final commit are not eliminated by this change.
+
+## Installed follow-up
+
+The public updater installed build 32 on the local Mac and relaunched it. The installed executable matched the release package and passed strict code-signature verification. Saved pairing and enabled input sharing remained in place. The input channel authenticated in 215 ms. The first 33 diagnostic samples completed without an input close. The peer still advertised build 31 at this check, so remote close reports and a two-sided fix could not yet be verified.
