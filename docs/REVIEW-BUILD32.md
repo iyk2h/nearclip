@@ -27,3 +27,9 @@ The original peer's detailed reason was not available. These changes fix identif
 The public updater installed build 32 on the local Mac and relaunched it. The installed executable matched the release package and passed strict code-signature verification. Saved pairing and enabled input sharing remained in place. The input channel authenticated in 215 ms. The first 33 diagnostic samples completed without an input close. The peer still advertised build 31 at this check, so remote close reports and a two-sided fix could not yet be verified.
 
 A later input close occurred while the peer still ran build 31. The local reason remained `peerClosed`; no negotiated remote diagnostic was available. This confirms that the physical issue is not resolved by updating only the local Mac. It does not prove the old peer's internal cause.
+
+## Both Macs on build 32
+
+The app then displayed build 32 for both Macs. During the first three minutes after the peer update, no authenticated input connection closed and no probe-deadline recovery was logged. One receiving session lasted 33.1 seconds, delivered 217 mouse movements, and ended normally at the return edge. Its maximum local timer delay was 90 ms. Rolling RTT p95 ranged from 93 to 132 ms. One unauthenticated handshake candidate timed out without interrupting the active connection.
+
+A 30-second process sample during this window showed the main thread predominantly waiting in the normal event loop, with no sampled clipboard wait. Before the peer update, clipboard worker reads repeatedly took about 5–13 seconds. This supports further investigation of clipboard-provider delay but does not prove the original peer-close cause. The short post-update window did not reproduce a slow clipboard read, so it does not establish long-term stability or confirm the combined clipboard/input case.
