@@ -25,3 +25,7 @@ The native gesture round-trip assertion now compares against the destination ren
 ## Limits
 
 The worker prevents clipboard IPC in the sharing engine from blocking the main thread. It does not eliminate provider delays, guarantee network delivery, or prove that every physical peer timeout had this cause. Both Macs need the update to isolate their own clipboard processing. Long-running physical stability and slow-provider checks remain required.
+
+## Packaged discovery limitation
+
+The final 671-check regression suite and 51 packaged lifecycle checks passed. Fixed signing identity, prompt-free Keychain reads, and updater integrity checks passed. Packaged Bonjour smoke failed to discover its synthetic peer in two attempts. The already-installed build 32 failed the same packaged discovery check on the current macOS 27.2.1 system. This does not isolate the cause of that failure and is not recorded as a pass. The real saved-peer connection was still active. The application transport changes in build 33 are diagnostic logging only; the functional change is clipboard scheduling.
