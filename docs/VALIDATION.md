@@ -1,5 +1,19 @@
 # Validation
 
+## Build 35 — local recovery, updater, and status improvements
+
+694 regression checks, 59 packaged lifecycle checks, and packaged Bonjour/clipboard/file/layout smoke passed. The network-only subset passed 95 checks. A separate regression fixture restored the old duplicate-hello behavior and failed the new real-socket test at the expected assertion. Both architectures compiled with warnings as errors. Dark main-window and light settings renders were inspected.
+
+The updater accepted a valid signed feed and archive. An isolated fixture first received a real HTTP 404 and showed the new Retry action. After the feed became available, the fixture was updated from build 20 to build 35; its complete bundle digest matched the validated distribution bundle. Retry policy rejects signature/validation/downgrade errors, including nested validation errors. Modified nested code was rejected. Build 34 and 35 retained the same signing requirement and identical Keychain helper, with prompt-free reads.
+
+The existing local app was replaced with build 35. It restored input consent and connected its input channel in 471 ms after the parent connection started. Both peers advertised input enabled; the live main window showed **사용 가능**. This confirms connection/readiness, not physical pointer handoff. The peer still ran build 33. The user deferred physical two-Mac testing. No public release or update feed was changed. See [the review](REVIEW-BUILD35.md) for the remaining uncertainty about earlier intermittent handshake timeouts and installer startup delay.
+
+## Build 34 — local switch recovery fix
+
+677 regression checks and 56 packaged lifecycle checks passed. New coverage exercises disabling and enabling from both main-window and menu controls during input-channel recovery, cancelling a pending choice before reconnect, peer-specific persistence, screen-lock suspension, and fresh remote consent. Both architectures compiled. The installed build retained its signing requirement and identical Keychain helper; both app versions read the pairing key without a prompt.
+
+The local app was replaced at its existing path. Its input channel authenticated in 226 ms after the parent connection started. The live main-window switch successfully completed on → off → on without a new permission prompt. The peer was still on build 33 and had not enabled input sharing, so physical handoff was not verified. This is a local build, not a published update. The separate repeated handshake timeouts observed before restart remain unexplained; this change fixes the disabled switch, not their cause.
+
 ## 0.4.4 build 33 — November 17, 2026
 
 The final regression suite passed 671 checks. Fault-injection tests blocked clipboard change-count and write operations for 4.2 seconds each. Both returned control to the caller in under 0.02 ms, and four real TCP probe replies arrived during each stall without an input disconnect. The suite also covers asynchronous copy convergence, echo prevention, bounded polling, cancellation, restart during baseline setup, explicit resend priority, and malformed-image handling. [Build 33 review](REVIEW-BUILD33.md) records the remaining main-thread IPC path and physical limits.

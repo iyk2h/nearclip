@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.4 build 35 — local validation
+
+- Keep input listener recovery separate from clipboard and file connections. Prevent duplicate hello messages after network readiness changes.
+- Bound stalled input handshakes independently and report the failed connection stage.
+- Show explicit input sharing states and distinguish readiness from active control.
+- Offer a verified retry for transient update failures; retain all signing and feed checks.
+- Physical two-Mac validation is deferred. The original intermittent handshake and installer startup failures are not claimed fully resolved.
+
+## 0.4.4 build 34 — local validation
+
+- Keep the mouse and keyboard switch available during input-channel recovery. Turning sharing off no longer prevents turning it back on.
+- Save an explicit enable choice for the authenticated peer while its input connection recovers. Start capture only after reconnection and existing permission and session checks.
+- Distinguish a pending enable choice from active input sharing. The menu bar and main window use the same behavior.
+- This change does not resolve the separate input-handshake timeouts observed with build 33.
+
 ## 0.4.4 build 33 — 2026-11-17
 
 - Move clipboard change-count checks, baseline reads, final validation, and writes off the main thread. Build 32 still performed these potentially blocking operations beside input callbacks.

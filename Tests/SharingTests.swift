@@ -403,6 +403,22 @@ func mouseResumeTests() throws {
     try Check.that(mouse.enabled, "repeated sleep cycles preserve the selected sharing state")
     mouse.stop(); mouse.setPeer(nil); mouse.setPeer("B")
     try Check.that(!mouse.enabled && !mouse.sharingRequested, "pause and shutdown stop clear the resume choice")
+    mouse.setPeer(nil)
+    var savedConsent: String?
+    mouse.onConsentChange = { savedConsent = $0 }
+    mouse.requestSharingWhenConnected(to: "B")
+    try Check.that(mouse.sharingRequested && !mouse.enabled && savedConsent == "B", "recovery enable persists a peer-specific choice without input capture")
+    mouse.stop()
+    try Check.that(!mouse.sharingRequested && savedConsent == nil, "recovery disable clears persisted pending consent")
+    mouse.setPeer("B")
+    try Check.that(!mouse.enabled, "cancelled recovery enable cannot activate on reconnect")
+    mouse.setPeer(nil); mouse.requestSharingWhenConnected(to: "B")
+    mouse.suspend(.screenLock); mouse.setPeer("B")
+    try Check.that(!mouse.enabled && mouse.sharingRequested, "pending enable cannot bypass screen lock")
+    mouse.resume(.screenLock)
+    try Check.that(mouse.enabled && !mouse.remoteEnabled, "pending enable resumes with fresh remote consent required")
+    mouse.setPeer(nil); mouse.requestSharingWhenConnected(to: "B"); mouse.setPeer("C")
+    try Check.that(!mouse.enabled && !mouse.sharingRequested && savedConsent == nil, "pending enable never transfers to another peer")
 }
 
 func featureNetworkTests() throws {

@@ -22,15 +22,19 @@ enum NetworkNotice: Equatable {
 }
 
 final class PeerLink {
+    enum HandshakeStage: String, Codable { case connecting, waitingForHello, authenticating, ready }
     enum CloseReason: String, Codable { case stopped, networkFailure, invalidFrame, peerClosed, handshakeTimeout, idleTimeout, duplicate }
     struct InputClosureReport: Codable, Equatable {
         let reason: CloseReason
         let idleMS: Int
         let loopDelayMS: Int
+        var stage: HandshakeStage? = nil
+        var networkError: Int? = nil
         static func decode(_ data: Data, negotiated: Bool, inputOnly: Bool) throws -> Self {
             guard negotiated, !inputOnly, data.count <= 512 else { throw ClipError.invalid("입력 진단 메시지가 올바르지 않아요.") }
             let report = try JSONDecoder().decode(Self.self, from: data)
-            guard (0...86_400_000).contains(report.idleMS), (0...86_400_000).contains(report.loopDelayMS) else {
+            guard (0...86_400_000).contains(report.idleMS), (0...86_400_000).contains(report.loopDelayMS),
+                  report.networkError.map({ (-100_000...100_000).contains($0) }) ?? true else {
                 throw ClipError.invalid("입력 진단 범위가 올바르지 않아요.")
             }
             return report
@@ -38,6 +42,15 @@ final class PeerLink {
     }
     private(set) var lastCloseReason: CloseReason?
     private(set) var lastPeerInputClosure: InputClosureReport?
+    private(set) var handshakeStage: HandshakeStage = .connecting
+    private(set) var lastNetworkError: Int?
+    private var handshakeDeadline: DispatchWorkItem?
+    private var handshakeStarted = false
+    private var helloSent = false
+    private var listenerRetryWork: DispatchWorkItem?
+    private var listenerRetry = 0
+    var inputHandshakeTimeout: TimeInterval = 12
+    var inputConnectionFactory: ((NWEndpoint.Host, NWEndpoint.Port) -> NWConnection)?
     private var lastAuthenticatedInputAt = ProcessInfo.processInfo.systemUptime
     private var lastProbeRecoveryLog = -Double.infinity
     private var lastProbeAt: TimeInterval?
@@ -64,13 +77,16 @@ final class PeerLink {
     private(set) var inputReadCallbacks = 0
     private(set) var inputFramesReceived = 0
     private let inputOnly: Bool
-    private var inputListener: NWListener?
+    private(set) var inputListener: NWListener?
     private(set) var inputLink: PeerLink?
     private var pendingInputConnection: NWConnection?
     private var inputPort: UInt16?
     private var remoteInputPort: UInt16?
     private var retryInputWork: DispatchWorkItem?
     private var inputRetry = 0
+    private var peerHandshakeFailures = 0
+    private(set) var lastInputClosure: InputClosureReport?
+    private var lastFailureFromPeer = false
     private var metricsTimer: Timer?
     private var measurements = InputMeasurements()
     private var lastMetricsLog = -Double.infinity
@@ -82,6 +98,20 @@ final class PeerLink {
     var inputReady: Bool { features.contains(SharingFeature.inputChannel) ? hasSeparateInput : ready }
     private(set) var ready = false
     var hasSeparateInput: Bool { ready && inputLink?.ready == true }
+    var inputFailureDescription: String? {
+        let report = lastFailureFromPeer ? lastPeerInputClosure : lastInputClosure
+        guard !inputReady, let report else { return nil }
+        let origin = lastFailureFromPeer ? "상대 Mac" : "이 Mac"
+        let stage: String
+        switch report.stage {
+        case .connecting: stage = "네트워크 연결 단계"
+        case .waitingForHello: stage = "상대 응답 대기 단계"
+        case .authenticating: stage = "연결 인증 단계"
+        case .ready: stage = "입력 전송 중"
+        case nil: stage = "단계 정보 없음"
+        }
+        return "최근 입력 연결 실패 · \(origin) · \(stage) · \(report.reason.rawValue)"
+    }
     private struct InputOffer: Codable { let port: UInt16 }
 
     // A new key for each parent handshake, distinct from clipboard keys and
@@ -119,16 +149,25 @@ final class PeerLink {
         self.endpointKey = endpointKey; self.expectedDevice = expectedDevice
     }
     func start() {
+        if inputOnly {
+            let timeout = DispatchWorkItem { [weak self] in
+                guard let self, !self.closed, !self.ready else { return }
+                self.close(.handshakeTimeout)
+            }
+            handshakeDeadline = timeout
+            DispatchQueue.main.asyncAfter(deadline: .now() + inputHandshakeTimeout, execute: timeout)
+        }
         connection.stateUpdateHandler = { [weak self] state in
             guard let self, !self.closed else { return }
             switch state {
             case .ready:
                 self.beginHandshake()
             case .waiting(let error):
+                self.recordNetworkError(error)
                 self.onNetworkError?(error)
                 // Release held input promptly when an established route is lost.
-                if self.ready { self.close(.networkFailure) }
-            case .failed(let error): self.onNetworkError?(error); self.close(.networkFailure)
+                if self.ready || self.inputOnly { self.close(.networkFailure) }
+            case .failed(let error): self.recordNetworkError(error); self.onNetworkError?(error); self.close(.networkFailure)
             case .cancelled: self.close(.networkFailure)
             default: break
             }
@@ -136,12 +175,18 @@ final class PeerLink {
         connection.start(queue: .main)
     }
     private func beginHandshake() {
+        guard !handshakeStarted else { return }
+        handshakeStarted = true
         guard !inputOnly, advertisedFeatures.contains(SharingFeature.inputChannel) else { sendHello(); return }
+        startInputListener()
+    }
+    private func startInputListener() {
+        guard !closed, inputListener == nil else { return }
         do {
-            let listener = try NWListener(using: LocalTransport.parameters(interactive: true))
+            let listener = try NWListener(using: LocalTransport.parameters(interactive: true), on: inputPort.flatMap(NWEndpoint.Port.init(rawValue:)) ?? .any)
             inputListener = listener
-            listener.newConnectionHandler = { [weak self] connection in
-                guard let self, !self.closed, self.inputLink == nil, self.pendingInputConnection == nil else { connection.cancel(); return }
+            listener.newConnectionHandler = { [weak self, weak listener] connection in
+                guard let self, let listener, self.inputListener === listener, !self.closed, self.inputLink == nil, self.pendingInputConnection == nil else { connection.cancel(); return }
                 // The independent socket can arrive before its parent's ready
                 // frame. Hold one candidate until parent authentication finishes.
                 if !self.authenticated { self.pendingInputConnection = connection; return }
@@ -150,19 +195,41 @@ final class PeerLink {
                 self.startInput(connection)
             }
             listener.stateUpdateHandler = { [weak self, weak listener] state in
-                guard let self, let listener, !self.closed else { return }
+                guard let self, let listener, self.inputListener === listener, !self.closed else { return }
                 switch state {
                 case .ready:
                     guard let port = listener.port else { self.close(.networkFailure); return }
-                    self.inputPort = port.rawValue; self.sendHello()
-                case .failed: self.close(.networkFailure)
+                    self.inputPort = port.rawValue; self.listenerRetry = 0; self.sendHello()
+                case .failed(let error):
+                    self.recordNetworkError(error)
+                    self.recoverInputListener()
+                case .cancelled: self.recoverInputListener()
                 default: break
                 }
             }
             listener.start(queue: .main)
-        } catch { close(.networkFailure) }
+        } catch { recoverInputListener() }
+    }
+    private func recoverInputListener() {
+        guard authenticated, canRecoverInput, local.device > (remote?.device ?? "") else { close(.networkFailure); return }
+        guard !closed, listenerRetryWork == nil else { return }
+        inputListener?.stateUpdateHandler = nil; inputListener?.cancel(); inputListener = nil
+        let delay = min(8, 0.5 * pow(2, Double(min(listenerRetry, 4))))
+        listenerRetry += 1
+        logger.notice("input_listener_recovery attempt=\(self.listenerRetry, privacy: .public) bulk_preserved=true")
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, !self.closed else { return }
+            self.listenerRetryWork = nil; self.startInputListener()
+        }
+        listenerRetryWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
     private func sendHello() {
+        // A listener can become ready again after a network transition. Sending
+        // a second plaintext hello into an encrypted stream corrupts the link.
+        guard !helloSent else { return }
+        helloSent = true
+        handshakeStage = .waitingForHello
         do {
             try sendFrame(JSONEncoder().encode(local))
             if inputOnly { readInputChunk() } else { readFrame() }
@@ -176,12 +243,14 @@ final class PeerLink {
             let child = PeerLink(connection: connection, secret: key, device: local.device, name: local.name,
                 expectedDevice: remote.device, advertisedFeatures: [SharingFeature.mouse, SharingFeature.keyboard] + (features.contains(SharingFeature.gestures) ? [SharingFeature.gestures] : []) + (features.contains(SharingFeature.inputMetrics) ? [SharingFeature.inputMetrics] : []), inputOnly: true)
             inputLink = child
+            child.inputHandshakeTimeout = inputHandshakeTimeout
             child.onReady = { [weak self] _ in
                 guard let self, !self.closed else { return }
                 if !self.canRecoverInput || self.local.device < remote.device {
                     self.inputListener?.cancel(); self.inputListener = nil
                 }
                 self.retryInputWork?.cancel(); self.retryInputWork = nil; self.inputRetry = 0
+                self.peerHandshakeFailures = 0
                 let wasReady = self.ready; self.ready = true
                 self.logger.notice("input_channel_ready elapsed_ms=\(Int((ProcessInfo.processInfo.systemUptime - self.createdAt) * 1000), privacy: .public)")
                 if wasReady { self.onInputChange?(self) } else { self.onReady?(self) }
@@ -201,7 +270,10 @@ final class PeerLink {
                 self.inputLink = nil
                 if self.features.contains(SharingFeature.inputDiagnostics), let reason = child.lastCloseReason {
                     let idle = min(86_400_000, max(0, Int((ProcessInfo.processInfo.systemUptime - child.lastAuthenticatedInputAt) * 1000)))
-                    let report = InputClosureReport(reason: reason, idleMS: idle, loopDelayMS: child.maxProbeLoopDelayMS)
+                    let report = InputClosureReport(reason: reason, idleMS: idle, loopDelayMS: child.maxProbeLoopDelayMS,
+                                                    stage: child.handshakeStage, networkError: child.lastNetworkError)
+                    self.lastInputClosure = report
+                    self.lastFailureFromPeer = false
                     if let data = try? JSONEncoder().encode(report) {
                         self.enqueue(kind: "input-closed", data: data) { _ in }
                     }
@@ -226,12 +298,22 @@ final class PeerLink {
         // Bonjour can authenticate before its resolved path is available.
         // Do not leave an authenticated parent waiting forever for input.
         guard let host else { scheduleInputRetry(); return }
-        startInput(NWConnection(host: host, port: port, using: LocalTransport.parameters(interactive: true)))
+        startInput(inputConnectionFactory?(host, port) ?? NWConnection(host: host, port: port, using: LocalTransport.parameters(interactive: true)))
+    }
+    private func recordNetworkError(_ error: NWError) {
+        switch error {
+        case .posix(let code): lastNetworkError = Int(code.rawValue)
+        case .dns(let code): lastNetworkError = Int(code)
+        case .tls(let code): lastNetworkError = Int(code)
+        @unknown default: lastNetworkError = nil
+        }
+        logger.notice("connection_network_error input_only=\(self.inputOnly, privacy: .public) stage=\(self.handshakeStage.rawValue, privacy: .public) code=\(self.lastNetworkError ?? 0, privacy: .public)")
     }
     func reconnectInputNow() {
         guard ready, canRecoverInput, !inputReady, !closed else { return }
-        if let child = inputLink, case .waiting = child.connection.state { child.close(.networkFailure) }
+        if let child = inputLink, !child.ready { child.close(.networkFailure) }
         retryInputWork?.cancel(); retryInputWork = nil; inputRetry = 0
+        if local.device > (remote?.device ?? ""), inputListener == nil { startInputListener() }
         dialInput()
     }
     private func scheduleInputRetry() {
@@ -283,9 +365,11 @@ final class PeerLink {
         let now = ProcessInfo.processInfo.systemUptime
         let loopDelay = inputOnly ? lastProbeAt.map { max(0, Int((now - $0 - 1) * 1000)) } ?? 0 : 0
         maxProbeLoopDelayMS = max(maxProbeLoopDelayMS, min(86_400_000, loopDelay))
-        logger.notice("connection_close reason=\(reason.rawValue, privacy: .public) authenticated=\(self.authenticated, privacy: .public) peak_queue=\(self.peakQueueDepth, privacy: .public) max_queue_wait_ms=\(Int(self.maxQueueWaitMS), privacy: .public) input_only=\(self.inputOnly, privacy: .public) local_loop_delay_ms=\(loopDelay, privacy: .public)")
+        logger.notice("connection_close reason=\(reason.rawValue, privacy: .public) authenticated=\(self.authenticated, privacy: .public) peak_queue=\(self.peakQueueDepth, privacy: .public) max_queue_wait_ms=\(Int(self.maxQueueWaitMS), privacy: .public) input_only=\(self.inputOnly, privacy: .public) local_loop_delay_ms=\(loopDelay, privacy: .public) stage=\(self.handshakeStage.rawValue, privacy: .public)")
         lastCloseReason = reason
         closed = true; authenticated = false; ready = false; pendingClip = nil
+        handshakeDeadline?.cancel(); handshakeDeadline = nil
+        listenerRetryWork?.cancel(); listenerRetryWork = nil
         retryInputWork?.cancel(); retryInputWork = nil; metricsTimer?.invalidate(); metricsTimer = nil
         inputListener?.stateUpdateHandler = nil; inputListener?.cancel(); inputListener = nil
         inputLink?.onClose = nil; inputLink?.close(reason); inputLink = nil
@@ -376,6 +460,7 @@ final class PeerLink {
             try hello.validate()
             if let expectedDevice, hello.device != expectedDevice { throw ClipError.invalid("기기가 일치하지 않아요.") }
             remote = hello
+            handshakeStage = .authenticating
             let cipher = try SessionCipher(secret: secret, local: local, remote: hello)
             self.cipher = cipher
             let offer = try inputPort.map { try JSONEncoder().encode(InputOffer(port: $0)) }
@@ -398,6 +483,8 @@ final class PeerLink {
             features = Set((message.features ?? []).prefix(8)).intersection(advertisedFeatures)
             logger.notice("input_capabilities input_only=\(self.inputOnly, privacy: .public) gesture_local=\(self.advertisedFeatures.contains(SharingFeature.gestures), privacy: .public) gesture_peer=\((message.features ?? []).contains(SharingFeature.gestures), privacy: .public) gesture_ready=\(self.features.contains(SharingFeature.gestures), privacy: .public) os_major=\(DockSwipeAdapter.systemMajor, privacy: .public) reported_major=\(ProcessInfo.processInfo.operatingSystemVersion.majorVersion, privacy: .public) peer_os_major=\(message.osMajor ?? 0, privacy: .public)")
             authenticated = true
+            handshakeStage = .ready
+            handshakeDeadline?.cancel(); handshakeDeadline = nil
             if features.contains(SharingFeature.inputChannel) {
                 guard let data = message.data, let offer = try? JSONDecoder().decode(InputOffer.self, from: data),
                       offer.port != 0 else { throw ClipError.invalid("입력 연결 정보를 확인할 수 없어요.") }
@@ -443,7 +530,17 @@ final class PeerLink {
             guard let data = message.data else { throw ClipError.invalid("입력 진단 데이터가 없어요.") }
             let report = try InputClosureReport.decode(data, negotiated: features.contains(SharingFeature.inputDiagnostics), inputOnly: inputOnly)
             lastPeerInputClosure = report
-            logger.notice("peer_input_close reason=\(report.reason.rawValue, privacy: .public) idle_ms=\(report.idleMS, privacy: .public) loop_delay_ms=\(report.loopDelayMS, privacy: .public)")
+            lastFailureFromPeer = true
+            logger.notice("peer_input_close reason=\(report.reason.rawValue, privacy: .public) idle_ms=\(report.idleMS, privacy: .public) loop_delay_ms=\(report.loopDelayMS, privacy: .public) stage=\(report.stage?.rawValue ?? "unknown", privacy: .public) network_error=\(report.networkError ?? 0, privacy: .public)")
+            onInputChange?(self)
+            if report.reason == .handshakeTimeout, !inputReady, inputLink == nil,
+               canRecoverInput, local.device > (remote?.device ?? "") {
+                peerHandshakeFailures += 1
+                if peerHandshakeFailures >= 2 {
+                    peerHandshakeFailures = 0
+                    recoverInputListener()
+                }
+            }
         case "ping": break
         default: throw ClipError.invalid("지원하지 않는 메시지예요.")
         }
@@ -847,7 +944,7 @@ final class LocalTransport {
     private func publishPeers() {
         let peers = links.values.filter(\.ready).compactMap { link -> ConnectedPeer? in
             guard let remote = link.remote else { return nil }
-            return ConnectedPeer(device: remote.device, name: remote.name, connection: link.id, features: link.features, appVersion: link.appVersion, osMajor: link.peerOSMajor, inputReady: link.inputReady, inputSession: link.inputLink?.ready == true ? link.inputLink?.id : nil)
+            return ConnectedPeer(device: remote.device, name: remote.name, connection: link.id, features: link.features, appVersion: link.appVersion, osMajor: link.peerOSMajor, inputReady: link.inputReady, inputSession: link.inputLink?.ready == true ? link.inputLink?.id : nil, inputFailure: link.inputFailureDescription)
         }
         onPeers?(peers.map(\.name).sorted()); onPeerDetails?(peers)
         publishStatus()

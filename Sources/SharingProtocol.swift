@@ -9,6 +9,7 @@ struct ConnectedPeer {
     var osMajor: Int? = nil
     var inputReady: Bool = true
     var inputSession: UUID? = nil
+    var inputFailure: String? = nil
 }
 
 enum SharingFeature {

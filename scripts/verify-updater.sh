@@ -3,6 +3,7 @@ set -euo pipefail
 app="${1:?Usage: verify-updater.sh APP}"
 "$app/Contents/MacOS/NearClip" --update-component-check
 "$app/Contents/Helpers/NearClipUpdater.app/Contents/MacOS/NearClipUpdater" --configuration-check
+"$app/Contents/Helpers/NearClipUpdater.app/Contents/MacOS/NearClipUpdater" --error-policy-check
 fixture=$(mktemp -d "${TMPDIR:-/tmp}/nearclip-updater-check.XXXXXX")
 trap 'rm -rf "$fixture"' EXIT
 ditto "$app" "$fixture/NearClip.app"
