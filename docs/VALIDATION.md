@@ -1,5 +1,11 @@
 # Validation
 
+## 0.4.4 build 33 — November 17, 2026
+
+The final regression suite passed 671 checks. Fault-injection tests blocked clipboard change-count and write operations for 4.2 seconds each. Both returned control to the caller in under 0.02 ms, and four real TCP probe replies arrived during each stall without an input disconnect. The suite also covers asynchronous copy convergence, echo prevention, bounded polling, cancellation, restart during baseline setup, explicit resend priority, and malformed-image handling. [Build 33 review](REVIEW-BUILD33.md) records the remaining main-thread IPC path and physical limits.
+
+The packaged app passed 51 lifecycle checks and encrypted network smoke. Fixed signing identity, prompt-free Keychain reads, and updater tamper rejection passed. Both architectures compiled; runtime checks used Apple Silicon on macOS 27.2.1. Physical peer-timeout confirmation remains pending.
+
 ## 0.4.4 build 32 — November 17, 2026
 
 The regression suite passed 657 checks. The packaged app passed 51 lifecycle checks and encrypted network smoke. Fixed signing identity, prompt-free Keychain reads, and updater tamper rejection passed. Both architectures compiled; runtime tests used Apple Silicon. A clipboard worker held for 4.2 seconds did not block the main thread: `poll()` returned in 0.007 ms, four real TCP latency replies arrived, and the input connection stayed open. This is a controlled worker-delay test, not a physical latency claim. The suite also covers stale results, confidential clipboard filtering, malformed images, late diagnostic replies, dead-peer timeout, and authenticated peer-close reports during a file transfer. [Build 32 review](REVIEW-BUILD32.md) records the findings and remaining physical confirmation.

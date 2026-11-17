@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.4 build 33 — 2026-11-17
+
+- Move clipboard change-count checks, baseline reads, final validation, and writes off the main thread. Build 32 still performed these potentially blocking operations beside input callbacks.
+- Keep polling bounded without replacing queued incoming content or an explicit resend. Retain the newest incoming copy while the initial clipboard baseline is pending.
+- Preserve local-copy checks and invalidate queued writes when sharing pauses or disconnects. An OS write already in progress cannot be cancelled.
+- Report invalid local images once per clipboard change instead of decoding the same invalid content on every poll.
+- Record local probe scheduling delay when a connection closes, including a close received before the next timer callback.
+- Input timeout and key-release limits are unchanged. Physical confirmation of the remaining peer timeouts is still required.
+
 ## 0.4.4 build 32 — 2026-11-17
 
 - Read clipboard data and prepare image formats on a bounded serial worker. Slow clipboard providers and image conversion no longer run on the input callback thread.

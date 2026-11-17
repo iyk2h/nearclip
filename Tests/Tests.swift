@@ -379,7 +379,7 @@ struct TestMain {
                 print("All \(Check.count) file checks passed."); return
             }
             if CommandLine.arguments.contains("--clipboard") {
-                try clipboardWorkerTests(); try clipboardBoundaryTests(); try clipboardTests()
+                try asynchronousClipboardConvergenceTests(); try clipboardIPCIsolationTests(); try clipboardWorkerTests(); try clipboardBoundaryTests(); try clipboardTests()
                 print("All \(Check.count) clipboard checks passed. General clipboard was not accessed."); return
             }
             if CommandLine.arguments.contains("--network") {
@@ -387,7 +387,7 @@ struct TestMain {
                 try recoveryWakeTests(); try featureNetworkTests(); try legacyCapabilityTests(); try networkTests(); try cryptoTests()
                 print("All \(Check.count) network and crypto checks passed."); return
             }
-            try clipboardWorkerTests(); try inputFramingAndCadenceTests(); try finalBoundaryTests(); try clipboardBoundaryTests(); try fileRaceTests(); try inputInterruptionTests(); try inputBoundaryTests(); try persistedInputConsentTests(); try staleRouteTests(); try startupDialElectionTests()
+            try asynchronousClipboardConvergenceTests(); try clipboardIPCIsolationTests(); try clipboardWorkerTests(); try inputFramingAndCadenceTests(); try finalBoundaryTests(); try clipboardBoundaryTests(); try fileRaceTests(); try inputInterruptionTests(); try inputBoundaryTests(); try persistedInputConsentTests(); try staleRouteTests(); try startupDialElectionTests()
             try delayedInputRouteTests(); try inputBurstNetworkTests(); try connectionHealthTests(); try updateReleaseTests(); try inputRecoveryNetworkTests(); try sharingProtocolTests(); try fileTransferTests(); try mouseSharingTests(); try mousePacingTests(); try mouseResumeTests(); try mouseAdapterTests(); try keyboardSharingTests(); try keyboardAdapterTests(); try gestureSharingTests(); try featureNetworkTests(); try legacyCapabilityTests()
             try expiredInvitationTests(); try pairingAccessTests(); try addressTests(); try directPairingTests(); try recoveryWakeTests(); try cryptoTests(); try clipboardTests(); try networkTests(); try discoveryTests(); try numericPairingTests()
             print("\nAll \(Check.count) checks passed. General clipboard was not accessed.")

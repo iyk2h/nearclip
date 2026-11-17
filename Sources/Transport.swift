@@ -280,7 +280,10 @@ final class PeerLink {
     }
     func close(_ reason: CloseReason = .stopped) {
         guard !closed else { return }
-        logger.notice("connection_close reason=\(reason.rawValue, privacy: .public) authenticated=\(self.authenticated, privacy: .public) peak_queue=\(self.peakQueueDepth, privacy: .public) max_queue_wait_ms=\(Int(self.maxQueueWaitMS), privacy: .public)")
+        let now = ProcessInfo.processInfo.systemUptime
+        let loopDelay = inputOnly ? lastProbeAt.map { max(0, Int((now - $0 - 1) * 1000)) } ?? 0 : 0
+        maxProbeLoopDelayMS = max(maxProbeLoopDelayMS, min(86_400_000, loopDelay))
+        logger.notice("connection_close reason=\(reason.rawValue, privacy: .public) authenticated=\(self.authenticated, privacy: .public) peak_queue=\(self.peakQueueDepth, privacy: .public) max_queue_wait_ms=\(Int(self.maxQueueWaitMS), privacy: .public) input_only=\(self.inputOnly, privacy: .public) local_loop_delay_ms=\(loopDelay, privacy: .public)")
         lastCloseReason = reason
         closed = true; authenticated = false; ready = false; pendingClip = nil
         retryInputWork?.cancel(); retryInputWork = nil; metricsTimer?.invalidate(); metricsTimer = nil

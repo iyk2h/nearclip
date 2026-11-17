@@ -60,7 +60,8 @@ func gestureSharingTests() throws {
     try Check.that(received.count == 3, "gesture cannot continue after control ends")
     let events = DockSwipeAdapter.events(change, at: CGPoint(x: 100, y: 200), marker: 123)
     let decoded = events.first.flatMap { DockSwipeAdapter.read($0, token: token) }
-    try Check.that(events.count == 2 && decoded?.progress == 0.5 && decoded?.phase == 2 && decoded?.axis == 1,
+    let rendered = DockSwipeAdapter.renderingPacket(change, osMajor: DockSwipeAdapter.systemMajor, naturalScrolling: DockSwipeAdapter.naturalScrolling)
+    try Check.that(events.count == 2 && decoded?.progress == rendered.progress && decoded?.phase == 2 && decoded?.axis == 1,
         "native Dock event fields round-trip without posting system input")
     try Check.that(events.allSatisfy { $0.getIntegerValueField(.eventSourceUserData) == 123 }, "generated gesture events carry loop prevention marker")
     try Check.that(DockSwipeAdapter.read(CGEvent(source: nil)!, token: token) == nil, "ordinary events never become gestures")

@@ -165,9 +165,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 pairedName = UserDefaults.standard.string(forKey: "pairedMacName")
                 access = PairingAccess(hasTrustedPeer: pairedName != nil || UserDefaults.standard.data(forKey: "directPeer") != nil)
                 let clock = UInt64(UserDefaults.standard.string(forKey: "logicalClock") ?? "0") ?? 0
-                sync = ClipboardSync(device: device, clock: min(clock, UInt64.max - 100_000), backgroundIO: true) {
+                sync = ClipboardSync(device: device, clock: min(clock, UInt64.max - 100_000), backgroundIO: true, persist: {
                     UserDefaults.standard.set(String($0), forKey: "logicalClock")
-                }
+                })
                 sync.enabled = enabled
                 sync.onLocal = { [weak self] clip in self?.transport?.send(clip) }
                 sync.onActivity = { [weak self] text in self?.lastActivity = text; self?.refresh() }

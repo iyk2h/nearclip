@@ -4,9 +4,9 @@
 
 NearClip is a native macOS menu bar app for two Macs on the same local network. Different Apple accounts are supported. No account, cloud service, or third-party runtime is required.
 
-[**Download for macOS**](https://github.com/iyk2h/nearclip/releases/tag/v0.4.4-build32) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Development](docs/DEVELOPMENT.md) · [Roadmap](docs/ROADMAP.md)
+[**Download for macOS**](https://github.com/iyk2h/nearclip/releases/tag/v0.4.4-build33) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Development](docs/DEVELOPMENT.md) · [Roadmap](docs/ROADMAP.md)
 
-> **Experimental public beta.** Version 0.4.4 build 32 is not notarized by Apple. Input sharing remains experimental; the full two-Mac sleep/network test matrix is pending. The interface is Korean; this guide includes the button labels.
+> **Experimental public beta.** Version 0.4.4 build 33 is not notarized by Apple. Input sharing remains experimental; the full two-Mac sleep/network test matrix is pending. The interface is Korean; this guide includes the button labels.
 
 ![NearClip main screen](docs/connected.png)
 
@@ -15,7 +15,7 @@ NearClip is a native macOS menu bar app for two Macs on the same local network. 
 Use macOS 13 or later. Apple Silicon and Intel are supported. On both Macs:
 
 1. Quit the previous NearClip, if it is running.
-2. Download `NearClip-0.4.4-build32-macOS.dmg` from the [release page](https://github.com/iyk2h/nearclip/releases/tag/v0.4.4-build32).
+2. Download `NearClip-0.4.4-build33-macOS.dmg` from the [release page](https://github.com/iyk2h/nearclip/releases/tag/v0.4.4-build33).
 3. Open the DMG and drag **NearClip** to **Applications**.
 4. Open NearClip and allow local network access when macOS asks.
 
