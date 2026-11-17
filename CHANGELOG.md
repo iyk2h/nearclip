@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.4 build 32 — 2026-11-17
+
+- Read clipboard data and prepare image formats on a bounded serial worker. Slow clipboard providers and image conversion no longer run on the input callback thread.
+- Discard stale clipboard results after newer copies, pause, disconnect, or stop. Keep confidential-content filtering and native PNG/TIFF support.
+- Recheck an expired diagnostic probe when authenticated input still arrives or the local run loop was delayed. Silent peers still time out; input safety-release limits remain unchanged.
+- Share bounded input-close reasons over the authenticated bulk connection when both Macs support them. Older peers do not receive new message types.
+- Repeated physical peer closures still need confirmation with both Macs updated. The earlier `peerClosed` logs did not identify the remote cause.
+
 ## 0.4.4 build 31 — 2026-11-17
 
 - Read available input bytes in bounded chunks. Complete frames run in order without separate header and body callbacks for every message.

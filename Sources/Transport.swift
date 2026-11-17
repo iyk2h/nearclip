@@ -22,7 +22,26 @@ enum NetworkNotice: Equatable {
 }
 
 final class PeerLink {
-    enum CloseReason: String { case stopped, networkFailure, invalidFrame, peerClosed, handshakeTimeout, idleTimeout, duplicate }
+    enum CloseReason: String, Codable { case stopped, networkFailure, invalidFrame, peerClosed, handshakeTimeout, idleTimeout, duplicate }
+    struct InputClosureReport: Codable, Equatable {
+        let reason: CloseReason
+        let idleMS: Int
+        let loopDelayMS: Int
+        static func decode(_ data: Data, negotiated: Bool, inputOnly: Bool) throws -> Self {
+            guard negotiated, !inputOnly, data.count <= 512 else { throw ClipError.invalid("입력 진단 메시지가 올바르지 않아요.") }
+            let report = try JSONDecoder().decode(Self.self, from: data)
+            guard (0...86_400_000).contains(report.idleMS), (0...86_400_000).contains(report.loopDelayMS) else {
+                throw ClipError.invalid("입력 진단 범위가 올바르지 않아요.")
+            }
+            return report
+        }
+    }
+    private(set) var lastCloseReason: CloseReason?
+    private(set) var lastPeerInputClosure: InputClosureReport?
+    private var lastAuthenticatedInputAt = ProcessInfo.processInfo.systemUptime
+    private var lastProbeRecoveryLog = -Double.infinity
+    private var lastProbeAt: TimeInterval?
+    private var maxProbeLoopDelayMS = 0
     private let logger = Logger(subsystem: "dev.nearclip.mac", category: "transport")
     private let createdAt = ProcessInfo.processInfo.systemUptime
     var connectingFor: TimeInterval { ProcessInfo.processInfo.systemUptime - createdAt }
@@ -180,6 +199,13 @@ final class PeerLink {
             child.onClose = { [weak self] child in
                 guard let self, !self.closed, self.inputLink === child else { return }
                 self.inputLink = nil
+                if self.features.contains(SharingFeature.inputDiagnostics), let reason = child.lastCloseReason {
+                    let idle = min(86_400_000, max(0, Int((ProcessInfo.processInfo.systemUptime - child.lastAuthenticatedInputAt) * 1000)))
+                    let report = InputClosureReport(reason: reason, idleMS: idle, loopDelayMS: child.maxProbeLoopDelayMS)
+                    if let data = try? JSONEncoder().encode(report) {
+                        self.enqueue(kind: "input-closed", data: data) { _ in }
+                    }
+                }
                 if self.canRecoverInput {
                     self.logger.notice("input_channel_lost bulk_preserved=true")
                     self.onInputChange?(self)
@@ -226,7 +252,18 @@ final class PeerLink {
     private func probe() {
         guard ready, !closed else { return }
         let now = ProcessInfo.processInfo.systemUptime
-        if measurements.expired(now: now) { close(.idleTimeout); return }
+        let schedulerDelay = lastProbeAt.map { max(0, now - $0 - 1) } ?? 0
+        maxProbeLoopDelayMS = max(maxProbeLoopDelayMS, min(86_400_000, Int(schedulerDelay * 1000)))
+        lastProbeAt = now
+        if measurements.expired(now: now) {
+            guard measurements.discardExpiredAfterLocalDelay(now: now, lastAuthenticated: lastAuthenticatedInputAt, schedulerDelay: schedulerDelay) else {
+                close(.idleTimeout); return
+            }
+            if now - lastProbeRecoveryLog >= 10 {
+                lastProbeRecoveryLog = now
+                logger.notice("probe_deadline_recheck local_delay_ms=\(Int(schedulerDelay * 1000), privacy: .public) authenticated_idle_ms=\(Int(max(0, now - self.lastAuthenticatedInputAt) * 1000), privacy: .public)")
+            }
+        }
         guard let id = measurements.begin(now: now) else { return }
         enqueue(kind: "probe", data: Data(id.uuidString.utf8)) { [weak self] sent in
             if !sent { self?.close(.networkFailure) }
@@ -244,6 +281,7 @@ final class PeerLink {
     func close(_ reason: CloseReason = .stopped) {
         guard !closed else { return }
         logger.notice("connection_close reason=\(reason.rawValue, privacy: .public) authenticated=\(self.authenticated, privacy: .public) peak_queue=\(self.peakQueueDepth, privacy: .public) max_queue_wait_ms=\(Int(self.maxQueueWaitMS), privacy: .public)")
+        lastCloseReason = reason
         closed = true; authenticated = false; ready = false; pendingClip = nil
         retryInputWork?.cancel(); retryInputWork = nil; metricsTimer?.invalidate(); metricsTimer = nil
         inputListener?.stateUpdateHandler = nil; inputListener?.cancel(); inputListener = nil
@@ -275,6 +313,7 @@ final class PeerLink {
                 for frame in frames {
                     guard !self.closed else { return }
                     try self.handle(frame)
+                    if self.authenticated { self.lastAuthenticatedInputAt = ProcessInfo.processInfo.systemUptime }
                     self.inputFramesReceived += 1
                     self.lastReceived = Date()
                 }
@@ -397,6 +436,11 @@ final class PeerLink {
             }
             if message.kind == "probe" { enqueue(kind: "probe-reply", data: data) { _ in } }
             else if measurements.receive(id, now: ProcessInfo.processInfo.systemUptime) { publishMeasurements() }
+        case "input-closed":
+            guard let data = message.data else { throw ClipError.invalid("입력 진단 데이터가 없어요.") }
+            let report = try InputClosureReport.decode(data, negotiated: features.contains(SharingFeature.inputDiagnostics), inputOnly: inputOnly)
+            lastPeerInputClosure = report
+            logger.notice("peer_input_close reason=\(report.reason.rawValue, privacy: .public) idle_ms=\(report.idleMS, privacy: .public) loop_delay_ms=\(report.loopDelayMS, privacy: .public)")
         case "ping": break
         default: throw ClipError.invalid("지원하지 않는 메시지예요.")
         }

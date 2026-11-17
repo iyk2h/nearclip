@@ -19,7 +19,8 @@ enum SharingFeature {
     static let inputChannel = "input-channel-v1"
     static let inputRecovery = "input-recovery-v1"
     static let inputMetrics = "input-metrics-v1"
-    static let supported = [files, mouse, keyboard, inputChannel, inputRecovery, inputMetrics] + (DockSwipeAdapter.available ? [gestures] : [])
+    static let inputDiagnostics = "input-diagnostics-v1"
+    static let supported = [files, mouse, keyboard, inputChannel, inputRecovery, inputMetrics, inputDiagnostics] + (DockSwipeAdapter.available ? [gestures] : [])
     static let maxPacket = 128 * 1024
 }
 

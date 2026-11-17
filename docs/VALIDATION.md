@@ -1,5 +1,9 @@
 # Validation
 
+## 0.4.4 build 32 — November 17, 2026
+
+The regression suite passed 657 checks. The packaged app passed 51 lifecycle checks and encrypted network smoke. Fixed signing identity, prompt-free Keychain reads, and updater tamper rejection passed. Both architectures compiled; runtime tests used Apple Silicon. A clipboard worker held for 4.2 seconds did not block the main thread: `poll()` returned in 0.007 ms, four real TCP latency replies arrived, and the input connection stayed open. This is a controlled worker-delay test, not a physical latency claim. The suite also covers stale results, confidential clipboard filtering, malformed images, late diagnostic replies, dead-peer timeout, and authenticated peer-close reports during a file transfer. [Build 32 review](REVIEW-BUILD32.md) records the findings and remaining physical confirmation.
+
 ## 0.4.4 build 31 — November 17, 2026
 
 The regression suite passed 632 checks. The packaged app passed 51 lifecycle checks and encrypted network smoke. Fixed code identity, prompt-free Keychain reads, and updater tamper rejection passed. Both architectures compiled; runtime tests used Apple Silicon. A local full-duplex input burst received 26 frames in 10 callbacks, compared with at least 52 callbacks in the previous receiver structure. This is not a physical latency measurement. [Build 31 review](REVIEW-BUILD31.md) records coverage and limits. [Input responsiveness](INPUT-PERFORMANCE.md) defines the two-Mac comparison.

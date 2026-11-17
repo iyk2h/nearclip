@@ -1,6 +1,7 @@
 import AppKit
 import ImageIO
 import UniformTypeIdentifiers
+import OSLog
 
 enum ClipboardCodec {
     static let remoteMarker = NSPasteboard.PasteboardType("local.nearclip.remote")
@@ -67,27 +68,35 @@ enum ClipboardCodec {
         return nil
     }
 
-    static func write(_ payload: ClipPayload, to board: NSPasteboard, id: UUID, preventAppleRelay: Bool = true) throws {
+    struct Prepared {
+        let payload: ClipPayload
+        let tiff: Data?
+    }
+    static func prepare(_ payload: ClipPayload) throws -> Prepared {
         try payload.validate()
-        let item = NSPasteboardItem()
+        var tiff: Data?
         if payload.type == "public.png" {
             guard payload.data.starts(with: [137, 80, 78, 71, 13, 10, 26, 10]) else { throw ClipError.invalid("PNG 형식이 아니에요.") }
             try validateImage(payload.data)
-            item.setData(payload.data, forType: .png)
-            // TIFF is still expected by some native macOS editors.
-            if let bitmap = NSBitmapImageRep(data: payload.data), let tiff = bitmap.tiffRepresentation {
-                item.setData(tiff, forType: .tiff)
-            }
-        } else {
-            item.setString(String(decoding: payload.data, as: UTF8.self), forType: .string)
+            tiff = NSBitmapImageRep(data: payload.data)?.tiffRepresentation
         }
+        return Prepared(payload: payload, tiff: tiff)
+    }
+    static func commit(_ prepared: Prepared, to board: NSPasteboard, id: UUID, preventAppleRelay: Bool) throws {
+        let item = NSPasteboardItem(), payload = prepared.payload
+        if payload.type == "public.png" {
+            item.setData(payload.data, forType: .png)
+            if let tiff = prepared.tiff { item.setData(tiff, forType: .tiff) }
+        } else { item.setString(String(decoding: payload.data, as: UTF8.self), forType: .string) }
         item.setString(id.uuidString, forType: remoteMarker)
         item.setString("local.nearclip.app", forType: .init("org.nspasteboard.source"))
-        // Scope only this received item. Do not change system Handoff settings
-        // or rewrite content copied by other apps.
         board.prepareForNewContents(with: preventAppleRelay ? [.currentHostOnly] : [])
         guard board.writeObjects([item]) else { throw ClipError.invalid("클립보드에 쓸 수 없어요.") }
     }
+    static func write(_ payload: ClipPayload, to board: NSPasteboard, id: UUID, preventAppleRelay: Bool = true) throws {
+        try commit(prepare(payload), to: board, id: id, preventAppleRelay: preventAppleRelay)
+    }
+
 }
 
 final class ClipboardSync {
@@ -96,15 +105,23 @@ final class ClipboardSync {
     var onLocal: ((ClipMessage) -> Void)?
     var onActivity: ((String) -> Void)?
     var preventAppleRelay = true
-    var connected = false { didSet { if !oldValue && connected { baseline() } } }
+    var connected = false { didSet { if oldValue != connected { baseline() } } }
     var enabled = true { didSet { baseline() } }
     private(set) var clock: UInt64 = 0
     private(set) var current: ClipStamp?
     private var observed: Int
     private var timer: Timer?
+    private let backgroundIO: Bool
+    private let worker: DispatchQueue
+    private var working = false
+    private var pendingWork: (() -> Void)?
+    private var generation: UInt64 = 0
+    private let logger = Logger(subsystem: "dev.nearclip.mac", category: "clipboard")
     private let persistClock: ((UInt64) -> Void)?
 
-    init(board: NSPasteboard = .general, device: String, clock: UInt64 = 0, persist: ((UInt64) -> Void)? = nil) {
+    init(board: NSPasteboard = .general, device: String, clock: UInt64 = 0, backgroundIO: Bool = false, workQueue: DispatchQueue? = nil, persist: ((UInt64) -> Void)? = nil) {
+        self.backgroundIO = backgroundIO
+        self.worker = workQueue ?? DispatchQueue(label: "dev.nearclip.clipboard-io", qos: .userInitiated)
         self.board = board; self.device = device; self.clock = clock
         self.observed = board.changeCount; self.persistClock = persist
     }
@@ -114,8 +131,8 @@ final class ClipboardSync {
         self.timer = timer
         RunLoop.main.add(timer, forMode: .common)
     }
-    func stop() { timer?.invalidate(); timer = nil }
-    func baseline() { observed = board.changeCount }
+    func stop() { timer?.invalidate(); timer = nil; invalidateWork() }
+    func baseline() { invalidateWork(); observed = board.changeCount }
     func resetSession() { current = nil; baseline() }
     func observe(clock other: UInt64) {
         guard other < UInt64.max - 100_000 else { return }
@@ -126,6 +143,7 @@ final class ClipboardSync {
         let count = board.changeCount
         guard force || count != observed else { return }
         observed = count
+        if backgroundIO { readInBackground(count: count, force: force); return }
         do {
             guard let payload = try ClipboardCodec.read(board, allowRemote: force) else {
                 if force { onActivity?("공유할 텍스트나 이미지가 없어요.") }; return
@@ -147,12 +165,75 @@ final class ClipboardSync {
         guard message.stamp.counter < UInt64.max - 100_000 else { return false }
         observe(clock: message.stamp.counter)
         if let current, message.stamp <= current { return false }
+        if backgroundIO { prepareInBackground(message); return true }
         do {
             try ClipboardCodec.write(message.payload, to: board, id: message.id, preventAppleRelay: preventAppleRelay)
             current = message.stamp; baseline()
             onActivity?("\(message.payload.label) 받음 · \(Self.time())")
             return true
         } catch { onActivity?(error.localizedDescription); return false }
+    }
+    private func invalidateWork() { generation &+= 1; pendingWork = nil }
+    // Main-thread scheduling bounds work to one active job plus the newest job.
+    // Slow promised pasteboard data and image codecs never block input callbacks.
+    private func submit(_ job: @escaping () -> Void) {
+        if working { pendingWork = job; return }
+        working = true
+        worker.async { [weak self] in
+            autoreleasepool { job() }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.working = false
+                if let next = self.pendingWork { self.pendingWork = nil; self.submit(next) }
+            }
+        }
+    }
+    private func readInBackground(count: Int, force: Bool) {
+        clock += 1; persistClock?(clock)
+        let stamp = ClipStamp(counter: clock, device: device)
+        current = stamp
+        let generation = self.generation, name = board.name
+        submit { [weak self] in
+            let start = ProcessInfo.processInfo.systemUptime
+            let result = Result { () throws -> ClipPayload? in
+                let board = NSPasteboard(name: name)
+                guard board.changeCount == count else { return nil }
+                let payload = try ClipboardCodec.read(board, allowRemote: force)
+                return board.changeCount == count ? payload : nil
+            }
+            let elapsed = Int((ProcessInfo.processInfo.systemUptime - start) * 1000)
+            DispatchQueue.main.async {
+                guard let self, self.generation == generation, self.connected, self.enabled,
+                      self.current == stamp, self.board.changeCount == count else { return }
+                if elapsed >= 100 { self.logger.notice("clipboard_read_worker elapsed_ms=\(elapsed, privacy: .public)") }
+                do {
+                    guard let payload = try result.get() else {
+                        if force { self.onActivity?("공유할 텍스트나 이미지가 없어요.") }; return
+                    }
+                    self.onLocal?(ClipMessage(id: UUID(), stamp: stamp, payload: payload))
+                    self.onActivity?("\(payload.label) 보냄 · \(Self.time())")
+                } catch { self.onActivity?(error.localizedDescription) }
+            }
+        }
+    }
+    private func prepareInBackground(_ message: ClipMessage) {
+        current = message.stamp
+        let generation = self.generation, count = board.changeCount
+        submit { [weak self] in
+            let start = ProcessInfo.processInfo.systemUptime
+            let result = Result { try ClipboardCodec.prepare(message.payload) }
+            let elapsed = Int((ProcessInfo.processInfo.systemUptime - start) * 1000)
+            DispatchQueue.main.async {
+                guard let self, self.generation == generation, self.connected, self.enabled,
+                      self.current == message.stamp, self.board.changeCount == count else { return }
+                if elapsed >= 100 { self.logger.notice("clipboard_prepare_worker elapsed_ms=\(elapsed, privacy: .public)") }
+                do {
+                    try ClipboardCodec.commit(result.get(), to: self.board, id: message.id, preventAppleRelay: self.preventAppleRelay)
+                    self.baseline()
+                    self.onActivity?("\(message.payload.label) 받음 · \(Self.time())")
+                } catch { self.onActivity?(error.localizedDescription) }
+            }
+        }
     }
     static func time() -> String {
         let formatter = DateFormatter(); formatter.dateFormat = "HH:mm:ss"

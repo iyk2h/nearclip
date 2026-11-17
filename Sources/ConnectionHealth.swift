@@ -60,6 +60,14 @@ struct InputMeasurements {
         return true
     }
     func expired(now: TimeInterval) -> Bool { pending.map { now - $0.1 > 3 } ?? false }
+    // A diagnostic reply deadline is not proof that the peer died when valid
+    // input still arrives or our own run loop could not dispatch callbacks.
+    mutating func discardExpiredAfterLocalDelay(now: TimeInterval, lastAuthenticated: TimeInterval, schedulerDelay: TimeInterval) -> Bool {
+        guard expired(now: now), now >= lastAuthenticated,
+              now - lastAuthenticated < 3 || schedulerDelay >= 2 else { return false }
+        pending = nil
+        return true
+    }
     mutating func queueWait(_ ms: Double) {
         guard ms.isFinite, ms >= 0 else { return }
         queueSamples.append(ms); if queueSamples.count > 120 { queueSamples.removeFirst() }

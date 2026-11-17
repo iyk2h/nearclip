@@ -12,6 +12,14 @@ func connectionHealthTests() throws {
     let secret = try PairCode.key(PairCode.create()), h1 = Hello.make(device: UUID().uuidString, name: "A"), h2 = Hello.make(device: UUID().uuidString, name: "B")
     let tx = try SessionCipher(secret: secret, local: h1, remote: h2), rx = try SessionCipher(secret: secret, local: h2, remote: h1)
     try Check.that(try rx.open(tx.seal(kind: "ready", app: a)).app == a, "version metadata is inside the authenticated envelope")
+    let report = PeerLink.InputClosureReport(reason: .idleTimeout, idleMS: 3200, loopDelayMS: 1700)
+    let reportData = try JSONEncoder().encode(report)
+    try Check.that(try PeerLink.InputClosureReport.decode(reportData, negotiated: true, inputOnly: false) == report, "peer close diagnostic preserves bounded reason and timing")
+    try Check.rejects("close diagnostics require capability negotiation") { _ = try PeerLink.InputClosureReport.decode(reportData, negotiated: false, inputOnly: false) }
+    try Check.rejects("close diagnostics cannot enter the input socket") { _ = try PeerLink.InputClosureReport.decode(reportData, negotiated: true, inputOnly: true) }
+    for invalid in [Data(repeating: 32, count: 513), Data(#"{"reason":"forged","idleMS":0,"loopDelayMS":0}"#.utf8), Data(#"{"reason":"idleTimeout","idleMS":-1,"loopDelayMS":0}"#.utf8)] {
+        try Check.rejects("close diagnostics reject oversized, unknown, or negative fields") { _ = try PeerLink.InputClosureReport.decode(invalid, negotiated: true, inputOnly: false) }
+    }
     var m = InputMeasurements()
     let first = m.begin(now: 10)!
     try Check.that(!m.receive(UUID(), now: 10.1) && m.pending != nil, "unmatched latency replies cannot create a sample")
@@ -22,6 +30,13 @@ func connectionHealthTests() throws {
     try Check.that(m.snapshot?.samples == 60 && abs((m.snapshot?.p95MS ?? 0) - 20) < 0.001 && m.snapshot?.queueMaxMS == 4, "metrics windows are bounded and invalid queue samples are ignored")
     _ = m.begin(now: 100)
     try Check.that(m.begin(now: 101) == nil && !m.expired(now: 102) && m.expired(now: 104), "one outstanding probe expires without accumulating a queue")
+    try Check.that(!m.discardExpiredAfterLocalDelay(now: 104, lastAuthenticated: 100, schedulerDelay: 0), "silent peer still closes after the original probe deadline")
+    try Check.that(m.discardExpiredAfterLocalDelay(now: 104, lastAuthenticated: 103.9, schedulerDelay: 0) && m.pending == nil, "authenticated input prevents a stale diagnostic reply from closing a live peer")
+    let late = m.begin(now: 105)!
+    try Check.that(m.discardExpiredAfterLocalDelay(now: 112, lastAuthenticated: 105, schedulerDelay: 6), "local run-loop stall rechecks the peer instead of blaming it before queued callbacks run")
+    let fresh = m.begin(now: 112)!
+    try Check.that(!m.receive(late, now: 112.1) && m.pending?.0 == fresh, "late reply cannot satisfy replacement probe")
+    try Check.that(!m.discardExpiredAfterLocalDelay(now: 116, lastAuthenticated: 105, schedulerDelay: 0) && m.expired(now: 116), "one local stall does not disable subsequent dead-peer timeout")
 }
 
 func updateReleaseTests() throws {
@@ -89,6 +104,8 @@ func inputRecoveryNetworkTests() throws {
     try Check.that(done && (try Data(contentsOf: target)) == bytes, "8 MiB file completes with verified content despite input socket loss")
     try Check.that(clipArrived && clipboardDuringRecovery && !dataDisconnected && detail?.connection == parentID, "clipboard continues during input recovery without parent disconnect")
     try Check.that(client?.inputLink?.id != inputID && client?.hasSeparateInput == true && serverHasInput(), "both peers reauthenticate a fresh input channel on the same parent")
+    waitFor({ client?.lastPeerInputClosure != nil })
+    try Check.that(client?.lastPeerInputClosure?.reason == .peerClosed && client?.ready == true, "authenticated parent delivers peer input-close diagnostics while bulk remains connected")
     var inputArrived = false
     server.onFeature = { _, packet in inputArrived = packet.mouse?.kind == .availability }
     client?.sendFeature(FeaturePacket(mouse: MousePacket(kind: .availability, enabled: false))) { _ in }
