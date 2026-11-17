@@ -25,3 +25,5 @@ The original peer's detailed reason was not available. These changes fix identif
 ## Installed follow-up
 
 The public updater installed build 32 on the local Mac and relaunched it. The installed executable matched the release package and passed strict code-signature verification. Saved pairing and enabled input sharing remained in place. The input channel authenticated in 215 ms. The first 33 diagnostic samples completed without an input close. The peer still advertised build 31 at this check, so remote close reports and a two-sided fix could not yet be verified.
+
+A later input close occurred while the peer still ran build 31. The local reason remained `peerClosed`; no negotiated remote diagnostic was available. This confirms that the physical issue is not resolved by updating only the local Mac. It does not prove the old peer's internal cause.
