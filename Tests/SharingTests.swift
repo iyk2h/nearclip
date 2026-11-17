@@ -47,6 +47,16 @@ func sharingProtocolTests() throws {
     try Check.rejects("bound untrusted handoff reason length") {
         try MousePacket(kind: .leave, token: UUID(), endReason: String(repeating: "x", count: 65)).validate()
     }
+    let secure = MousePacket(kind: .availability, enabled: true, secureInputActive: true)
+    try Check.that(try FeaturePacket.decode(FeaturePacket(mouse: secure).encoded()).mouse?.secureInputActive == true,
+                   "secure-input availability survives authenticated feature codec")
+    try Check.that(legacy.secureInputActive == nil, "legacy mouse packets need no secure-input status")
+    try Check.rejects("secure-input status is restricted to availability packets") {
+        _ = try FeaturePacket(mouse: MousePacket(kind: .heartbeat, token: UUID(), secureInputActive: true)).encoded()
+    }
+    try Check.rejects("decoded mixed features are rejected without a validation re-encode") {
+        _ = try FeaturePacket.decode(Data("{\"mouse\":{\"kind\":\"availability\",\"enabled\":true,\"dx\":0,\"dy\":0,\"button\":0,\"clicks\":1,\"flags\":0},\"file\":{\"kind\":\"cancel\",\"id\":\"00000000-0000-0000-0000-000000000001\"}}".utf8))
+    }
     let file = FilePacket(kind: .offer, id: UUID(), name: "test.txt", size: 12)
     let decoded = try FeaturePacket.decode(FeaturePacket(file: file).encoded())
     try Check.that(decoded.file?.name == "test.txt", "platform-neutral sharing packet round trip")
@@ -328,11 +338,19 @@ func mousePacingTests() throws {
     try Check.that(sent.filter { $0.action == .move }.count == 1 && pendingReplies.count == 1,
                    "slow transport holds only one normal movement packet instead of filling its queue")
     pendingReplies.removeFirst()(true)
+    try Check.that(sent.last?.dx == 100 && pendingReplies.count == 1, "accumulated movement drains on send completion without another timer tick")
     now = now.addingTimeInterval(0.11); mouse.tick(now: now)
-    try Check.that(sent.last?.dx == 100, "accumulated movement drains after transport becomes writable")
     _ = mouse.localMove(point: .zero, dx: 2, dy: 0, now: now.addingTimeInterval(0.001))
     _ = mouse.localButton(action: .down, button: 0)
     try Check.that(sent.suffix(2).map(\.action) == [.move, .down], "click ordering is preserved even with movement in flight")
+    _ = mouse.localMove(point: .zero, dx: 3, dy: 0, now: now.addingTimeInterval(0.002))
+    mouse.secureInputEnabled = { true }
+    let beforeSecureCompletion = sent.count
+    pendingReplies.removeFirst()(true)
+    pendingReplies.removeFirst()(true)
+    try Check.that(mouse.mode == .local && sent.dropFirst(beforeSecureCompletion).allSatisfy { $0.action != .move },
+                   "send completion cannot drain motion after secure input activates")
+    mouse.secureInputEnabled = { false }; mouse.tick(now: now)
     mouse.endSession(); now = now.addingTimeInterval(2); try enter()
     pendingReplies.forEach { $0(false) }
     try Check.that(mouse.mode == .controlling, "late failed movement completion cannot end a newer control session")

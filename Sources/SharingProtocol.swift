@@ -29,9 +29,12 @@ struct FeaturePacket: Codable {
     var keyboard: KeyboardPacket? = nil
     var gesture: DockSwipePacket? = nil
     var feature: String { gesture != nil ? SharingFeature.gestures : file != nil ? SharingFeature.files : keyboard != nil ? SharingFeature.keyboard : SharingFeature.mouse }
-    func encoded() throws -> Data {
+    func validate() throws {
         guard [file != nil, mouse != nil, keyboard != nil, gesture != nil].filter({ $0 }).count == 1 else { throw ClipError.invalid("잘못된 공유 메시지예요.") }
         try file?.validate(); try mouse?.validate(); try keyboard?.validate(); try gesture?.validate()
+    }
+    func encoded() throws -> Data {
+        try validate()
         let data = try JSONEncoder().encode(self)
         guard data.count <= SharingFeature.maxPacket else { throw ClipError.invalid("공유 메시지가 너무 커요.") }
         return data
@@ -39,7 +42,7 @@ struct FeaturePacket: Codable {
     static func decode(_ data: Data) throws -> Self {
         guard data.count <= SharingFeature.maxPacket else { throw ClipError.invalid("공유 메시지가 너무 커요.") }
         let result = try JSONDecoder().decode(Self.self, from: data)
-        _ = try result.encoded(); return result
+        try result.validate(); return result
     }
 }
 
@@ -138,7 +141,9 @@ struct MousePacket: Codable {
     var keyboardEnabled: Bool? = nil
     var scrollPhase: Int? = nil
     var momentumPhase: Int? = nil
+    var secureInputActive: Bool? = nil
     func validate() throws {
+        if secureInputActive != nil && kind != .availability { throw ClipError.invalid("잘못된 보안 입력 상태예요.") }
         if scrollPhase != nil || momentumPhase != nil {
             guard kind == .input, action == .scroll,
                   [0, 1, 2, 4, 8, 128].contains(scrollPhase ?? 0),

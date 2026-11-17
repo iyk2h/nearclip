@@ -35,6 +35,13 @@ final class MouseSharing {
     private(set) var mode: Mode = .local
     private(set) var enabled = false
     private(set) var remoteEnabled = false
+    private(set) var secureInputBlocked = false
+    private(set) var remoteSecureInputBlocked = false
+    var inputPauseMessage: String? {
+        if secureInputBlocked { return "이 Mac의 보안 입력으로 일시 중지됐어요. 암호 입력을 마치거나 보안 입력을 사용하는 앱에서 빠져나오세요. 해제되면 다시 넘길 수 있어요." }
+        if remoteSecureInputBlocked { return "상대 Mac의 보안 입력으로 일시 중지됐어요. 상대에서 암호 입력을 마치거나 보안 입력을 사용하는 앱에서 빠져나오면 다시 넘길 수 있어요." }
+        return nil
+    }
     private(set) var keyboardSupported = false
     private(set) var gesturesSupported = false
     private var sentGesture: DockSwipePacket?
@@ -122,7 +129,7 @@ final class MouseSharing {
     func setPeer(_ peer: String?, savedLayout: ScreenLayout? = nil, supportsKeyboard: Bool = false, supportsGestures: Bool = false) {
         if self.peer != peer && enabled { try? applyEnabled(false) }
         if let peer, requestedPeer != nil, requestedPeer != peer { requestedPeer = nil; onConsentChange?(nil) }
-        endSession(notify: false, reason: .connectionChanged); self.peer = peer; remoteEnabled = false
+        endSession(notify: false, reason: .connectionChanged); self.peer = peer; remoteEnabled = false; remoteSecureInputBlocked = false
         keyboardSupported = supportsKeyboard; remoteKeyboardEnabled = false
         gesturesSupported = supportsGestures && DockSwipeAdapter.available
         if native { logger.notice("gesture_capability peer_present=\(peer != nil, privacy: .public) negotiated=\(supportsGestures, privacy: .public) enabled=\(self.gesturesSupported, privacy: .public)") }
@@ -200,7 +207,7 @@ final class MouseSharing {
         enabled = value; edgeSince = nil; cooldown = Date().addingTimeInterval(0.7)
         updateTimer()
         if native { logger.notice("input_enabled value=\(value, privacy: .public)") }
-        advertise(); onChange?()
+        observeSecureInput(); advertise(); onChange?()
     }
     private func updateTimer() {
         guard native else { return }
@@ -226,7 +233,25 @@ final class MouseSharing {
     deinit {
         if let inputActivity { ProcessInfo.processInfo.endActivity(inputActivity) }
     }
-    private func advertise() { emit(MousePacket(kind: .availability, enabled: enabled, keyboardEnabled: enabled && keyboardSupported)) }
+    private func advertise() {
+        emit(MousePacket(kind: .availability, enabled: enabled, keyboardEnabled: enabled && keyboardSupported, secureInputActive: secureInputBlocked))
+    }
+    @discardableResult
+    private func observeSecureInput() -> Bool {
+        let blocked = enabled && secureInputEnabled()
+        guard blocked != secureInputBlocked else { return blocked }
+        secureInputBlocked = blocked
+        edgeSince = nil
+        onEdgeProgress?(nil, side, 0)
+        if !blocked {
+            // Secure input can hide key-up events. Keep keys that are still
+            // physically down, but never let a missed release block re-entry.
+            localHeldKeys = localHeldKeys.filter { native && CGEventSource.keyState(.combinedSessionState, key: CGKeyCode($0)) }
+        }
+        if native { logger.notice("secure_input changed blocked=\(blocked, privacy: .public)") }
+        advertise(); onChange?()
+        return blocked
+    }
     func receive(_ packet: MousePacket, from sender: String, now: Date = Date()) {
         guard sender == peer, (try? packet.validate()) != nil else { return }
         if packet.kind == .layout {
@@ -238,6 +263,8 @@ final class MouseSharing {
         }
         if packet.kind == .availability {
             remoteEnabled = packet.enabled == true
+            remoteSecureInputBlocked = packet.secureInputActive == true
+            if remoteSecureInputBlocked && active { endSession(notify: false, reason: .secureInput, byPeer: true) }
             let wasKeyboardEnabled = remoteKeyboardEnabled
             remoteKeyboardEnabled = keyboardSupported && packet.keyboardEnabled == true
             if wasKeyboardEnabled && !remoteKeyboardEnabled { endSession(reason: .disabled, byPeer: true) }
@@ -245,7 +272,10 @@ final class MouseSharing {
             onChange?(); return
         }
         if packet.kind == .enter {
-            guard enabled, remoteEnabled, mode == .local, now >= cooldown, !secureInputEnabled(),
+            if observeSecureInput() {
+                emit(MousePacket(kind: .leave, token: packet.token, endReason: MouseEndReason.secureInput.rawValue)); return
+            }
+            guard enabled, remoteEnabled, mode == .local, now >= cooldown,
                   let side = packet.side, let fraction = packet.fraction,
                   let (point, rect) = ScreenGeometry.entry(side: side, fraction: fraction, displays: displays()) else {
                 emit(MousePacket(kind: .deny, token: packet.token)); return
@@ -259,7 +289,7 @@ final class MouseSharing {
             emit(MousePacket(kind: .accepted, token: token)); onChange?(); return
         }
         guard let token, token == packet.token, enabled else { return }
-        if secureInputEnabled() { endSession(reason: .secureInput); return }
+        if observeSecureInput() { endSession(reason: .secureInput); return }
         lastHeard = now
         switch packet.kind {
         case .accepted:
@@ -284,7 +314,7 @@ final class MouseSharing {
     // Return true only while local mouse events must be suppressed.
     func localMove(point: CGPoint, dx: Double, dy: Double, flags: UInt64 = 0, buttonsDown: Bool = false, now: Date = Date()) -> Bool {
         guard enabled else { return false }
-        if active && secureInputEnabled() { endSession(reason: .secureInput); return false }
+        if observeSecureInput() { endSession(reason: .secureInput); return false }
         if mode == .receiving {
             // A position-only event is not evidence of local input. In particular,
             // it must not undo a newly accepted handoff with no physical motion.
@@ -306,7 +336,7 @@ final class MouseSharing {
             if abs(point.x - edge) > 8 || buttonsDown { endSession(reason: .handoffCancelled) }
             return false
         }
-        guard mode == .local, remoteEnabled, peer != nil, !buttonsDown, localHeldKeys.isEmpty, flags == 0, now >= cooldown, !secureInputEnabled(),
+        guard mode == .local, remoteEnabled, !remoteSecureInputBlocked, peer != nil, !buttonsDown, localHeldKeys.isEmpty, flags == 0, now >= cooldown,
               let rect = ScreenGeometry.exit(at: point, deltaX: dx, side: side, displays: displays()) else {
             if edgeSince != nil { onEdgeProgress?(nil, side, 0) }
             edgeSince = nil; return false
@@ -334,7 +364,7 @@ final class MouseSharing {
         if mode == .receiving || mode == .requesting { endSession(reason: .localScroll); return false }
         guard mode == .controlling, gesturesSupported, remoteEnabled, let token,
               let peer, let sendGesture else { return false }
-        if secureInputEnabled() { endSession(reason: .secureInput); return false }
+        if observeSecureInput() { endSession(reason: .secureInput); return false }
         // Once a swipe belongs to the remote Mac, malformed sequence updates
         // must not leak into the source Dock. Ignore them but keep ownership.
         guard packet.phase == 1 ? sentGesture == nil : sentGesture?.axis == packet.axis else { return sentGesture != nil }
@@ -353,7 +383,7 @@ final class MouseSharing {
     func receiveGesture(_ packet: DockSwipePacket, from sender: String, now: Date = Date()) {
         guard enabled, remoteEnabled, gesturesSupported, mode == .receiving,
               sender == peer, packet.token == token, (try? packet.validate()) != nil else { return }
-        if secureInputEnabled() { endSession(reason: .secureInput); return }
+        if observeSecureInput() { endSession(reason: .secureInput); return }
         guard packet.phase == 1 ? receivedGesture == nil : receivedGesture?.axis == packet.axis else { return }
         lastHeard = now
         if native, packet.phase == 1 || packet.isTerminal {
@@ -376,7 +406,7 @@ final class MouseSharing {
         guard enabled, (0...127).contains(keyCode) else { return false }
         if mode == .local, edgeSince != nil { edgeSince = nil; onEdgeProgress?(nil, side, 0) }
         if action == .down, keyCode == 53, flags & 0xC0000 == 0xC0000 { emergencyStop(); return true }
-        if secureInputEnabled() { endSession(reason: .secureInput); return false }
+        if observeSecureInput() { endSession(reason: .secureInput); return false }
         switch action {
         case .down: localHeldKeys.insert(keyCode)
         case .up: localHeldKeys.remove(keyCode)
@@ -403,7 +433,7 @@ final class MouseSharing {
     func receiveKeyboard(_ packet: KeyboardPacket, from sender: String, now: Date = Date()) {
         guard sender == peer, keyboardActive, mode == .receiving, packet.token == token,
               (try? packet.validate()) != nil else { return }
-        if secureInputEnabled() { endSession(reason: .secureInput); return }
+        if observeSecureInput() { endSession(reason: .secureInput); return }
         lastHeard = now
         switch packet.action {
         case .down:
@@ -431,13 +461,14 @@ final class MouseSharing {
             lastPermissionCheck = now
             if enabled && !Self.permissionsGranted { emergencyStop(); return }
         }
+        let secure = observeSecureInput()
+        if secure && active { endSession(reason: .secureInput); return }
         guard active else { return }
         // Heartbeats prove liveness, not progress of an interactive Dock swipe.
         // Bound a missing ended/cancelled event so its animation cannot stay open.
         if receivedGesture != nil, let lastGestureHeard, now.timeIntervalSince(lastGestureHeard) > 8 {
             endSession(reason: .timeout); return
         }
-        if secureInputEnabled() { endSession(reason: .secureInput); return }
         if now.timeIntervalSince(lastHeard) > (mode == .requesting ? 1 : 2) { endSession(reason: .timeout); return }
         flushMove()
         if now.timeIntervalSince(lastBeat) >= 0.5 {
@@ -446,13 +477,17 @@ final class MouseSharing {
     }
     private func flushMove(force: Bool = false) {
         guard mode == .controlling, force || movesInFlight == 0, pendingX != 0 || pendingY != 0 else { return }
+        if observeSecureInput() { endSession(reason: .secureInput); return }
         let dx = pendingX, dy = pendingY; pendingX = 0; pendingY = 0
         sentMoves += 1
         movesInFlight += 1
         let session = token
-        emit(MousePacket(kind: .input, token: token, action: .move, dx: dx, dy: dy, flags: pendingFlags)) { [weak self] _ in
+        emit(MousePacket(kind: .input, token: token, action: .move, dx: dx, dy: dy, flags: pendingFlags)) { [weak self] success in
             guard let self, self.token == session else { return }
             self.movesInFlight = max(0, self.movesInFlight - 1)
+            // Drain accumulated motion as soon as the socket accepts input.
+            // Waiting for the next display-rate tick adds avoidable latency.
+            if success { self.flushMove() }
         }
     }
     private func apply(_ packet: MousePacket, now: Date) {

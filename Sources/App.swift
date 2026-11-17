@@ -933,6 +933,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let capablePeer = ConnectedPeer(device: "gesture-peer", name: "Gesture fixture", connection: UUID(), features: Set(SharingFeature.supported))
         updateFeaturePeer([capablePeer])
         require(gestureHint.stringValue.contains("조작하는 Mac"), "gesture guidance identifies which Mac supplies finger-count settings")
+        try? mouse.setEnabled(true)
+        mouse.secureInputEnabled = { true }; mouse.tick(); updateSharingUI()
+        require(mouseHint.stringValue.contains("이 Mac의 보안 입력") && mouseToggle.state == .on,
+                "secure-input pause is visible without clearing the sharing choice")
+        mouse.secureInputEnabled = { false }; mouse.tick(); updateSharingUI()
+        mouse.receive(MousePacket(kind: .availability, enabled: true, secureInputActive: true), from: "gesture-peer")
+        updateSharingUI()
+        require(mouseHint.stringValue.contains("상대 Mac의 보안 입력"), "remote secure-input pause identifies the blocked Mac")
+        mouse.receive(MousePacket(kind: .availability, enabled: true, secureInputActive: false), from: "gesture-peer")
+        updateSharingUI()
+        require(!mouseHint.stringValue.contains("보안 입력"), "cleared secure input restores normal sharing guidance")
         updateFeaturePeer([])
         showSettings(); require(!settingsContent.isHidden && sharingContent.isHidden && statusSummary.isHidden, "settings focus on preferences without duplicating sharing controls")
         require(window.frame.height < 760, "settings remain a compact scrollable window")
@@ -1209,6 +1220,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         else if !supportsMouse { mouseHint.stringValue = "연결하면 커서와 키보드를 함께 사용할 수 있어요." }
         else if !mouse.enabled { mouseHint.stringValue = mouseSetupError ?? (mouse.keyboardSupported ? "양쪽에서 켠 뒤 화면 가장자리로 이동하세요." : "상대 Mac을 업데이트하면 키보드도 공유해요.") }
+        else if let pause = mouse.inputPauseMessage { mouseHint.stringValue = pause }
         else if !mouse.remoteEnabled { mouseHint.stringValue = "이 Mac은 준비됐어요. 상대 Mac에서도 마우스 공유를 켜주세요." }
         else {
             mouseHint.stringValue = mouse.gesturesSupported ? "사용 중 · 화면 가장자리로 이동 · 3·4손가락 쓸어넘기기 베타" : "사용 중 · 화면 가장자리로 밀어 이동하세요."

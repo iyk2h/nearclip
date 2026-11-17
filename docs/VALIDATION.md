@@ -1,5 +1,9 @@
 # Validation
 
+## 0.4.4 build 30 — November 17, 2026
+
+The final regression suite passed 603 checks. The packaged app passed 51 lifecycle checks and the encrypted network smoke test. Fixed signing identity, prompt-free Keychain access, and updater tamper rejection passed. Both architectures compiled; runtime checks used Apple Silicon. [Build 30 review](REVIEW-BUILD30.md) records the secure-input interruption, re-entry fix, local processing benchmark, and physical limits. The suite covers input order, secure-input recovery, stale completions, encryption, file transfer, clipboard behavior, and network recovery.
+
 ## 0.4.4 build 29 — November 16, 2026
 
 The final regression suite passed 583 checks. The packaged app passed 48 lifecycle checks and the network smoke test. Update identity and prompt-free Keychain checks passed. Modified updater and host test copies were rejected. Both architectures compiled, but runtime checks used Apple Silicon. [Build 29 review](REVIEW-BUILD29.md) records the direction and initial-route findings, test coverage, and remaining physical checks.

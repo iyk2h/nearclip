@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.4 build 30 — 2026-11-17
+
+- Show which Mac has Secure Event Input active. Keep the sharing choice and clear the pause after protected input ends.
+- Reconcile held keys after secure input. A missed key release no longer leaves screen-edge entry blocked.
+- Send accumulated mouse movement when the transport becomes writable, without waiting for another timer tick.
+- Validate received feature packets without encoding them again. Packet size, content, and authentication checks remain in place.
+- These changes reduce avoidable application work. They do not establish that the observed network latency spikes are resolved.
+
 ## 0.4.4 build 29 — 2026-11-16
 
 - Horizontal gestures on macOS 27 use its posting direction and local natural-scroll preference. Vertical gestures keep their existing direction.

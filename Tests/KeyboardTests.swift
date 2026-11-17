@@ -84,7 +84,28 @@ func keyboardSharingTests() throws {
     b.secureInputEnabled = { true }; b.tick(now: now); try pump()
     try Check.that(a.mode == .local && b.mode == .local && released == [1] && a.lastEndReason == .secureInput,
                    "secure input stops control and releases held keys without bypassing macOS protection")
-    b.secureInputEnabled = { false }; _ = a.localKey(action: .up, keyCode: 1)
+    try Check.that(b.secureInputBlocked && a.remoteSecureInputBlocked && a.inputPauseMessage?.contains("상대 Mac") == true,
+                   "secure-input interruption identifies the blocked Mac without clearing consent")
+    try Check.that(a.enabled && b.enabled, "secure-input pause keeps both sharing choices enabled")
+    now = now.addingTimeInterval(3)
+    _ = a.localMove(point: CGPoint(x: 999, y: 300), dx: 2, dy: 0, now: now)
+    _ = a.localMove(point: CGPoint(x: 999, y: 300), dx: 2, dy: 0, now: now.addingTimeInterval(0.2))
+    try Check.that(a.mode == .local, "known secure-input peer does not receive repeated handoff requests")
+    b.secureInputEnabled = { false }; b.tick(now: now); try pump()
+    try Check.that(!a.remoteSecureInputBlocked && b.inputPauseMessage == nil && a.inputPauseMessage == nil,
+                   "idle polling clears both pause messages when secure input ends")
+    _ = a.localKey(action: .up, keyCode: 1)
+    try enter()
+    try Check.that(a.mode == .controlling && b.mode == .receiving, "handoff resumes after secure input without restarting either app")
+    a.endSession(); try pump()
+    _ = a.localKey(action: .down, keyCode: 12)
+    a.secureInputEnabled = { true }; a.tick(now: now); try pump()
+    _ = a.localKey(action: .up, keyCode: 12) // suppressed while secure input owns keyboard events
+    a.secureInputEnabled = { false }; a.tick(now: now); try pump()
+    try enter()
+    try Check.that(a.mode == .controlling && b.mode == .receiving, "key-up hidden during secure input cannot leave re-entry permanently blocked")
+    a.endSession(); try pump()
+
     a.setPeer("B", savedLayout: a.layout, supportsKeyboard: false)
     b.setPeer("A", savedLayout: b.layout, supportsKeyboard: false)
     try pump(); try enter()

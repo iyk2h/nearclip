@@ -31,6 +31,17 @@ Guest Wi-Fi, client isolation, some VPNs, and firewalls can block traffic betwee
 
 NearClip skips clipboard entries marked as confidential or transient by their source app. It also skips file references and images over its limits. Transfer errors appear in the status panel.
 
+## Mouse entry stops after switching desktops
+
+Read the mouse-sharing status. A desktop can contain an app that enables macOS Secure Event Input. NearClip pauses input sharing while that protection is active.
+
+1. On the Mac named in the pause message, finish protected input directly.
+2. Leave the password field or return to an app that does not use secure input.
+3. Wait for the pause message to clear.
+4. Move the cursor to the screen edge again.
+
+Build 30 retains your sharing choice and checks for recovery while idle. It also clears stale key state after hidden key-release events. Do not reset permissions or disable system protection for this condition.
+
 ## Connection fails after sleep or a network change
 
 NearClip tries to reconnect after wake. If the saved address is no longer valid and discovery is blocked, pair again with the current address. The menu-bar command **Find connection again (`연결 다시 찾기`)** restarts networking without opening new pairing.
