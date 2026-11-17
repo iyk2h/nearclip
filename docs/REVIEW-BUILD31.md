@@ -24,4 +24,16 @@ The regression suite passed 632 checks. The packaged app passed 51 lifecycle che
 
 Earlier build 30 logs varied from about 99 ms to 320 ms RTT p95. That variability prevents a reliable speed claim from a short before-and-after sample.
 
-Use the [input measurement procedure](INPUT-PERFORMANCE.md) after both Macs update. Measure continuous motion and the same movement during a file transfer in each direction. Physical smoothness and end-to-end latency remain unverified for this build.
+Use the [input measurement procedure](INPUT-PERFORMANCE.md) after both Macs update. Measure continuous motion and the same movement during a file transfer in each direction. The follow-up below records a physical timing test. A controlled before-and-after smoothness or end-to-end latency comparison remains incomplete.
+
+## Physical follow-up
+
+The local app displayed build 31 after the public update. Its executable matched the release package and passed strict signature verification. Pairing and the enabled sharing choice remained in place. Input reconnected in 246 ms.
+
+The user reported both Macs on build 31 and completed a continuous-motion test. The local Mac received control for 19.1 seconds and applied 539 movement packets. The session ended at the return edge. Source interval p95 was 17 ms. Arrival interval p95 reached 41–54 ms. Excess interval p95 reached 11–25 ms. The diagnostic counted 82 close-spaced arrivals during this session. Local timer delay reached 46 ms.
+
+A second session lasted 12.4 seconds and applied 287 movement packets. Source interval p95 was 20–23 ms, arrival p95 was 35 ms, and excess p95 was 10–12 ms. Local timer delay reached 1 ms. This session also ended at the return edge.
+
+These measurements confirm delivery variation after source submission. They do not identify its exact network or scheduling cause. Reduced callback work has been verified; a physical speed improvement has not been established. Input RTT p95 during these tests was about 86–111 ms.
+
+An earlier build 30 session also logged a 6.6-second local timer stall. That separate stall remains unexplained. It prevents attributing all observed pauses to Wi-Fi.
