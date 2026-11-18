@@ -20,7 +20,7 @@ Copy on one Mac. Paste on the other. NearClip is a free, ad-free app that connec
 | --- | --- |
 | Share a screenshot | Press **⌃⇧⌘4**, select an area, then paste on the other Mac. |
 | Use one mouse and keyboard | Enable **Mouse & Keyboard** on both Macs and grant the requested permissions. In **Screen Layout**, drag the screens to match your desk. Push the pointer across the shared edge and type. Press **⌃⌥Esc** to stop. |
-| Send a file | Click **Send File**. The recipient chooses where to save it. Send one file up to 2 GiB at a time. Compress folders first. |
+| Send a file | Click **Send File**. The recipient chooses where to save it. With build 37 on both Macs and input sharing enabled, you can also drag a Finder file across the shared edge and release it over a Finder folder or the desktop. Confirm the first save on the receiving Mac. To allow future drops in the same folder until disconnect, select the checkbox in the save dialog. Send one regular file up to 2 GiB at a time. |
 | Change the language | In build 36 and later, open **Settings → Language**, choose English or Korean, then quit and reopen NearClip. English is the default. |
 | Update NearClip | Choose **Check for Updates** from the menu bar on each Mac. Install the update and relaunch. |
 

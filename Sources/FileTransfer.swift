@@ -2,27 +2,46 @@ import Foundation
 import CryptoKit
 import Darwin
 
+// Keep the chosen directory open so a later rename or symlink cannot redirect a drop.
+final class ReceiveDirectory {
+    let fd: Int32
+    init(_ url: URL) throws {
+        fd = open(url.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        guard fd >= 0 else { throw ClipError.invalid(ui("Couldn’t save to this folder.")) }
+    }
+    deinit { close(fd) }
+    func matches(_ url: URL) -> Bool {
+        var chosen = stat(), current = stat()
+        return fstat(fd, &chosen) == 0 && stat(url.path, &current) == 0 &&
+            chosen.st_dev == current.st_dev && chosen.st_ino == current.st_ino
+    }
+}
+
 // Created only after the recipient chooses a path. No sender path is ever used.
 final class ReceivedFile {
     let destination: URL
-    private let temporary: URL
+    private let directory: ReceiveDirectory
+    private let temporary: String
     private let handle: FileHandle
     private var committed = false
     private(set) var count: Int64 = 0
     private var hash = SHA256()
-    init(destination: URL) throws {
+    init(destination: URL, directory approved: ReceiveDirectory? = nil) throws {
         guard destination.isFileURL, FilePacket.safeName(destination.lastPathComponent) else { throw ClipError.invalid(ui("Choose a valid filename.")) }
+        let parent = destination.deletingLastPathComponent()
+        directory = try approved ?? ReceiveDirectory(parent)
+        guard directory.matches(parent) else { throw ClipError.invalid(ui("Couldn’t save to this folder.")) }
         var existing = stat()
-        guard lstat(destination.path, &existing) != 0 && errno == ENOENT else {
+        guard fstatat(directory.fd, destination.lastPathComponent, &existing, AT_SYMLINK_NOFOLLOW) != 0 && errno == ENOENT else {
             throw ClipError.invalid(ui("The name is taken or the folder is unavailable. Choose another name or location."))
         }
         self.destination = destination
-        temporary = destination.deletingLastPathComponent().appendingPathComponent(".nearclip-" + UUID().uuidString + ".part")
-        let fd = open(temporary.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
+        temporary = ".nearclip-" + UUID().uuidString + ".part"
+        let fd = openat(directory.fd, temporary, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
         guard fd >= 0 else { throw ClipError.invalid(ui("Couldn’t save to this folder.")) }
         handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
     }
-    deinit { try? handle.close(); if !committed { try? FileManager.default.removeItem(at: temporary) } }
+    deinit { try? handle.close(); if !committed { _ = unlinkat(directory.fd, temporary, 0) } }
     func append(_ data: Data, offset: Int64, size: Int64) throws {
         guard offset == count, !data.isEmpty, data.count <= FilePacket.chunkSize, count + Int64(data.count) <= size else { throw ClipError.invalid(ui("Unexpected file size or transfer order.")) }
         try handle.write(contentsOf: data); hash.update(data: data); count += Int64(data.count)
@@ -35,8 +54,8 @@ final class ReceivedFile {
         guard marked == 0, fchmod(handle.fileDescriptor, S_IRUSR | S_IWUSR) == 0 else { throw ClipError.invalid(ui("Couldn’t apply the file’s security attributes.")) }
         try handle.synchronize()
         // A hard link creates the final name atomically and fails if any item already exists.
-        guard link(temporary.path, destination.path) == 0 else { throw ClipError.invalid(errno == EEXIST ? ui("A file with this name already exists. Choose another name.") : ui("Couldn’t save the file safely here. Choose another folder.")) }
-        try? handle.close(); try? FileManager.default.removeItem(at: temporary); committed = true
+        guard linkat(directory.fd, temporary, directory.fd, destination.lastPathComponent, 0) == 0 else { throw ClipError.invalid(errno == EEXIST ? ui("A file with this name already exists. Choose another name.") : ui("Couldn’t save the file safely here. Choose another folder.")) }
+        try? handle.close(); _ = unlinkat(directory.fd, temporary, 0); committed = true
     }
 }
 
@@ -49,7 +68,7 @@ final class FileTransferWorker {
         var offset: Int64 = 0
         var awaitingAck = false
         var finishing = false
-        init(url: URL, peer: String) throws {
+        init(url: URL, peer: String, id: UUID) throws {
             let fd = open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
             guard fd >= 0 else { throw ClipError.invalid(ui("Couldn’t open the file.")) }
             let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
@@ -59,7 +78,7 @@ final class FileTransferWorker {
                 try? handle.close(); throw ClipError.invalid(ui("Send one regular file up to 2 GiB. Compress folders first."))
             }
             self.handle = handle; self.peer = peer
-            offer = FilePacket(kind: .offer, id: UUID(), name: url.lastPathComponent, size: info.st_size)
+            offer = FilePacket(kind: .offer, id: id, name: url.lastPathComponent, size: info.st_size)
         }
         deinit { try? handle.close() }
     }
@@ -81,16 +100,16 @@ final class FileTransferWorker {
     var activeID: UUID? { outgoing?.offer.id ?? incoming?.offer.id }
     private var peer: String? { outgoing?.peer ?? incoming?.peer }
     func stop() { cancel() }
-    func offer(url: URL, to peer: String) throws {
+    func offer(url: URL, to peer: String, id: UUID = UUID()) throws {
         guard !busy else { throw ClipError.invalid(ui("Finish or cancel the current file transfer first.")) }
-        let job = try Outgoing(url: url, peer: peer); outgoing = job; updated = Date()
+        let job = try Outgoing(url: url, peer: peer, id: id); outgoing = job; updated = Date()
         status(ui("Waiting for the recipient · ") + (job.offer.name ?? ui("File")))
         emit(job.offer, to: peer)
     }
-    func accept(id: UUID, destination: URL) {
+    func accept(id: UUID, destination: URL, directory: ReceiveDirectory? = nil) {
         guard let job = incoming, job.offer.id == id, job.writer == nil else { return }
         do {
-            job.writer = try ReceivedFile(destination: destination); updated = Date()
+            job.writer = try ReceivedFile(destination: destination, directory: directory); updated = Date()
             status(ui("Receiving · ") + (job.offer.name ?? ui("File")), progress: 0)
             emit(FilePacket(kind: .accept, id: id), to: job.peer)
         } catch { fail(error.localizedDescription) }
@@ -211,11 +230,11 @@ final class FileTransfer {
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.checkTimeout() }
         self.timer = timer; RunLoop.main.add(timer, forMode: .common)
     }
-    func offer(url: URL, to peer: String) throws {
+    func offer(url: URL, to peer: String, id: UUID = UUID()) throws {
         guard !busy else { throw ClipError.invalid(ui("Finish the current file transfer first.")) }
         busy = true; onStatus?(ui("Preparing file…"), nil, true)
         queue.async { [self] in
-            do { try worker.offer(url: url, to: peer) }
+            do { try worker.offer(url: url, to: peer, id: id) }
             catch { worker.onStatus?(error.localizedDescription, nil, worker.busy) }
         }
     }
@@ -228,7 +247,7 @@ final class FileTransfer {
             DispatchQueue.main.async { [weak self] in self?.pendingPackets -= 1 }
         }
     }
-    func accept(id: UUID, destination: URL) { queue.async { [self] in worker.accept(id: id, destination: destination) } }
+    func accept(id: UUID, destination: URL, directory: ReceiveDirectory? = nil) { queue.async { [self] in worker.accept(id: id, destination: destination, directory: directory) } }
     func decline(id: UUID) { queue.async { [self] in worker.decline(id: id) } }
     func cancel() { queue.async { [self] in worker.cancel() } }
     func disconnected() { queue.async { [self] in worker.disconnected() } }

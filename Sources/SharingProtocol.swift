@@ -14,6 +14,7 @@ struct ConnectedPeer {
 
 enum SharingFeature {
     static let files = "files-v1"
+    static let fileDrag = "finder-drag-v1"
     static let mouse = "mouse-v1"
     static let keyboard = "keyboard-v1"
     static let gestures = "dock-swipe-v1"
@@ -21,7 +22,7 @@ enum SharingFeature {
     static let inputRecovery = "input-recovery-v1"
     static let inputMetrics = "input-metrics-v1"
     static let inputDiagnostics = "input-diagnostics-v1"
-    static let supported = [files, mouse, keyboard, inputChannel, inputRecovery, inputMetrics, inputDiagnostics] + (DockSwipeAdapter.available ? [gestures] : [])
+    static let supported = [files, mouse, keyboard, inputChannel, inputRecovery, inputMetrics, inputDiagnostics] + (DockSwipeAdapter.available ? [gestures] : []) + [fileDrag]
     static let maxPacket = 128 * 1024
 }
 
@@ -124,7 +125,7 @@ enum MouseEndReason: String {
 }
 
 struct MousePacket: Codable {
-    enum Kind: String, Codable { case availability, layout, enter, accepted, input, leave, heartbeat, deny }
+    enum Kind: String, Codable { case availability, layout, enter, accepted, input, leave, heartbeat, deny, dropFile, dropReady }
     enum Action: String, Codable { case move, down, up, scroll }
     let kind: Kind
     var token: UUID? = nil
@@ -144,8 +145,10 @@ struct MousePacket: Codable {
     var scrollPhase: Int? = nil
     var momentumPhase: Int? = nil
     var secureInputActive: Bool? = nil
+    var draggedFileName: String? = nil
     var motionSentAt: Double? = nil
     func validate() throws {
+        if let draggedFileName, kind != .enter || !FilePacket.safeName(draggedFileName) { throw ClipError.invalid(ui("Invalid file message.")) }
         if let motionSentAt {
             guard kind == .input, action == .move, motionSentAt.isFinite, motionSentAt >= 0 else { throw ClipError.invalid(ui("Invalid movement timestamp.")) }
         }

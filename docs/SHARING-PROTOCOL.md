@@ -30,7 +30,7 @@ The encrypted `ready` envelope adds an optional `features` array:
 
 A peer without these capabilities continues to exchange clipboard messages. Never send a feature packet unless the authenticated peer advertised that capability. Missing features mean unsupported, not implicit consent.
 
-A `feature` envelope has a Base64 `data` field. Its decoded value is UTF-8 JSON with exactly one key: `file`, `mouse`, or `keyboard`. Feature JSON is limited to 128 KiB. The transport queues at most 32 feature packets. File I/O accepts at most eight queued packets and cancels an overloaded transfer.
+A `feature` envelope has a Base64 `data` field. Its decoded value is UTF-8 JSON with one payload field named `file`, `mouse`, `keyboard`, or `gesture`. Feature JSON is limited to 128 KiB. The transport queues at most 32 feature packets. File I/O accepts at most eight queued packets and cancels an overloaded transfer.
 
 ## File transfer
 
@@ -53,6 +53,16 @@ The recipient chooses the complete destination path. Sender names cannot contain
 The macOS adapter creates a private, exclusive temporary file in the destination directory, writes and verifies it, adds quarantine metadata, and atomically creates the destination without replacing an existing path. It requires a filesystem that supports hard links and extended attributes. It does not restore executable bits or open received files. Cancel/failure removes the partial file during normal operation. An abrupt process crash can leave a private `.nearclip-*.part` file.
 
 Windows needs an equivalent exclusive commit, reserved-name checks, and attachment security metadata such as Mark of the Web. Do not silently weaken these checks to make a transfer succeed.
+
+## Cross-screen file drag (build 37 candidate)
+
+Both peers must advertise `finder-drag-v1`, `mouse-v1`, and `files-v1` and enable input sharing. The capability name is a wire identifier. A Windows Explorer adapter can use the same messages.
+
+1. When one regular file crosses the shared edge, the sender includes its basename in `mouse.enter.draggedFileName`. The receiver accepts the input session and displays the name beside the pointer.
+2. On release, the sender flushes pending motion and sends `dropFile` with the active input token. The receiver resolves the drop position locally and replies with `dropReady` for that token. Escape before release cancels the handoff.
+3. After the matching acknowledgement, the sender issues a normal file offer on the bulk channel, using the input token as the transfer ID. The recipient approves the destination, or reuses an explicit approval for that folder on this connection. If the destination cannot be identified, the recipient chooses it in the save dialog.
+
+Only the basename crosses the network during the drag. Each platform handles its own drag session, resolves its own destination directory, and creates the copy under its own filesystem rules. Older peers can still use **Send File**.
 
 ## Shared screen layout
 

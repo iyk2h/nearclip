@@ -35,7 +35,9 @@
 "Choose Connect next to the other Mac, then compare the codes." = "상대 Mac의 ‘연결’을 누른 뒤, 양쪽의 6자리 숫자를 확인하세요.";
 "Choose a File to Send" = "보낼 파일 선택";
 "Choose a different device to connect." = "같은 기기에는 연결하지 않아요.";
-"Choose a file. The other Mac chooses where to save it." = "파일 하나를 선택하면 상대가 저장 위치를 정해요.";
+"Send a file, or drag it across the shared screen edge in Finder." = "파일을 선택하거나 Finder에서 두 화면이 맞닿는 가장자리로 끌어보세요.";
+"Allow drops into this folder until disconnect" = "연결이 끊길 때까지 이 폴더에 드롭 허용";
+"Copy to Mac" = "다른 Mac에 복사";
 "Choose a valid filename." = "저장할 파일 이름을 확인해 주세요.";
 "Choose what happens each time you close the window." = "창을 닫을 때 실행 여부를 물어봐요.";
 "Clipboard" = "클립보드";

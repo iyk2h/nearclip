@@ -480,7 +480,7 @@ final class PeerLink {
                 peerOSMajor = major
             }
             if let clock = message.clock { onClock?(clock) }
-            features = Set((message.features ?? []).prefix(8)).intersection(advertisedFeatures)
+            features = Set((message.features ?? []).prefix(16)).intersection(advertisedFeatures)
             logger.notice("input_capabilities input_only=\(self.inputOnly, privacy: .public) gesture_local=\(self.advertisedFeatures.contains(SharingFeature.gestures), privacy: .public) gesture_peer=\((message.features ?? []).contains(SharingFeature.gestures), privacy: .public) gesture_ready=\(self.features.contains(SharingFeature.gestures), privacy: .public) os_major=\(DockSwipeAdapter.systemMajor, privacy: .public) reported_major=\(ProcessInfo.processInfo.operatingSystemVersion.majorVersion, privacy: .public) peer_os_major=\(message.osMajor ?? 0, privacy: .public)")
             authenticated = true
             handshakeStage = .ready

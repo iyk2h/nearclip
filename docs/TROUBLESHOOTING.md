@@ -64,6 +64,12 @@ Leave the receiving Mac's mouse, trackpad, and keyboard untouched. Push the cont
 
 The immediate-return report still requires a physical two-Mac retest. A passing automated test does not establish that Apple Universal Control caused the report.
 
+## A Finder drag stays on the first Mac
+
+Use build 37 or later on both Macs. Turn on **Mouse & Keyboard** on both and check that **Screen Layout** matches your desk. Drag one regular file to the shared edge. Keep the button down until the filename appears beside the pointer on the other screen, then release it over a Finder folder or the desktop. Escape cancels the drag.
+
+If Finder does not expose a folder at the drop point, NearClip opens the normal save dialog. You can choose another destination there. The optional folder approval lasts until you pause sharing or disconnect. **Send File** also works with older versions.
+
 ## File transfer fails
 
 Use Send File, then choose a destination on the recipient. Finder Copy does not send files automatically. Send one regular file up to 2 GiB; compress folders first. Symbolic links are not sent.

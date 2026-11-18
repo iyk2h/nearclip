@@ -89,6 +89,19 @@ func fileTransferTests() throws {
     let folder = try testFolder(); defer { try? FileManager.default.removeItem(at: folder) }
     let source = folder.appendingPathComponent("source.bin"), destination = folder.appendingPathComponent("received.bin")
     let data = Data((0..<300_123).map { UInt8($0 % 251) }); try data.write(to: source)
+    let board = NSPasteboard.withUniqueName()
+    defer { board.releaseGlobally() }
+    board.writeObjects([source as NSURL])
+    try Check.that(FinderFileDrop.fileURL(from: board)?.path == source.path, "read one native Finder file URL")
+    board.clearContents(); board.writeObjects([source as NSURL, destination as NSURL])
+    try Check.that(FinderFileDrop.fileURL(from: board) == nil, "reject multiple files without sending a partial selection")
+    board.clearContents(); board.setString(source.path, forType: .string)
+    try Check.that(FinderFileDrop.fileURL(from: board) == nil, "plain text paths are not Finder drags")
+    let pinned = try ReceiveDirectory(folder)
+    let alternate = try testFolder(); defer { try? FileManager.default.removeItem(at: alternate) }
+    try Check.rejects("drop approval cannot address a different folder") {
+        _ = try ReceivedFile(destination: alternate.appendingPathComponent("wrong.txt"), directory: pinned)
+    }
     let a = FileTransferWorker(), b = FileTransferWorker()
     defer { a.stop(); b.stop(); a.send = nil; b.send = nil }
     var queue: [(Bool, FilePacket)] = []
@@ -192,6 +205,28 @@ func mouseSharingTests() throws {
     b.receive(MousePacket(kind: .enter, token: denied, side: .left, fraction: 0.5), from: "A", now: now)
     try Check.that(b.mode == .local, "pairing alone cannot authorize mouse control"); pump()
     try a.setEnabled(true); try b.setEnabled(true); pump()
+    let edge = CGPoint(x: 999, y: 300)
+    try Check.that(!a.startFileDrag(named: "photo.png", at: edge, now: now), "no file drag with a legacy peer")
+    a.setPeer("B", savedLayout: original, supportsFileDrag: true)
+    b.setPeer("A", savedLayout: original, supportsFileDrag: true)
+    try a.setEnabled(true); try b.setEnabled(true); pump()
+    var droppedAt: CGPoint?, acknowledged: UUID?
+    b.onFileDropPosition = { _, point in droppedAt = point }
+    a.onFileDropReady = { acknowledged = $0 }
+    try Check.that(a.startFileDrag(named: "photo.png", at: edge, now: now), "Finder drag starts only at the shared edge")
+    try Check.that(!a.releaseFileDrag(), "early release cannot send a file before acceptance")
+    pump()
+    _ = a.localMove(point: edge, dx: 50, dy: -10, buttonsDown: true, now: now)
+    try Check.that(a.releaseFileDrag() && !a.releaseFileDrag(), "one Finder drop per drag")
+    pump()
+    try Check.that(droppedAt == CGPoint(x: 54, y: 590) && acknowledged.map(b.isReceivingDrop) == true, "final motion precedes the matching received drop acknowledgement")
+    try Check.that(a.mode == .controlling && b.mode == .receiving && a.draggedFileName == nil && b.draggedFileName == nil, "successful drop leaves ordinary pointer control on destination")
+    a.endSession(); pump()
+    now = now.addingTimeInterval(2)
+    acknowledged = nil; droppedAt = nil
+    try Check.that(a.startFileDrag(named: "photo.png", at: edge, now: now), "second Finder drag can start")
+    pump(); _ = a.localKey(action: .down, keyCode: 53, flags: 0); pump()
+    try Check.that(a.mode == .local && b.mode == .local && acknowledged == nil && droppedAt == nil, "Escape cancels before any file offer")
     func enter() throws {
         now = now.addingTimeInterval(2)
         let x: Double = a.side == .right ? 999 : 0
@@ -450,7 +485,7 @@ func featureNetworkTests() throws {
     fb.onOffer = { _, packet in fb.accept(id: packet.id, destination: destination) }
     fa.onComplete = { _ in done = true }
     a.start(); b.start(); waitFor({ a.peerCount == 1 && b.peerCount == 1 })
-    try Check.that(features.contains(SharingFeature.files) && features.contains(SharingFeature.mouse), "authenticated ready negotiates file and mouse capabilities")
+    try Check.that(features.isSuperset(of: [SharingFeature.files, SharingFeature.mouse, SharingFeature.fileDrag]), "authenticated ready negotiates file and mouse capabilities")
     try fa.offer(url: source, to: idB); waitFor({ done }, seconds: 10)
     try Check.that(done && (try Data(contentsOf: destination)) == data, "real encrypted TCP streams files through background I/O workers")
     try Check.that(inputDuringFile && gestureDuringFile, "mouse and gesture input arrive during an 8 MiB streamed file before completion")
@@ -469,6 +504,42 @@ func featureNetworkTests() throws {
     a.sendFeature(FeaturePacket(gesture: DockSwipePacket(token: UUID(), axis: 1, phase: 1, progress: 0.01)), to: idB)
     waitFor({ gestureArrived })
     try Check.that(gestureArrived && features.contains(SharingFeature.gestures), "Dock swipe crosses negotiated encrypted input TCP without posting system input")
+    let sourceMouse = MouseSharing(local: idA, native: false), receiverMouse = MouseSharing(local: idB, native: false)
+    sourceMouse.displays = { [CGRect(x: 0, y: 0, width: 900, height: 600)] }
+    receiverMouse.displays = sourceMouse.displays
+    defer { sourceMouse.stop(); receiverMouse.stop() }
+    sourceMouse.send = { peer, packet, reply in a.sendFeature(FeaturePacket(mouse: packet), to: peer, completion: reply) }
+    receiverMouse.send = { peer, packet, reply in b.sendFeature(FeaturePacket(mouse: packet), to: peer, completion: reply) }
+    a.onFeature = { peer, packet in
+        if let mouse = packet.mouse { sourceMouse.receive(mouse, from: peer) }
+        if let file = packet.file { fa.receive(file, from: peer) }
+    }
+    b.onFeature = { peer, packet in
+        if let mouse = packet.mouse { receiverMouse.receive(mouse, from: peer) }
+        if let file = packet.file { fb.receive(file, from: peer) }
+    }
+    let layout = ScreenLayout(revision: 1, author: idA, left: idA, right: idB)
+    sourceMouse.setPeer(idB, savedLayout: layout, supportsFileDrag: true)
+    receiverMouse.setPeer(idA, savedLayout: layout, supportsFileDrag: true)
+    try sourceMouse.setEnabled(true); try receiverMouse.setEnabled(true)
+    let afterActivationCooldown = Date().addingTimeInterval(0.8)
+    waitFor { sourceMouse.remoteEnabled && receiverMouse.remoteEnabled && Date() >= afterActivationCooldown }
+    done = false
+    let dropped = folder.appendingPathComponent("drop.dat")
+    let approved = try ReceiveDirectory(folder)
+    var dropID: UUID?
+    receiverMouse.onFileDropPosition = { id, _ in dropID = id }
+    sourceMouse.onFileDropReady = { id in try? fa.offer(url: source, to: idB, id: id) }
+    fb.onOffer = { _, offer in
+        guard offer.id == dropID, receiverMouse.isReceivingDrop(offer.id) else { fb.decline(id: offer.id); return }
+        fb.accept(id: offer.id, destination: dropped, directory: approved)
+    }
+    try Check.that(sourceMouse.startFileDrag(named: source.lastPathComponent, at: CGPoint(x: 899, y: 200)), "start a file handoff between two connected clients")
+    waitFor { sourceMouse.mode == .controlling }
+    try Check.that(sourceMouse.releaseFileDrag(), "native release starts the network drop handshake")
+    waitFor({ done }, seconds: 12)
+    try Check.that(done && (try Data(contentsOf: dropped)) == data, "acknowledged input-channel drop delivers the intact file through the separate file channel")
+
 }
 
 func legacyCapabilityTests() throws {

@@ -11,6 +11,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let files = FileTransfer()
     private var mouse: MouseSharing!
     private let edgeIndicator = ControlEdgeIndicator()
+    private lazy var fileEdge = FileEdgePanel()
+    private lazy var fileBadge = DraggedFileBadge()
+    private var draggingFile: (url: URL, connection: UUID)?
+    private var dropCommitted = false
+    private var showingFileEdge = false
+    private var fileDestination: (id: UUID, name: String, folder: URL, date: Date)?
+    private var approvedDropDirectory: ReceiveDirectory?
     private var featurePeer: ConnectedPeer?
     private let peerVersionLabel = NSTextField(wrappingLabelWithString: "")
     private let healthLabel = NSTextField(wrappingLabelWithString: ui("Input latency appears after you connect."))
@@ -37,7 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let arrangementHint = NSTextField(wrappingLabelWithString: ui("Drag the screens to match your desk."))
     private let mouseHint = NSTextField(wrappingLabelWithString: ui("Turn on mouse sharing on both Macs."))
     private let gestureHint = NSTextField(wrappingLabelWithString: "")
-    private let fileLabel = NSTextField(wrappingLabelWithString: ui("Choose a file. The other Mac chooses where to save it."))
+    private let fileLabel = NSTextField(wrappingLabelWithString: ui("Send a file, or drag it across the shared screen edge in Finder."))
     private let fileProgress = NSProgressIndicator()
     private var receivePanel: NSSavePanel?
     private var receivedFile: URL?
@@ -826,7 +833,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     @objc private func toggleSharing() {
         enabled.toggle();
-        if !enabled { mouse?.stop(); files.cancel() }
+        if !enabled { approvedDropDirectory = nil; fileDestination = nil; mouse?.stop(); files.cancel() }
          sync?.enabled = enabled
         if !preview { UserDefaults.standard.set(enabled, forKey: "enabled") }
         refresh()
@@ -1100,6 +1107,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard let transport = self?.transport else { reply(false); return }
             transport.sendFeature(FeaturePacket(keyboard: packet), to: peer, completion: reply)
         }
+        fileEdge.target.enter = { [weak self] url in
+            guard let self, let peer = self.featurePeer, self.enabled, !self.files.busy,
+                  !self.dropCommitted, self.draggingFile == nil,
+                  let point = CGEvent(source: nil)?.location,
+                  let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]),
+                  values.isRegularFile == true, values.isSymbolicLink == false,
+                  let size = values.fileSize, size <= FilePacket.maxSize else { return false }
+            self.draggingFile = (url, peer.connection)
+            if self.mouse.startFileDrag(named: url.lastPathComponent, at: point) { return true }
+            self.draggingFile = nil
+            return false
+        }
+        fileEdge.target.drop = { [weak self] url in
+            guard let self, let drag = self.draggingFile, drag.url == url,
+                  drag.connection == self.featurePeer?.connection else { return false }
+            self.dropCommitted = true
+            if self.mouse.releaseFileDrag() { return true }
+            self.dropCommitted = false
+            return false
+        }
+        fileEdge.target.exit = { [weak self] in
+            guard let self, !self.dropCommitted else { return }
+            if self.draggingFile != nil { self.mouse.endSession(reason: .handoffCancelled) }
+            self.fileEdge.orderOut(nil)
+        }
+        mouse.onFileEdge = { [weak self] point, side in
+            guard let self, !self.headlessDiagnostics, !self.showingFileEdge, !self.fileEdge.isVisible else { return }
+            self.showingFileEdge = true
+            DispatchQueue.main.async {
+                defer { self.showingFileEdge = false }
+                guard self.enabled, !self.files.busy, self.mouse.enabled, self.mouse.remoteEnabled,
+                      self.mouse.mode == .local, self.mouse.side == side, NSEvent.pressedMouseButtons & 1 == 1,
+                      NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.finder" else { return }
+                self.fileEdge.present(at: point, side: side)
+                self.fileEdge.dismissWhenDragEnds()
+            }
+        }
+        mouse.onFileDropPosition = { [weak self] id, point in
+            guard let self else { return }
+            self.fileBadge.orderOut(nil)
+            self.fileDestination = finderFolder(at: point).map { (id, self.mouse.draggedFileName ?? "", $0, Date()) }
+        }
+        mouse.onFileDropReady = { [weak self] id in
+            guard let self, self.dropCommitted, let drag = self.draggingFile, self.enabled,
+                  let peer = self.featurePeer, peer.connection == drag.connection else { return }
+            do { try self.files.offer(url: drag.url, to: peer.device, id: id) }
+            catch { self.alert(error.localizedDescription) }
+        }
+        mouse.onInput = { [weak self] _, point in
+            guard let self, self.mouse.mode == .receiving, let name = self.mouse.draggedFileName else { return }
+            self.fileBadge.show(name, at: point)
+        }
         mouse.onEdgeProgress = { [weak self] point, side, progress in
             guard let self, !self.headlessDiagnostics else { return }
             if let point { self.edgeIndicator.show(at: point, side: side, progress: progress, connected: false) }
@@ -1108,7 +1167,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         mouse.onChange = { [weak self] in
             guard let self else { return }
             if !self.headlessDiagnostics {
-                if self.mouse.active {
+                if self.mouse.mode == .local || (self.dropCommitted && self.mouse.draggedFileName == nil) {
+                    self.draggingFile = nil; self.dropCommitted = false
+                    self.fileEdge.orderOut(nil); self.fileBadge.orderOut(nil)
+                }
+                if self.mouse.mode == .receiving, let name = self.mouse.draggedFileName {
+                    self.fileBadge.show(name, at: self.mouse.indicatorPoint)
+                }
+                if self.mouse.active && self.mouse.draggedFileName == nil {
                     self.edgeIndicator.show(at: self.mouse.indicatorPoint, side: self.mouse.side, progress: 1,
                                             connected: self.mouse.mode != .requesting)
                 } else { self.edgeIndicator.hide() }
@@ -1139,6 +1205,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let parentChanged = previous?.connection != next?.connection
         let inputChanged = parentChanged || previous?.inputReady != next?.inputReady || previous?.inputSession != next?.inputSession
         featurePeer = next
+        if inputChanged { fileDestination = nil; approvedDropDirectory = nil }
         if parentChanged { files.disconnected() }
         if inputChanged {
             inputHealth = nil
@@ -1149,7 +1216,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             if next?.inputReady == true {
                 mouse.setPeer(next?.features.contains(SharingFeature.mouse) == true ? next?.device : nil, savedLayout: saved,
                               supportsKeyboard: next?.features.contains(SharingFeature.keyboard) == true,
-                              supportsGestures: next?.features.contains(SharingFeature.gestures) == true)
+                              supportsGestures: next?.features.contains(SharingFeature.gestures) == true,
+                              supportsFileDrag: next?.features.isSuperset(of: [SharingFeature.files, SharingFeature.fileDrag]) == true)
             }
         }
         updateSharingUI()
@@ -1350,13 +1418,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     private func receiveFile(_ offer: FilePacket) {
         guard !preview, enabled, window.attachedSheet == nil else { files.decline(id: offer.id); return }
-        mouse.endSession(); showSharing()
+        let target = fileDestination
+        fileDestination = nil
+        let folder = target.flatMap { mouse.isReceivingDrop(offer.id) && $0.id == offer.id && $0.name == offer.name && Date().timeIntervalSince($0.date) < 5 ? $0.folder : nil }
+        if let folder, let name = offer.name, let approved = approvedDropDirectory, approved.matches(folder) {
+            files.accept(id: offer.id, destination: folder.appendingPathComponent(name), directory: approved)
+            return
+        }
+        let connection = featurePeer?.connection
+        mouse.suspend(.fileApproval); showSharing()
         let panel = NSSavePanel(); panel.title = ui("Receive File"); panel.nameFieldStringValue = offer.name ?? ui("File")
+        let remember = NSButton(checkboxWithTitle: ui("Allow drops into this folder until disconnect"), target: nil, action: nil)
+        if let folder { panel.directoryURL = folder; panel.accessoryView = remember }
         panel.message = ui("From %1$@ · ", "\(featurePeer?.name ?? ui("other Mac"))") + ByteCountFormatter.string(fromByteCount: offer.size ?? 0, countStyle: .file) + ui("\nChoose where to save the file to start the transfer. Existing files are protected.")
         panel.prompt = ui("Receive"); panel.canCreateDirectories = true; receivePanel = panel
         panel.beginSheetModal(for: window) { [weak self] response in
             guard let self else { return }; self.receivePanel = nil
-            if response == .OK, let url = panel.url { self.files.accept(id: offer.id, destination: url) }
+            defer { self.mouse.resume(.fileApproval) }
+            if response == .OK, let url = panel.url, self.enabled, self.featurePeer?.connection == connection, self.files.activeID == offer.id {
+                if folder != nil, remember.state == .on { self.approvedDropDirectory = try? ReceiveDirectory(url.deletingLastPathComponent()) }
+                self.files.accept(id: offer.id, destination: url)
+            }
             else { self.files.decline(id: offer.id) }
         }
     }
