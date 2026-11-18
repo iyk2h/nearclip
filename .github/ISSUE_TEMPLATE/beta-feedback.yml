@@ -1,0 +1,18 @@
+name: Beta feedback
+description: Tell us what worked, where you got stuck, or what you would change.
+body:
+  - type: markdown
+    attributes:
+      value: Write in English or Korean. This report is public. Leave out pairing codes, clipboard contents, and private device or network details.
+  - type: textarea
+    id: experience
+    attributes:
+      label: How did it go?
+      placeholder: For example, the first paste worked, but I had to reopen NearClip after waking my Mac.
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: NearClip build and macOS versions (optional)
+      description: If something went wrong, the versions on both Macs can help us reproduce it.

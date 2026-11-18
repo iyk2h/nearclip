@@ -1,6 +1,6 @@
 # NearClip
 
-Copy on one Mac. Paste on the other. NearClip connects two Macs on the same local network, even if they use different Apple accounts. Move the pointer across the screen edge to keep typing on the other Mac, or send a file and choose where to save it.
+Copy on one Mac. Paste on the other. NearClip is a free, ad-free app that connects two Macs on the same local network, even if they use different Apple accounts. Move the pointer across the screen edge to keep typing on the other Mac, or send a file and choose where to save it.
 
 [**Download NearClip for Mac**](https://github.com/iyk2h/nearclip/releases/download/v0.4.4-build36/NearClip-0.4.4-build36-macOS.dmg) · [Release notes](https://github.com/iyk2h/nearclip/releases) · macOS 13 or later · Apple silicon and Intel
 
@@ -25,5 +25,9 @@ Copy on one Mac. Paste on the other. NearClip connects two Macs on the same loca
 | Update NearClip | Choose **Check for Updates** from the menu bar on each Mac. Install the update and relaunch. |
 
 NearClip sends data directly between paired Macs over an encrypted connection. It keeps no clipboard history. File transfers need the recipient’s approval, and input sharing needs permission on both Macs. Input sharing and [trackpad gestures](docs/GESTURES.md) are beta features.
+
+## Beta feedback
+
+Did your first paste work? Did the Macs reconnect after sleep? [Tell us how it went](https://github.com/iyk2h/nearclip/issues/new?template=beta-feedback.yml). A sentence in English or Korean is enough.
 
 [Troubleshooting](docs/TROUBLESHOOTING.md) · [Security](SECURITY.md) · [Validation](docs/VALIDATION.md) · [Build from source](docs/DEVELOPMENT.md) · [MIT license](LICENSE)
