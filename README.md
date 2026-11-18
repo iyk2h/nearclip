@@ -8,7 +8,11 @@ NearClip is a native macOS menu bar app for two Macs on the same local network. 
 
 > **Experimental public beta.** Version 0.4.4 build 33 is not notarized by Apple. Input sharing remains experimental; the full two-Mac sleep/network test matrix is pending. The interface is Korean; this guide includes the button labels.
 
-![NearClip main screen](docs/connected.png)
+![NearClip walkthrough: connected Macs, clipboard sharing, mouse and keyboard handoff, and file selection](docs/media/nearclip-connected.gif)
+
+[Watch or download the 40-second film with sound](docs/media/nearclip-connected.mp4?raw=true) · [Main screen](docs/connected.png) · [How this demo was made](docs/media/README.md)
+
+*Real app captures, edited into a two-Mac demonstration. Captured from development build 35; the public download above is build 33. This is not a simultaneous two-Mac recording or a speed test.*
 
 ## Install
 
