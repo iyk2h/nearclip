@@ -4,11 +4,9 @@ The [40-second film](nearclip-connected.mp4?raw=true) shows the connection scree
 
 ## Captures and editing
 
-NearClip build 35 and macOS TextEdit were captured on one Mac. The document and selected file contain demo text. Both display views use those captures. Display framing, cursor movement, edge indicators, timing, and transitions were added during editing.
+The NearClip screens come from the English interface in build 36, rendered with sample connection data. The macOS TextEdit and file picker captures use demo content. Both display views were composed on one Mac. The pointer movement, edge indicators, timing, and transitions were added during editing.
 
-This is a product demonstration, not simultaneous footage of two Macs or a latency benchmark. The file picker was cancelled during capture; the film does not document a completed file transfer. The captures include the existing device labels and macOS interface. They contain no pairing secrets or real clipboard content.
-
-Build 35 was a local development build when captured. This media change does not publish that build or change the build 33 download and update feed.
+The file scene ends at selection. For measured input timing, see [Input performance](../INPUT-PERFORMANCE.md).
 
 ## Soundtrack provenance
 

@@ -13,10 +13,10 @@ enum NetworkNotice: Equatable {
     }
     var message: String {
         switch self {
-        case .localNetworkDenied: return "로컬 네트워크 접근이 차단됐어요. 시스템 설정 → 개인정보 보호 및 보안 → 로컬 네트워크에서 NearClip을 허용해 주세요."
-        case .unavailable: return "네트워크 연결을 기다리고 있어요. Wi-Fi 또는 LAN이 돌아오면 자동으로 다시 연결해요."
-        case .recovering: return "연결을 다시 시도하고 있어요. 두 Mac의 네트워크 연결을 확인해 주세요."
-        case .waitingForPeer: return "상대 Mac 연결을 기다리고 있어요. 같은 네트워크에서 상대 NearClip이 실행 중인지 확인해 주세요."
+        case .localNetworkDenied: return ui("Allow NearClip in System Settings → Privacy & Security → Local Network.")
+        case .unavailable: return ui("Waiting for the network. NearClip reconnects when Wi-Fi or Ethernet is available.")
+        case .recovering: return ui("Reconnecting. Check the network on both Macs.")
+        case .waitingForPeer: return ui("Waiting for the other Mac. Open NearClip there and join the same network.")
         }
     }
 }
@@ -31,11 +31,11 @@ final class PeerLink {
         var stage: HandshakeStage? = nil
         var networkError: Int? = nil
         static func decode(_ data: Data, negotiated: Bool, inputOnly: Bool) throws -> Self {
-            guard negotiated, !inputOnly, data.count <= 512 else { throw ClipError.invalid("입력 진단 메시지가 올바르지 않아요.") }
+            guard negotiated, !inputOnly, data.count <= 512 else { throw ClipError.invalid(ui("Invalid input diagnostic message.")) }
             let report = try JSONDecoder().decode(Self.self, from: data)
             guard (0...86_400_000).contains(report.idleMS), (0...86_400_000).contains(report.loopDelayMS),
                   report.networkError.map({ (-100_000...100_000).contains($0) }) ?? true else {
-                throw ClipError.invalid("입력 진단 범위가 올바르지 않아요.")
+                throw ClipError.invalid(ui("Input diagnostics out of range."))
             }
             return report
         }
@@ -101,16 +101,16 @@ final class PeerLink {
     var inputFailureDescription: String? {
         let report = lastFailureFromPeer ? lastPeerInputClosure : lastInputClosure
         guard !inputReady, let report else { return nil }
-        let origin = lastFailureFromPeer ? "상대 Mac" : "이 Mac"
+        let origin = lastFailureFromPeer ? ui("other Mac") : ui("this Mac")
         let stage: String
         switch report.stage {
-        case .connecting: stage = "네트워크 연결 단계"
-        case .waitingForHello: stage = "상대 응답 대기 단계"
-        case .authenticating: stage = "연결 인증 단계"
-        case .ready: stage = "입력 전송 중"
-        case nil: stage = "단계 정보 없음"
+        case .connecting: stage = ui("opening network connection")
+        case .waitingForHello: stage = ui("waiting for the other Mac")
+        case .authenticating: stage = ui("authenticating")
+        case .ready: stage = ui("sending input")
+        case nil: stage = ui("stage unknown")
         }
-        return "최근 입력 연결 실패 · \(origin) · \(stage) · \(report.reason.rawValue)"
+        return ui("Last input failure · %1$@ · %2$@ · %3$@", "\(origin)", "\(stage)", "\(report.reason.rawValue)")
     }
     private struct InputOffer: Codable { let port: UInt16 }
 
@@ -458,7 +458,7 @@ final class PeerLink {
         if remote == nil {
             let hello = try JSONDecoder().decode(Hello.self, from: data)
             try hello.validate()
-            if let expectedDevice, hello.device != expectedDevice { throw ClipError.invalid("기기가 일치하지 않아요.") }
+            if let expectedDevice, hello.device != expectedDevice { throw ClipError.invalid(ui("Device mismatch.")) }
             remote = hello
             handshakeStage = .authenticating
             let cipher = try SessionCipher(secret: secret, local: local, remote: hello)
@@ -467,16 +467,16 @@ final class PeerLink {
             try sendFrame(cipher.seal(kind: "ready", clock: clockProvider?() ?? 0, features: advertisedFeatures, data: offer, app: AppVersion.current))
             return
         }
-        guard let cipher else { throw ClipError.invalid("연결을 확인할 수 없어요.") }
+        guard let cipher else { throw ClipError.invalid(ui("Couldn’t verify the connection.")) }
         let message = try cipher.open(data)
         if !authenticated {
-            guard message.kind == "ready", message.clip == nil else { throw ClipError.invalid("연결 인증에 실패했어요.") }
+            guard message.kind == "ready", message.clip == nil else { throw ClipError.invalid(ui("Connection authentication failed.")) }
             if let version = message.app {
-                guard version.components != nil else { throw ClipError.invalid("버전 정보가 올바르지 않아요.") }
+                guard version.components != nil else { throw ClipError.invalid(ui("Invalid version information.")) }
                 appVersion = version
             }
             if let major = message.osMajor {
-                guard (10...99).contains(major) else { throw ClipError.invalid("운영체제 버전 정보가 올바르지 않아요.") }
+                guard (10...99).contains(major) else { throw ClipError.invalid(ui("Invalid operating system version.")) }
                 peerOSMajor = major
             }
             if let clock = message.clock { onClock?(clock) }
@@ -487,7 +487,7 @@ final class PeerLink {
             handshakeDeadline?.cancel(); handshakeDeadline = nil
             if features.contains(SharingFeature.inputChannel) {
                 guard let data = message.data, let offer = try? JSONDecoder().decode(InputOffer.self, from: data),
-                      offer.port != 0 else { throw ClipError.invalid("입력 연결 정보를 확인할 수 없어요.") }
+                      offer.port != 0 else { throw ClipError.invalid(ui("Couldn’t verify the input connection.")) }
                 remoteInputPort = offer.port
                 if canRecoverInput { ready = true; onReady?(self) }
                 if local.device < (remote?.device ?? "") {
@@ -509,25 +509,25 @@ final class PeerLink {
     private func handleMessage(_ message: Envelope) throws {
         switch message.kind {
         case "clip":
-            guard !inputOnly else { throw ClipError.invalid("입력 채널에는 클립보드를 보낼 수 없어요.") }
-            guard let clip = message.clip, clip.stamp.device == remote?.device else { throw ClipError.invalid("보낸 기기를 확인할 수 없어요.") }
+            guard !inputOnly else { throw ClipError.invalid(ui("Clipboard data cannot use the input channel.")) }
+            guard let clip = message.clip, clip.stamp.device == remote?.device else { throw ClipError.invalid(ui("Couldn’t verify the sender.")) }
             try clip.payload.validate()
             onClip?(self, clip)
         case "feature":
-            guard let data = message.data else { throw ClipError.invalid("공유 데이터가 없어요.") }
+            guard let data = message.data else { throw ClipError.invalid(ui("Missing shared data.")) }
             let packet = try FeaturePacket.decode(data)
             guard features.contains(packet.feature),
-                  !(features.contains(SharingFeature.inputChannel) && packet.file == nil) else { throw ClipError.invalid("지원하지 않는 공유 기능이에요.") }
+                  !(features.contains(SharingFeature.inputChannel) && packet.file == nil) else { throw ClipError.invalid(ui("Unsupported sharing feature.")) }
             onFeature?(self, packet)
         case "probe", "probe-reply":
             guard inputOnly, features.contains(SharingFeature.inputMetrics), let data = message.data,
                   data.count == 36, let text = String(data: data, encoding: .utf8), let id = UUID(uuidString: text) else {
-                throw ClipError.invalid("지연 측정 메시지가 올바르지 않아요.")
+                throw ClipError.invalid(ui("Invalid latency measurement."))
             }
             if message.kind == "probe" { enqueue(kind: "probe-reply", data: data) { _ in } }
             else if measurements.receive(id, now: ProcessInfo.processInfo.systemUptime) { publishMeasurements() }
         case "input-closed":
-            guard let data = message.data else { throw ClipError.invalid("입력 진단 데이터가 없어요.") }
+            guard let data = message.data else { throw ClipError.invalid(ui("Missing input diagnostics.")) }
             let report = try InputClosureReport.decode(data, negotiated: features.contains(SharingFeature.inputDiagnostics), inputOnly: inputOnly)
             lastPeerInputClosure = report
             lastFailureFromPeer = true
@@ -542,7 +542,7 @@ final class PeerLink {
                 }
             }
         case "ping": break
-        default: throw ClipError.invalid("지원하지 않는 메시지예요.")
+        default: throw ClipError.invalid(ui("Unsupported message."))
         }
     }
     func send(_ message: ClipMessage) {

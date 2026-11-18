@@ -13,12 +13,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let edgeIndicator = ControlEdgeIndicator()
     private var featurePeer: ConnectedPeer?
     private let peerVersionLabel = NSTextField(wrappingLabelWithString: "")
-    private let healthLabel = NSTextField(wrappingLabelWithString: "연결 후 입력 지연을 측정해요.")
+    private let healthLabel = NSTextField(wrappingLabelWithString: ui("Input latency appears after you connect."))
     private var inputHealth: InputHealth?
     private let updateChecker = UpdateChecker()
     private var updateTimer: Timer?
     private var updateDownload: URL?
-    private let updateLabel = NSTextField(wrappingLabelWithString: "새 버전을 확인하고 앱에서 설치할 수 있어요. 베타 배포를 포함해요.")
+    private let updateLabel = NSTextField(wrappingLabelWithString: ui("Check for updates and install the latest beta here."))
     private var updateButton: NSButton!
     private var updateDownloadButton: NSButton!
     private var autoUpdateToggle: NSButton!
@@ -28,16 +28,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var fileActions: NSView!
     private var revealButton: NSButton!
     private var mouseToggle: NSSwitch!
-    private let inputTitle = NSTextField(labelWithString: "마우스·키보드")
-    private let inputStatusLabel = NSTextField(labelWithString: "꺼짐")
+    private let inputTitle = NSTextField(labelWithString: ui("Mouse & Keyboard"))
+    private let inputStatusLabel = NSTextField(labelWithString: ui("Off"))
     private var permissionActions: NSView!
     private var connectionHint = NSTextField(wrappingLabelWithString: "")
     private let arrangement = ScreenArrangementView(frame: .zero)
     private var swapScreens: NSButton!
-    private let arrangementHint = NSTextField(wrappingLabelWithString: "화면을 드래그해 실제 Mac의 좌우 순서에 맞춰주세요.")
-    private let mouseHint = NSTextField(wrappingLabelWithString: "양쪽에서 마우스 공유를 켜주세요.")
+    private let arrangementHint = NSTextField(wrappingLabelWithString: ui("Drag the screens to match your desk."))
+    private let mouseHint = NSTextField(wrappingLabelWithString: ui("Turn on mouse sharing on both Macs."))
     private let gestureHint = NSTextField(wrappingLabelWithString: "")
-    private let fileLabel = NSTextField(wrappingLabelWithString: "파일 하나를 선택하면 상대가 저장 위치를 정해요.")
+    private let fileLabel = NSTextField(wrappingLabelWithString: ui("Choose a file. The other Mac chooses where to save it."))
     private let fileProgress = NSProgressIndicator()
     private var receivePanel: NSSavePanel?
     private var receivedFile: URL?
@@ -53,13 +53,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var code = ""
     private var device = ""
     private var peers: [String] = []
-    private var lastActivity = "연결한 뒤 복사하는 내용부터 공유해요."
+    private var lastActivity = ui("Anything you copy after connecting is shared.")
     private var networkNote: String?
     private var enabled = true
     private let headlessDiagnostics = CommandLine.arguments.contains("--update-component-check") || CommandLine.arguments.contains("--update-check") || CommandLine.arguments.contains("--render-preview") || CommandLine.arguments.contains("--smoke-test") || CommandLine.arguments.contains("--lifecycle-smoke")
     private let preview = CommandLine.arguments.contains("--render-preview") || CommandLine.arguments.contains("--preview") || CommandLine.arguments.contains("--smoke-test") || CommandLine.arguments.contains("--lifecycle-smoke")
-    private let statusLabel = NSTextField(labelWithString: "연결할 Mac을 기다리고 있어요")
-    private let activityLabel = NSTextField(wrappingLabelWithString: "연결한 뒤 복사하는 내용부터 공유해요.")
+    private let statusLabel = NSTextField(labelWithString: ui("Waiting for a Mac"))
+    private let activityLabel = NSTextField(wrappingLabelWithString: ui("Anything you copy after connecting is shared."))
     private var candidates: [(device: String, name: String)] = []
     private var deviceList: NSStackView!
     private var discoveryView: NSView!
@@ -103,12 +103,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var copyAddressButton: NSButton!
     private var hasLocalAddress = false
     private var previewCloseBehavior: CloseBehavior = .ask
-    private var localAddress = NSTextField(wrappingLabelWithString: "주소 준비 중…")
+    private var localAddress = NSTextField(wrappingLabelWithString: ui("Getting address…"))
     private var closePicker = NSPopUpButton(frame: .zero, pullsDown: false)
     private var loginToggle: NSButton!
     private var relayToggle: NSButton!
     private var preventAppleRelay = true
-    private var closeHint = NSTextField(wrappingLabelWithString: "창을 닫을 때 실행 여부를 물어봐요.")
+    private var closeHint = NSTextField(wrappingLabelWithString: ui("Choose what happens each time you close the window."))
     private var closingPrompt = false
     private var terminating = false
     private var smoke: BundledSmoke?
@@ -242,38 +242,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         statusItem.button?.image = menuIcon
         statusItem.button?.imagePosition = .imageOnly
         let menu = NSMenu()
-        menuStatus = NSMenuItem(title: "연결 대기 중", action: nil, keyEquivalent: ""); menu.addItem(menuStatus)
+        menuStatus = NSMenuItem(title: ui("Waiting for a connection"), action: nil, keyEquivalent: ""); menu.addItem(menuStatus)
         menu.addItem(.separator())
-        item("NearClip 열기…", #selector(showWindow), menu: menu)
-        menuSend = item("지금 클립보드 보내기", #selector(sendNow), menu: menu)
-        menuToggle = item("공유 일시 정지", #selector(toggleSharing), menu: menu)
-        menuMouseToggle = item("마우스·키보드 공유", #selector(toggleMouseFromMenu), menu: menu)
-        menuScreenOrder = NSMenuItem(title: "화면 배치 · 연결 대기", action: nil, keyEquivalent: "")
+        item(ui("Open NearClip…"), #selector(showWindow), menu: menu)
+        menuSend = item(ui("Send Current Clipboard"), #selector(sendNow), menu: menu)
+        menuToggle = item(ui("Pause Sharing"), #selector(toggleSharing), menu: menu)
+        menuMouseToggle = item(ui("Share Mouse & Keyboard"), #selector(toggleMouseFromMenu), menu: menu)
+        menuScreenOrder = NSMenuItem(title: ui("Screen Layout · Waiting for a Mac"), action: nil, keyEquivalent: "")
         menu.addItem(menuScreenOrder)
-        menuSwapScreens = item("화면 좌우 바꾸기", #selector(swapScreenOrder), menu: menu)
-        item("파일·화면 배치…", #selector(showSharing), menu: menu)
-        menuMouseStop = item("마우스·키보드 공유 끄기  ⌃⌥Esc", #selector(stopInput), menu: menu)
-        item("연결 다시 찾기", #selector(retry), menu: menu)
+        menuSwapScreens = item(ui("Swap Left and Right Screens"), #selector(swapScreenOrder), menu: menu)
+        item(ui("Files and Screen Layout…"), #selector(showSharing), menu: menu)
+        menuMouseStop = item(ui("Stop Input Sharing  ⌃⌥Esc"), #selector(stopInput), menu: menu)
+        item(ui("Find Mac Again"), #selector(retry), menu: menu)
         menu.addItem(.separator())
-        item("설정…", #selector(showSettings), menu: menu, key: ",")
-        updateMenu = item("업데이트 확인…", #selector(checkUpdates), menu: menu)
-        item("도움말", #selector(help), menu: menu)
-        item("NearClip 종료", #selector(quit), menu: menu, key: "q")
+        item(ui("Settings…"), #selector(showSettings), menu: menu, key: ",")
+        updateMenu = item(ui("Check for Updates…"), #selector(checkUpdates), menu: menu)
+        item(ui("Help"), #selector(help), menu: menu)
+        item(ui("Quit NearClip"), #selector(quit), menu: menu, key: "q")
         menu.autoenablesItems = false
         statusItem.menu = menu
         let main = NSMenu()
         let appMenu = NSMenu(); let appItem = NSMenuItem(); appItem.submenu = appMenu; main.addItem(appItem)
-        item("NearClip 정보", #selector(about), menu: appMenu)
-        item("업데이트 확인…", #selector(checkUpdates), menu: appMenu)
-        item("설정…", #selector(showSettings), menu: appMenu, key: ",")
+        item(ui("About NearClip"), #selector(about), menu: appMenu)
+        item(ui("Check for Updates…"), #selector(checkUpdates), menu: appMenu)
+        item(ui("Settings…"), #selector(showSettings), menu: appMenu, key: ",")
         appMenu.addItem(.separator())
-        item("NearClip 종료", #selector(quit), menu: appMenu, key: "q")
-        let edit = NSMenu(title: "편집"); let editItem = NSMenuItem(title: "편집", action: nil, keyEquivalent: ""); editItem.submenu = edit; main.addItem(editItem)
-        for (title, action, key) in [("잘라내기", "cut:", "x"), ("복사", "copy:", "c"), ("붙여넣기", "paste:", "v"), ("전체 선택", "selectAll:", "a")] {
+        item(ui("Quit NearClip"), #selector(quit), menu: appMenu, key: "q")
+        let edit = NSMenu(title: ui("Edit")); let editItem = NSMenuItem(title: ui("Edit"), action: nil, keyEquivalent: ""); editItem.submenu = edit; main.addItem(editItem)
+        for (title, action, key) in [(ui("Cut"), "cut:", "x"), (ui("Copy"), "copy:", "c"), (ui("Paste"), "paste:", "v"), (ui("Select All"), "selectAll:", "a")] {
             edit.addItem(withTitle: title, action: Selector(action), keyEquivalent: key)
         }
-        let win = NSMenu(title: "윈도우"); let winItem = NSMenuItem(title: "윈도우", action: nil, keyEquivalent: ""); winItem.submenu = win; main.addItem(winItem)
-        item("창 닫기", #selector(closeWindow), menu: win, key: "w")
+        let win = NSMenu(title: ui("Window")); let winItem = NSMenuItem(title: ui("Window"), action: nil, keyEquivalent: ""); winItem.submenu = win; main.addItem(winItem)
+        item(ui("Close Window"), #selector(closeWindow), menu: win, key: "w")
         NSApp.mainMenu = main
     }
     @discardableResult private func item(_ title: String, _ action: Selector, menu: NSMenu, key: String = "") -> NSMenuItem {
@@ -336,8 +336,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let root = WindowBackground(); window.contentView = root
         let brand = label("nearclip", size: 17, weight: .semibold)
         brand.font = .monospacedSystemFont(ofSize: 17, weight: .semibold)
-        let tagline = label("두 Mac, 하나의 작업 공간", size: 11, color: .secondaryLabelColor)
-        settingsButton = button("설정", action: #selector(toggleSettings))
+        let tagline = label(ui("Two Macs, one workspace"), size: 11, color: .secondaryLabelColor)
+        settingsButton = button(ui("Settings"), action: #selector(toggleSettings))
         settingsButton.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: nil)
         settingsButton.imagePosition = .imageLeading
         let heading = row([flexible(column([brand, tagline], spacing: 3)), settingsButton])
@@ -345,9 +345,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         activityLabel.font = .systemFont(ofSize: 11); activityLabel.textColor = .secondaryLabelColor
         activityLabel.maximumNumberOfLines = 2
         statusIcon = symbol("circle.dotted", size: 16)
-        pauseButton = button("일시 정지", action: #selector(toggleSharing))
-        sendButton = button("지금 보내기", action: #selector(sendNow))
-        sendButton.toolTip = "현재 클립보드의 텍스트나 이미지를 한 번 보내요."
+        pauseButton = button(ui("Pause"), action: #selector(toggleSharing))
+        sendButton = button(ui("Send Now"), action: #selector(sendNow))
+        sendButton.toolTip = ui("Send the text or image currently on the clipboard.")
         sharingActions = pauseButton
         connectionHint.font = .systemFont(ofSize: 11); connectionHint.textColor = .secondaryLabelColor
         connectionHint.maximumNumberOfLines = 3
@@ -357,13 +357,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         ], spacing: 6)
         statusSummary = statusCard
 
-        cancelButton = button("찾기 취소", action: #selector(cancelDiscovery))
+        cancelButton = button(ui("Stop Searching"), action: #selector(cancelDiscovery))
         cancelButton.controlSize = .regular
-        addressButton = button("주소로 연결…", action: #selector(connectAddress))
+        addressButton = button(ui("Connect by Address…"), action: #selector(connectAddress))
         localAddress.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
         localAddress.isSelectable = true; _ = flexible(localAddress)
-        copyAddressButton = button("주소 복사", action: #selector(copyAddress))
-        copyAddressButton.isEnabled = false; localAddress.setAccessibilityLabel("이 Mac의 연결 주소")
+        copyAddressButton = button(ui("Copy Address"), action: #selector(copyAddress))
+        copyAddressButton.isEnabled = false; localAddress.setAccessibilityLabel(ui("Connection address for this Mac"))
         deviceList = DeviceList(); deviceList.orientation = .vertical; deviceList.alignment = .leading; deviceList.spacing = 0
         let scroll = NSScrollView(); scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true
         scroll.drawsBackground = false; scroll.documentView = deviceList
@@ -374,17 +374,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             deviceList.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
             scroll.heightAnchor.constraint(equalToConstant: 116)
         ])
-        advancedButton = button("Mac이 보이지 않나요?", action: #selector(toggleAdvanced))
+        advancedButton = button(ui("Can't see your Mac?"), action: #selector(toggleAdvanced))
         advancedButton.controlSize = .small
         advancedView = column([
-            label("두 Mac에서 로컬 네트워크 권한을 허용하세요.\n주소로 연결할 때도 양쪽 숫자를 확인해야 해요.", size: 11, color: .secondaryLabelColor),
+            label(ui("Allow Local Network access on both Macs.\nCompare the codes even when connecting by address."), size: 11, color: .secondaryLabelColor),
             row([localAddress, copyAddressButton]),
-            row([addressButton, button("네트워크 권한", action: #selector(networkSettings)), flexible(NSView())])
+            row([addressButton, button(ui("Network Permissions"), action: #selector(networkSettings)), flexible(NSView())])
         ], spacing: 8)
         advancedView.isHidden = true
         pairingHint.font = .systemFont(ofSize: 11); pairingHint.textColor = .secondaryLabelColor
         discoveryView = column([
-            row([flexible(label("주변 Mac", size: 13, weight: .semibold)), cancelButton, button("다시 찾기", action: #selector(retry))]),
+            row([flexible(label(ui("Nearby Macs"), size: 13, weight: .semibold)), cancelButton, button(ui("Search Again"), action: #selector(retry))]),
             scroll,
             pairingHint,
             row([advancedButton, flexible(NSView())]), advancedView
@@ -394,41 +394,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         peerDetail.font = .systemFont(ofSize: 11); peerDetail.textColor = .secondaryLabelColor
         trustedView = panel(row([
             symbol("laptopcomputer", size: 26), flexible(column([peerLabel, peerDetail], spacing: 4)),
-            button("Mac 변경…", action: #selector(openDiscovery))
+            button(ui("Change Mac…"), action: #selector(openDiscovery))
         ]))
         arrangement.heightAnchor.constraint(equalToConstant: 164).isActive = true
         arrangement.onCommit = { [weak self] side in
             guard let self, self.featurePeer?.features.contains(SharingFeature.mouse) == true, !self.mouse.active else { return }
             self.mouse.setSide(side)
         }
-        swapScreens = button("순서 바꾸기", action: #selector(swapScreenOrder))
+        swapScreens = button(ui("Swap Screens"), action: #selector(swapScreenOrder))
         swapScreens.controlSize = .small
-        swapScreens.setAccessibilityLabel("두 Mac의 화면 순서 바꾸기")
+        swapScreens.setAccessibilityLabel(ui("Swap the two Macs in the screen layout"))
         arrangementHint.font = .systemFont(ofSize: 11); arrangementHint.textColor = .secondaryLabelColor
         arrangementHint.maximumNumberOfLines = 2
         mouseToggle = NSSwitch(); mouseToggle.target = self; mouseToggle.action = #selector(toggleMouse)
-        mouseToggle.setAccessibilityLabel("마우스·키보드 공유")
+        mouseToggle.setAccessibilityLabel(ui("Share Mouse & Keyboard"))
         mouseToggle.setContentHuggingPriority(.required, for: .horizontal)
         inputTitle.font = .systemFont(ofSize: 13, weight: .semibold)
         inputStatusLabel.font = .systemFont(ofSize: 11, weight: .medium)
         inputStatusLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
         mouseHint.font = .systemFont(ofSize: 11); mouseHint.textColor = .secondaryLabelColor
-        fileButton = button("파일 보내기…", action: #selector(sendFile))
-        fileCancel = button("전송 취소", action: #selector(cancelFile)); fileCancel.isHidden = true
-        revealButton = button("Finder에서 보기", action: #selector(revealFile)); revealButton.isHidden = true
+        fileButton = button(ui("Send File…"), action: #selector(sendFile))
+        fileCancel = button(ui("Cancel Transfer"), action: #selector(cancelFile)); fileCancel.isHidden = true
+        revealButton = button(ui("Show in Finder"), action: #selector(revealFile)); revealButton.isHidden = true
         fileLabel.font = .systemFont(ofSize: 11); fileLabel.textColor = .secondaryLabelColor
         fileLabel.maximumNumberOfLines = 2
         fileProgress.isIndeterminate = false; fileProgress.minValue = 0; fileProgress.maxValue = 1
         fileProgress.style = .bar; fileProgress.isHidden = true
-        mouseDisclosure = button("화면 배치 ▸", action: #selector(toggleMouseDetails))
+        mouseDisclosure = button(ui("Screen Layout ▸"), action: #selector(toggleMouseDetails))
         mouseDisclosure.controlSize = .small
         permissionLabel.font = .systemFont(ofSize: 11); permissionLabel.textColor = .secondaryLabelColor
         permissionLabel.maximumNumberOfLines = 3
-        permissionActions = row([button("손쉬운 사용", action: #selector(accessibilitySettings)), button("입력 모니터링", action: #selector(inputSettings)), button("다시 확인", action: #selector(recheckPermissions)), flexible(NSView())])
+        permissionActions = row([button(ui("Accessibility"), action: #selector(accessibilitySettings)), button(ui("Input Monitoring"), action: #selector(inputSettings)), button(ui("Check Again"), action: #selector(recheckPermissions)), flexible(NSView())])
         gestureHint.font = .systemFont(ofSize: 11); gestureHint.textColor = .secondaryLabelColor
         gestureHint.maximumNumberOfLines = 3
         mouseDetails = column([
-            separator(), row([flexible(label("화면 배치", size: 12, weight: .semibold)), swapScreens]),
+            separator(), row([flexible(label(ui("Screen Layout"), size: 12, weight: .semibold)), swapScreens]),
             arrangement, arrangementHint, gestureHint, permissionLabel, permissionActions
         ], spacing: 8)
         mouseDetails.isHidden = true
@@ -438,47 +438,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         healthLabel.textColor = .secondaryLabelColor; healthLabel.maximumNumberOfLines = 5
         let clipboardCard = panel(row([
             symbol("doc.on.clipboard", size: 20),
-            flexible(column([label("클립보드", size: 13, weight: .semibold), activityLabel], spacing: 5)), sendButton
+            flexible(column([label(ui("Clipboard"), size: 13, weight: .semibold), activityLabel], spacing: 5)), sendButton
         ]))
         let inputCard = panel(column([
             row([symbol("keyboard", size: 20), flexible(inputTitle), inputStatusLabel, mouseDisclosure, mouseToggle]),
-            mouseHint, label("이 Mac의 선택을 기억해요 · 긴급 정지 ⌃⌥Esc", size: 10, color: .secondaryLabelColor), mouseDetails
+            mouseHint, label(ui("Saved for this Mac · Press ⌃⌥Esc to stop input sharing"), size: 10, color: .secondaryLabelColor), mouseDetails
         ], spacing: 8))
         fileActions = row([fileCancel, revealButton, flexible(NSView())]); fileActions.isHidden = true
         let fileCard = panel(column([
-            row([symbol("arrow.up.doc", size: 20), flexible(column([label("파일 전송", size: 13, weight: .semibold), fileLabel], spacing: 5)), fileButton]),
+            row([symbol("arrow.up.doc", size: 20), flexible(column([label(ui("Files"), size: 13, weight: .semibold), fileLabel], spacing: 5)), fileButton]),
             fileProgress, fileActions
         ], spacing: 8))
         let sharing = column([clipboardCard, inputCard, fileCard], spacing: 10)
         sharingContent = sharing
-        closePicker.addItems(withTitles: ["닫을 때 물어보기", "메뉴 막대에서 계속 실행", "앱 완전히 종료"])
+        closePicker.addItems(withTitles: [ui("Ask each time"), ui("Keep running in the menu bar"), ui("Quit NearClip on close")])
         closePicker.selectItem(at: closeBehavior.rawValue); closePicker.target = self; closePicker.action = #selector(changeCloseBehavior)
-        closePicker.setAccessibilityLabel("창 닫기 동작")
-        loginToggle = NSButton(checkboxWithTitle: "로그인할 때 NearClip 시작", target: self, action: #selector(toggleLogin))
+        closePicker.setAccessibilityLabel(ui("When the window closes"))
+        loginToggle = NSButton(checkboxWithTitle: ui("Start NearClip at login"), target: self, action: #selector(toggleLogin))
         loginToggle.state = !preview && SMAppService.mainApp.status == .enabled ? .on : .off
         closeHint.font = .systemFont(ofSize: 11); closeHint.textColor = .secondaryLabelColor
-        relayToggle = NSButton(checkboxWithTitle: "받은 클립보드의 Apple 기기 재공유 막기", target: self, action: #selector(toggleAppleRelay))
+        relayToggle = NSButton(checkboxWithTitle: ui("Keep received clipboard items on this Mac"), target: self, action: #selector(toggleAppleRelay))
         relayToggle.state = preventAppleRelay ? .on : .off
-        updateButton = button("업데이트 확인", action: #selector(checkUpdates))
-        updateDownloadButton = button("업데이트 및 재시작…", action: #selector(downloadUpdate)); updateDownloadButton.isHidden = true
-        autoUpdateToggle = NSButton(checkboxWithTitle: "새 버전 자동 확인 (하루 한 번)", target: self, action: #selector(toggleAutomaticUpdates))
+        updateButton = button(ui("Check for Updates"), action: #selector(checkUpdates))
+        updateDownloadButton = button(ui("Update and Restart…"), action: #selector(downloadUpdate)); updateDownloadButton.isHidden = true
+        autoUpdateToggle = NSButton(checkboxWithTitle: ui("Check for updates daily"), target: self, action: #selector(toggleAutomaticUpdates))
         autoUpdateToggle.state = (UserDefaults.standard.object(forKey: "automaticUpdateChecks") as? Bool ?? true) ? .on : .off
         updateLabel.font = .systemFont(ofSize: 11); updateLabel.textColor = .secondaryLabelColor; updateLabel.maximumNumberOfLines = 3
+        let language = NSPopUpButton()
+        language.addItems(withTitles: ["English", "한국어"])
+        let selected = UserDefaults.standard.string(forKey: AppLanguage.preferenceKey)
+        language.selectItem(at: selected == "ko" ? 1 : 0)
+        language.setAccessibilityLabel(ui("Language"))
+        language.target = self
+        language.action = #selector(changeLanguage(_:))
         settingsContent = column([
-            separator(), label("업데이트", size: 14, weight: .semibold), autoUpdateToggle, updateLabel,
-            row([updateButton, updateDownloadButton, button("공개 배포 보기", action: #selector(openReleases)), flexible(NSView())]),
-            label("설치를 선택하면 앱을 교체하고 다시 열어요. 연결 정보는 유지돼요. 두 Mac을 각각 업데이트하세요.", size: 11, color: .secondaryLabelColor),
-            separator(), label("연결 진단", size: 14, weight: .semibold), peerVersionLabel, healthLabel,
-            row([button("다시 연결", action: #selector(retry)), button("Apple 마우스 공유 안내", action: #selector(universalControlHelp)), flexible(NSView())]),
-            label("왕복은 입력 채널의 응답 시간이에요. 실제 화면 반영 시간과는 달라요. 최근 최대 60회만 메모리에 보관해요.", size: 11, color: .secondaryLabelColor),
-            separator(), label("클립보드 보호", size: 14, weight: .semibold), relayToggle,
-            label("다음에 NearClip으로 받는 내용부터 적용돼요. 다른 앱에서 복사한 내용에는 적용되지 않아요.", size: 11, color: .secondaryLabelColor),
-            row([button("Apple 클립보드 설정 안내", action: #selector(appleClipboardHelp)), flexible(NSView())]),
-            separator(), label("실행 방식", size: 14, weight: .semibold), loginToggle,
-            label("창을 닫으면", size: 12, weight: .medium), closePicker, closeHint,
-            separator(), label("연결 관리", size: 14, weight: .semibold),
-            label("연결을 해제하면 상대 Mac과 다시 숫자를 확인해야 해요.", size: 12, color: .secondaryLabelColor),
-            row([button("연결 해제…", action: #selector(forgetPairing)), button("네트워크 설정", action: #selector(networkSettings)), button("키체인 안내", action: #selector(keychainHelp)), flexible(NSView())])
+            row([label(ui("Language"), size: 14, weight: .semibold), language]),
+            label(ui("Changes take effect the next time you open NearClip."), size: 11, color: .secondaryLabelColor),
+            separator(), label(ui("Updates"), size: 14, weight: .semibold), autoUpdateToggle, updateLabel,
+            row([updateButton, updateDownloadButton, button(ui("View Releases"), action: #selector(openReleases)), flexible(NSView())]),
+            label(ui("Installing an update restarts NearClip and keeps your pairing. Update each Mac separately."), size: 11, color: .secondaryLabelColor),
+            separator(), label(ui("Connection Diagnostics"), size: 14, weight: .semibold), peerVersionLabel, healthLabel,
+            row([button(ui("Reconnect"), action: #selector(retry)), button(ui("Universal Control Guide"), action: #selector(universalControlHelp)), flexible(NSView())]),
+            label(ui("Round-trip time measures the input connection. NearClip keeps the last 60 samples in memory."), size: 11, color: .secondaryLabelColor),
+            separator(), label(ui("Clipboard Privacy"), size: 14, weight: .semibold), relayToggle,
+            label(ui("Applies to new items received through NearClip. Other apps keep their clipboard settings."), size: 11, color: .secondaryLabelColor),
+            row([button(ui("Apple Clipboard Settings"), action: #selector(appleClipboardHelp)), flexible(NSView())]),
+            separator(), label(ui("Startup and Window"), size: 14, weight: .semibold), loginToggle,
+            label(ui("When you close the window"), size: 12, weight: .medium), closePicker, closeHint,
+            separator(), label(ui("Paired Mac"), size: 14, weight: .semibold),
+            label(ui("To pair again, you’ll need to confirm the code on both Macs."), size: 12, color: .secondaryLabelColor),
+            row([button(ui("Forget Mac…"), action: #selector(forgetPairing)), button(ui("Network Settings"), action: #selector(networkSettings)), button(ui("Keychain Help"), action: #selector(keychainHelp)), flexible(NSView())])
         ], spacing: 10)
         settingsContent.isHidden = true
         bodyContent = column([column([discoveryView, trustedView], spacing: 0), sharing, settingsContent], spacing: 12, flipped: true)
@@ -492,8 +501,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             bodyContent.widthAnchor.constraint(equalTo: bodyScroll.contentView.widthAnchor)
         ])
         bodyHeight = bodyScroll.heightAnchor.constraint(equalToConstant: 260); bodyHeight.isActive = true
-        let helpButton = button("도움말", action: #selector(help)); helpButton.controlSize = .small
-        let quitButton = button("종료 ⌘Q", action: #selector(quit)); quitButton.controlSize = .small
+        let helpButton = button(ui("Help"), action: #selector(help)); helpButton.controlSize = .small
+        let quitButton = button(ui("Quit ⌘Q"), action: #selector(quit)); quitButton.controlSize = .small
         let footer = row([label("v" + version + " · " + buildNumber + " beta", size: 10, color: .secondaryLabelColor), flexible(NSView()), helpButton, quitButton])
         let stack = column([heading, statusCard, bodyScroll, trustLabel, footer], spacing: 14)
         mainStack = stack
@@ -507,6 +516,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         rebuildDevices()
         root.layoutSubtreeIfNeeded()
     }
+    @objc private func changeLanguage(_ sender: NSPopUpButton) {
+        guard !preview else { return }
+        let language = sender.indexOfSelectedItem == 1 ? "ko" : "en"
+        UserDefaults.standard.set(language, forKey: AppLanguage.preferenceKey)
+        UserDefaults.standard.set([language], forKey: "AppleLanguages")
+    }
+
     private func separator() -> NSBox { let box = NSBox(); box.boxType = .separator; return box }
     private func inset(_ content: NSView) -> NSView {
         let view = NSView(); content.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(content)
@@ -524,7 +540,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if CommandLine.arguments.contains("--connected") || CommandLine.arguments.contains("--offline") {
             pairedName = "Studio MacBook Pro"; access = PairingAccess(hasTrustedPeer: true)
         }
-        if CommandLine.arguments.contains("--connected") { peers = ["Studio MacBook Pro"]; lastActivity = "텍스트 받음 · 14:32:08" }
+        if CommandLine.arguments.contains("--connected") { peers = ["Studio MacBook Pro"]; lastActivity = ui("Received text · 14:32:08") }
         if CommandLine.arguments.contains("--nearby") {
             candidates = [("A1B20000-0000-0000-0000-000000000001", "Studio MacBook Pro"), ("C3D40000-0000-0000-0000-000000000002", "Design Mac mini")]
             rebuildDevices()
@@ -547,7 +563,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let pairing = NearbyPairing(device: device, name: deviceName)
         pairing.syncPort = transferPort == 0 ? nil : transferPort
         pairing.onListening = { [weak self] port in
-            let host = Host.current().name ?? "이 Mac의 IP"
+            let host = Host.current().name ?? ui("This Mac’s IP address")
             self?.localAddress.stringValue = "\(host):\(port)"
             self?.hasLocalAddress = true; self?.copyAddressButton?.isEnabled = true
         }
@@ -574,7 +590,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 self.access.didPair(); self.discoveryDeadline?.invalidate()
                 // Stop accepting new requests without interrupting delivery of our confirmation.
                 self.pairing?.endDiscovery()
-                self.lastActivity = "\(name) 연결을 확인했어요."; self.restartTransport()
+                self.lastActivity = ui("Connected to %1$@.", "\(name)"); self.restartTransport()
             } catch { self.alert(error.localizedDescription) }
         }
         pairing.onEnded = { [weak self] in
@@ -589,19 +605,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func verifyPairing(name: String, digits: String, reply: @escaping (Bool) -> Void) {
         guard verificationAlert == nil else { reply(false); return }
         showWindow()
-        let dialog = NSAlert(); dialog.messageText = "\(name)과 연결할까요?"
-        dialog.informativeText = "두 Mac에 표시된 숫자가 같은지 확인하세요.\n양쪽에서 확인해야 클립보드 공유를 시작해요."
+        let dialog = NSAlert(); dialog.messageText = ui("Connect to %1$@?", "\(name)")
+        dialog.informativeText = ui("Compare the six digits on both Macs.\nConfirm on both to start sharing.")
         let number = NSTextField(labelWithString: String(digits.prefix(3)) + "  " + String(digits.suffix(3)))
         number.font = .monospacedDigitSystemFont(ofSize: 42, weight: .semibold)
         number.alignment = .center; number.frame = NSRect(x: 0, y: 0, width: 280, height: 65)
         dialog.accessoryView = number
-        dialog.addButton(withTitle: "숫자가 같아요 · 연결")
-        dialog.addButton(withTitle: "취소")
+        dialog.addButton(withTitle: ui("Codes Match · Connect"))
+        dialog.addButton(withTitle: ui("Cancel"))
         verificationAlert = dialog
         dialog.beginSheetModal(for: window) { [weak self] response in
             self?.verificationAlert = nil
             if response == .alertFirstButtonReturn {
-                self?.networkNote = "다른 Mac에서도 같은 숫자인지 확인하고 연결을 눌러주세요."
+                self?.networkNote = ui("Compare the code and confirm on the other Mac.")
             }
             reply(response == .alertFirstButtonReturn); self?.refresh()
         }
@@ -658,50 +674,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard !terminating else { return }
         let busy = pairing?.busy ?? false
         cancelButton?.isHidden = !busy; addressButton?.isEnabled = !busy
-        pauseButton?.title = enabled ? "일시 정지" : "공유 재개"
+        pauseButton?.title = enabled ? ui("Pause") : ui("Resume")
         sendButton?.isEnabled = enabled && !peers.isEmpty
         menuSend?.isEnabled = enabled && !peers.isEmpty
-        closeHint.stringValue = ["창을 닫을 때 실행 여부를 물어봐요.", "창을 닫아도 공유돼요. 완전히 끄려면 ‘NearClip 종료’를 누르세요.", "창을 닫으면 클립보드 공유도 함께 종료돼요."][closeBehavior.rawValue]
+        closeHint.stringValue = [ui("Choose what happens each time you close the window."), ui("Sharing continues in the menu bar. Choose Quit NearClip to stop."), ui("Closing the window quits NearClip and stops sharing.")][closeBehavior.rawValue]
         let text: String
-        if busy { text = "양쪽 숫자를 확인하세요" }
-        else if !enabled { text = "공유가 일시 정지됐어요" }
-        else if !peers.isEmpty { text = "연결됨" }
-        else if access.hasTrustedPeer { text = "Mac을 기다리고 있어요" }
-        else { text = "옆 Mac과 연결하세요" }
+        if busy { text = ui("Compare the codes") }
+        else if !enabled { text = ui("Sharing paused") }
+        else if !peers.isEmpty { text = ui("Connected") }
+        else if access.hasTrustedPeer { text = ui("Waiting for your Mac") }
+        else { text = ui("Connect a nearby Mac") }
         statusLabel.stringValue = text
         statusLabel.textColor = .labelColor
         statusIcon?.image = NSImage(systemSymbolName: busy ? "number.circle" : (!enabled ? "pause.circle" : (peers.isEmpty ? "circle.dotted" : "checkmark.circle.fill")), accessibilityDescription: nil)?.withSymbolConfiguration(.init(pointSize: 16, weight: .regular))
         statusIcon?.contentTintColor = !peers.isEmpty && enabled ? .systemTeal : .secondaryLabelColor
-        if !enabled { activityLabel.stringValue = "보내기와 받기를 멈췄어요. 재개한 뒤 복사한 내용부터 공유해요." }
-        else if busy { activityLabel.stringValue = "연결을 확인하면 복사한 내용이 공유돼요." }
+        if !enabled { activityLabel.stringValue = ui("Sharing is paused. After you resume, copy something new to share it.") }
+        else if busy { activityLabel.stringValue = ui("Confirm the connection to start sharing.") }
         else if !peers.isEmpty { activityLabel.stringValue = lastActivity }
-        else { activityLabel.stringValue = "텍스트와 이미지 · 연결 후 자동 공유" }
+        else { activityLabel.stringValue = ui("Text and images sync after you connect.") }
         connectionHint.isHidden = !peers.isEmpty && !busy
-        connectionHint.stringValue = networkNote ?? (busy ? "양쪽의 6자리 숫자를 확인하세요." : "같은 네트워크에서 상대 Mac의 NearClip을 켜주세요.")
+        connectionHint.stringValue = networkNote ?? (busy ? ui("Compare the six digits on both Macs.") : ui("Open NearClip on the other Mac and join the same network."))
         sharingActions?.isHidden = !access.hasTrustedPeer && peers.isEmpty
         sharingContent?.isHidden = settingsExpanded || (!access.hasTrustedPeer && peers.isEmpty)
         statusSummary?.isHidden = settingsExpanded
         trustLabel.isHidden = settingsExpanded
-        settingsButton?.title = settingsExpanded ? "완료" : "설정"
+        settingsButton?.title = settingsExpanded ? ui("Done") : ui("Settings")
         settingsButton?.image = NSImage(systemSymbolName: settingsExpanded ? "checkmark" : "gearshape", accessibilityDescription: nil)
-        pairingHint.stringValue = access.hasTrustedPeer ? "양쪽 숫자를 확인하면 저장된 연결을 새 Mac으로 교체해요." : "상대 Mac의 ‘연결’을 누른 뒤, 양쪽의 6자리 숫자를 확인하세요."
-        trustLabel.stringValue = access.isOpen && access.hasTrustedPeer ? "새 연결 허용 중 · 2분 후 닫힘 · 양쪽 숫자 확인 필수" : access.isOpen ? "새 Mac 연결 허용 중 · 양쪽 숫자 확인 필수" : "암호화된 직접 연결 · 클립보드 기록을 저장하지 않아요"
+        pairingHint.stringValue = access.hasTrustedPeer ? ui("Confirm the code on both Macs to replace your saved pairing.") : ui("Choose Connect next to the other Mac, then compare the codes.")
+        trustLabel.stringValue = access.isOpen && access.hasTrustedPeer ? ui("Pairing open for two minutes · Confirm on both Macs") : access.isOpen ? ui("Ready to pair · Confirm on both Macs") : ui("Encrypted direct connection · No clipboard history")
         discoveryView?.isHidden = settingsExpanded || !access.isOpen
         trustedView?.isHidden = settingsExpanded || access.isOpen
         advancedView?.isHidden = !advanced
-        advancedButton?.title = advanced ? "연결 도움말 접기 ▴" : "Mac이 보이지 않나요? ▾"
+        advancedButton?.title = advanced ? ui("Hide Connection Help ▴") : ui("Can't see your Mac? ▾")
         cancelButton?.isHidden = !access.hasTrustedPeer && !busy
-        cancelButton?.title = busy ? "연결 취소" : "찾기 취소"
+        cancelButton?.title = busy ? ui("Cancel Connection") : ui("Stop Searching")
         copyAddressButton?.isEnabled = hasLocalAddress && access.isOpen
-        peerLabel.stringValue = peers.first ?? pairedName ?? "저장된 Mac"
-        peerDetail.stringValue = peers.isEmpty ? "오프라인 · 자동 재연결" : "저장된 Mac · 자동 재연결"
+        peerLabel.stringValue = peers.first ?? pairedName ?? ui("Saved Mac")
+        peerDetail.stringValue = peers.isEmpty ? ui("Offline · Reconnects automatically") : ui("Paired · Reconnects automatically")
         for view in deviceList?.arrangedSubviews ?? [] {
             (view as? NSStackView)?.arrangedSubviews.compactMap { $0 as? NSButton }.forEach { $0.isEnabled = !busy }
         }
         updateSharingUI()
         updateWindowSize()
         menuStatus?.title = statusLabel.stringValue
-        menuToggle?.title = enabled ? "공유 일시 정지" : "공유 다시 시작"
+        menuToggle?.title = enabled ? ui("Pause Sharing") : ui("Resume Sharing")
         toggle?.state = enabled ? .on : .off
         statusItem?.button?.toolTip = "NearClip · " + statusLabel.stringValue
         statusItem?.button?.setAccessibilityLabel("NearClip · " + statusLabel.stringValue)
@@ -719,8 +735,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         for view in deviceList.arrangedSubviews { deviceList.removeArrangedSubview(view); view.removeFromSuperview() }
         if candidates.isEmpty {
             let empty = column([
-                label("다른 Mac에서도 NearClip을 켜주세요", size: 13, weight: .medium),
-                label("이미 연결한 Mac이라면 ‘다른 Mac 연결’을 누르세요.\n발견하면 이곳에 표시돼요.", size: 11, color: .secondaryLabelColor)
+                label(ui("Open NearClip on the other Mac"), size: 13, weight: .medium),
+                label(ui("If it already has a pairing, choose Change Mac there.\nNearby Macs appear here."), size: 11, color: .secondaryLabelColor)
             ], spacing: 6)
             deviceList.addArrangedSubview(empty)
             empty.widthAnchor.constraint(equalTo: deviceList.widthAnchor).isActive = true
@@ -730,9 +746,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             name.maximumNumberOfLines = 1; name.lineBreakMode = .byTruncatingTail
             let identity = label("Mac · " + candidate.device.prefix(4), size: 10, color: .secondaryLabelColor)
             identity.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
-            let connect = button("연결", action: #selector(connectNearby(_:)))
+            let connect = button(ui("Connect"), action: #selector(connectNearby(_:)))
             connect.identifier = NSUserInterfaceItemIdentifier(candidate.device)
-            connect.setAccessibilityLabel(candidate.name + "에 연결")
+            connect.setAccessibilityLabel(ui("Connect to %1$@", candidate.name))
             let item = row([symbol("laptopcomputer", size: 22), flexible(column([name, identity], spacing: 3)), connect])
             item.heightAnchor.constraint(equalToConstant: 54).isActive = true
             deviceList.addArrangedSubview(item); item.widthAnchor.constraint(equalTo: deviceList.widthAnchor).isActive = true
@@ -758,7 +774,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func toggleAdvanced() { advanced.toggle(); refresh() }
     @objc private func openDiscovery() {
         access.open(); advanced = false; networkNote = nil; hasLocalAddress = false
-        localAddress.stringValue = "주소 준비 중…"
+        localAddress.stringValue = ui("Getting address…")
         discoveryDeadline?.invalidate()
         pairing?.invitationDeadline = Date().addingTimeInterval(120)
         let timer = Timer(timeInterval: 120, repeats: false) { [weak self] _ in self?.cancelDiscovery() }
@@ -778,11 +794,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     @objc private func connectAddress() {
         guard !preview, access.isOpen, pairing?.busy == false else { return }
-        let dialog = NSAlert(); dialog.messageText = "Mac 주소로 연결"
-        dialog.informativeText = "연결할 Mac의 호스트 또는 IP 주소와 포트를 입력하세요.\n예: my-mac.local:54321"
+        let dialog = NSAlert(); dialog.messageText = ui("Connect by Address")
+        dialog.informativeText = ui("Enter the other Mac’s hostname or IP address and port.\nExample: my-mac.local:54321")
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 26))
-        field.placeholderString = "호스트:포트"; dialog.accessoryView = field
-        dialog.addButton(withTitle: "연결 요청"); dialog.addButton(withTitle: "취소")
+        field.placeholderString = ui("host:port"); dialog.accessoryView = field
+        dialog.addButton(withTitle: ui("Request Connection")); dialog.addButton(withTitle: ui("Cancel"))
         dialog.beginSheetModal(for: window) { [weak self] response in
             guard let self, response == .alertFirstButtonReturn else { return }
             do {
@@ -800,12 +816,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             pairedName = nil; UserDefaults.standard.removeObject(forKey: "pairedMacName")
             access = PairingAccess(hasTrustedPeer: false); discoveryDeadline?.invalidate()
             pairing?.stop(); pairing?.invitationDeadline = nil; pairing?.start()
-            sync.resetSession(); lastActivity = "기존 연결을 지웠어요. 목록에서 Mac을 선택해 주세요."; restartTransport()
+            sync.resetSession(); lastActivity = ui("Pairing removed. Choose a Mac to connect."); restartTransport()
         } catch { alert(error.localizedDescription) }
     }
     @objc private func sendNow() {
         guard !preview else { return }
-        guard enabled, sync.connected else { lastActivity = "공유를 켜고 다른 Mac을 먼저 연결해 주세요."; refresh(); return }
+        guard enabled, sync.connected else { lastActivity = ui("Resume sharing and connect a Mac first."); refresh(); return }
         sync.poll(force: true)
     }
     @objc private func toggleSharing() {
@@ -842,7 +858,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         require(statusItem.menu?.items.contains(where: { $0.action == #selector(quit) }) == true, "menu bar exposes quit")
         require(edgeIndicator.isNonInteractive, "edge indicator cannot take keyboard focus or intercept clicks")
         require(NSApp.mainMenu?.items.first?.submenu?.items.contains(where: { $0.keyEquivalent == "q" }) == true, "Command-Q is installed in app menu")
-        toggleSharing(); require(!enabled && statusLabel.stringValue.contains("일시 정지"), "pause updates visible state")
+        toggleSharing(); require(!enabled && statusLabel.stringValue == ui("Sharing paused"), "pause updates visible state")
         toggleSharing(); require(enabled, "resume updates sharing state")
         require(mouseDetails.isHidden, "mouse details start collapsed on the main screen")
         showSharing(); require(!mouseDetails.isHidden && fileButton.superview != nil, "file and mouse controls are reachable without tabs")
@@ -868,16 +884,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         require(!mouse.enabled && mouse.sharingRequested && mouseToggle.state == .on && mouseToggle.isEnabled,
                 "input outage retains consent and allows explicit stop while clipboard peer remains")
         require(menuMouseToggle.isEnabled && menuMouseToggle.state == .on, "menu bar can revoke input consent during channel recovery")
-        require(inputStatusLabel.stringValue == "연결 복구 중", "main window identifies input recovery separately from clipboard connectivity")
-        require(fileButton.isEnabled && peerVersionLabel.stringValue.contains("양쪽 버전 같음"), "input outage preserves file controls and reports matched versions")
+        require(inputStatusLabel.stringValue == ui("Reconnecting"), "main window identifies input recovery separately from clipboard connectivity")
+        require(fileButton.isEnabled && peerVersionLabel.stringValue.contains(ui("Builds match")), "input outage preserves file controls and reports matched versions")
         setMouseSharing(false)
-        require(inputStatusLabel.stringValue == "꺼짐", "main window shows the explicit off choice during a transport outage")
+        require(inputStatusLabel.stringValue == ui("Off"), "main window shows the explicit off choice during a transport outage")
         require(!mouse.sharingRequested && mouseToggle.state == .off && mouseToggle.isEnabled && menuMouseToggle.isEnabled,
                 "turning sharing off during recovery keeps both enable controls available")
         toggleMouseFromMenu()
         require(mouse.sharingRequested && !mouse.enabled && mouse.peer == nil && mouseToggle.state == .on,
                 "menu enable during recovery records consent without capturing input")
-        require(mouseHint.stringValue.contains("복구되면"), "pending input choice is distinguished from active sharing")
+        require(mouseHint.stringValue.contains(ui("when input reconnects")), "pending input choice is distinguished from active sharing")
         setMouseSharing(false)
         recoveryPeer.inputReady = true; recoveryPeer.inputSession = UUID()
         updateFeaturePeer([recoveryPeer])
@@ -889,7 +905,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         recoveryPeer.inputReady = true; recoveryPeer.inputSession = UUID()
         updateFeaturePeer([recoveryPeer])
         require(mouse.enabled && !mouse.remoteEnabled && mouse.mode == .local, "input reconnect restores local readiness with fresh remote consent")
-        require(inputStatusLabel.stringValue == "상대 켜기 대기", "connected input is not presented as usable before remote consent")
+        require(inputStatusLabel.stringValue == ui("Waiting for peer"), "connected input is not presented as usable before remote consent")
         require(updateDownloadButton.isHidden && updateButton.isEnabled, "update controls never offer an unchecked download")
         displaySlept(); screenLocked(); sessionDeactivated(); willSleep()
         require(!mouse.enabled && mouseToggle.state == .on, "sleep stops capture while the sharing checkbox retains the choice")
@@ -944,27 +960,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         updateFeaturePeer([])
         gesture(.leftMouseUp, left)
         require(mouse.layout == nil && !swapScreens.isEnabled, "disconnect cancels arrangement editing")
-        require(!menuSwapScreens.isEnabled && !menuMouseToggle.isEnabled && menuScreenOrder.title.contains("연결 대기"),
+        require(!menuSwapScreens.isEnabled && !menuMouseToggle.isEnabled && menuScreenOrder.title == ui("Screen Layout · Waiting for a Mac"),
                 "disconnected menu disables new sharing and layout changes")
         mouse.send = originalSend
-        require(gestureHint.stringValue.contains("연결하면"), "disconnected gesture guidance explains capability check")
+        require(gestureHint.stringValue.contains(ui("After connecting")), "disconnected gesture guidance explains capability check")
         let fixturePeer = ConnectedPeer(device: "gesture-peer", name: "Gesture fixture", connection: UUID(), features: [SharingFeature.mouse, SharingFeature.keyboard])
         updateFeaturePeer([fixturePeer])
-        require(gestureHint.stringValue.contains("기능 확인"), "legacy peer explains why gestures stay local")
+        require(gestureHint.stringValue.contains(ui("check features")), "legacy peer explains why gestures stay local")
         let capablePeer = ConnectedPeer(device: "gesture-peer", name: "Gesture fixture", connection: UUID(), features: Set(SharingFeature.supported))
         updateFeaturePeer([capablePeer])
-        require(gestureHint.stringValue.contains("조작하는 Mac"), "gesture guidance identifies which Mac supplies finger-count settings")
+        require(gestureHint.stringValue.contains(ui("controlling Mac")), "gesture guidance identifies which Mac supplies finger-count settings")
         try? mouse.setEnabled(true)
         mouse.secureInputEnabled = { true }; mouse.tick(); updateSharingUI()
-        require(mouseHint.stringValue.contains("이 Mac의 보안 입력") && mouseToggle.state == .on,
+        require(mouseHint.stringValue.contains(ui("Secure Input on this Mac")) && mouseToggle.state == .on,
                 "secure-input pause is visible without clearing the sharing choice")
         mouse.secureInputEnabled = { false }; mouse.tick(); updateSharingUI()
         mouse.receive(MousePacket(kind: .availability, enabled: true, secureInputActive: true), from: "gesture-peer")
         updateSharingUI()
-        require(mouseHint.stringValue.contains("상대 Mac의 보안 입력"), "remote secure-input pause identifies the blocked Mac")
+        require(mouseHint.stringValue.contains(ui("Secure Input on the other Mac")), "remote secure-input pause identifies the blocked Mac")
         mouse.receive(MousePacket(kind: .availability, enabled: true, secureInputActive: false), from: "gesture-peer")
         updateSharingUI()
-        require(!mouseHint.stringValue.contains("보안 입력"), "cleared secure input restores normal sharing guidance")
+        require(!mouseHint.stringValue.contains(ui("Secure Input")), "cleared secure input restores normal sharing guidance")
         updateFeaturePeer([])
         showSettings(); require(!settingsContent.isHidden && sharingContent.isHidden && statusSummary.isHidden, "settings focus on preferences without duplicating sharing controls")
         require(window.frame.height < 760, "settings remain a compact scrollable window")
@@ -1010,23 +1026,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             if loginToggle.state == .on { try SMAppService.mainApp.register() }
             else { try SMAppService.mainApp.unregister() }
             if SMAppService.mainApp.status == .requiresApproval { SMAppService.openSystemSettingsLoginItems() }
-        } catch { alert("로그인 시작을 변경하지 못했어요. 앱을 응용 프로그램 폴더에 넣은 뒤 다시 시도해 주세요.\n" + error.localizedDescription) }
+        } catch { alert(ui("Couldn’t change the login setting. Move NearClip to Applications and try again.\n") + error.localizedDescription) }
         loginToggle.state = SMAppService.mainApp.status == .enabled ? .on : .off
     }
     @objc private func forgetPairing() {
-        let dialog = NSAlert(); dialog.messageText = "저장된 연결을 해제할까요?"
-        dialog.informativeText = "즉시 공유가 끊기고, 다음에 연결할 때 양쪽 숫자를 다시 확인해야 해요."
-        dialog.addButton(withTitle: "연결 해제"); dialog.addButton(withTitle: "취소")
+        let dialog = NSAlert(); dialog.messageText = ui("Forget this Mac?")
+        dialog.informativeText = ui("Sharing will stop. To reconnect, compare the codes on both Macs again.")
+        dialog.addButton(withTitle: ui("Forget Mac")); dialog.addButton(withTitle: ui("Cancel"))
         dialog.beginSheetModal(for: window) { [weak self] result in if result == .alertFirstButtonReturn { self?.newCode() } }
     }
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if closeBehavior == .quit { quit(); return false }
         if closeBehavior == .keepRunning { NSApp.setActivationPolicy(.accessory); return true }
         guard !closingPrompt else { return false }; closingPrompt = true
-        let dialog = NSAlert(); dialog.messageText = "NearClip을 종료할까요?"
-        dialog.informativeText = "종료하면 클립보드 공유가 멈춰요. 계속 공유하려면 메뉴 막대에 남겨둘 수 있어요."
-        dialog.addButton(withTitle: "앱 종료"); dialog.addButton(withTitle: "메뉴 막대에 남기기"); dialog.addButton(withTitle: "취소")
-        dialog.showsSuppressionButton = true; dialog.suppressionButton?.title = "이 선택 기억하기"
+        let dialog = NSAlert(); dialog.messageText = ui("Quit NearClip?")
+        dialog.informativeText = ui("Quitting stops sharing. Keep NearClip in the menu bar to continue.")
+        dialog.addButton(withTitle: ui("Quit")); dialog.addButton(withTitle: ui("Keep in Menu Bar")); dialog.addButton(withTitle: ui("Cancel"))
+        dialog.showsSuppressionButton = true; dialog.suppressionButton?.title = ui("Remember my choice")
         dialog.beginSheetModal(for: window) { [weak self] response in
             guard let self else { return }; self.closingPrompt = false
             if response == .alertThirdButtonReturn { return }
@@ -1038,18 +1054,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return false
     }
     @objc private func about() {
-        NSApp.orderFrontStandardAboutPanel(options: [.applicationName: "NearClip", .applicationVersion: version, .credits: NSAttributedString(string: "Mac 사이의 클립보드·파일·마우스 공유. MIT License.")])
+        NSApp.orderFrontStandardAboutPanel(options: [.applicationName: "NearClip", .applicationVersion: version, .credits: NSAttributedString(string: ui("Share a clipboard, files, mouse, and keyboard between Macs. MIT License."))])
     }
     @objc private func quit() { NSApp.terminate(nil) }
     @objc private func help() {
-        let dialog = NSAlert(); dialog.messageText = "두 Mac에서 NearClip을 켜두세요"
-        dialog.informativeText = "① 두 Mac 모두 NearClip 0.3 이상을 켜고 같은 Wi-Fi 또는 LAN에 연결하세요.\n② 한쪽에서 상대 Mac 옆의 ‘연결’을 누르세요.\n③ 양쪽 화면의 6자리 숫자가 같으면 두 Mac에서 모두 연결을 누르세요. 숫자를 전달하거나 입력할 필요 없어요.\n④ 연결됨이 표시되면 새로 복사한 텍스트나 이미지를 다른 Mac에 붙여넣으세요.\n\n권한 요청이 나오면 ‘로컬 네트워크’와 ‘다른 앱에서 붙여넣기’를 허용하세요. 거부했다면 시스템 설정 → 개인정보 보호 및 보안에서 변경할 수 있어요.\n\n텍스트와 실제 이미지 클립보드를 지원해요. Finder의 파일 복사는 지원하지 않아요. 이미지는 20MB·4천만 화소까지예요.\n\n연결 전·일시 정지 중 복사한 내용은 자동 전송하지 않아요. 필요하면 ‘지금 보내기’를 누르세요. 암호 관리자가 비공개로 표시한 내용은 공유하지 않아요.\n\n설정에서 연결 해제를 누르면 기존 연결이 끊어져요. 회사·게스트 Wi-Fi에서 기기 간 통신을 막으면 연결할 수 없어요."
-        dialog.informativeText += "\n\n연결 화면 아래에서 파일을 보내거나 ‘화면 배치 · 권한’을 펼쳐 두 Mac의 좌우 순서를 정할 수 있어요. 배치는 양쪽에 반영돼요. 마우스·키보드 공유는 양쪽에서 직접 켜야 해요. 화면 가장자리로 밀어 이동하고 ⌃⌥Esc로 즉시 끄세요. 두 Mac 모두 0.4.3 이상이면 키보드도 커서와 함께 이동해요. 파일은 상대가 저장 위치를 선택해야 전송돼요."
-        dialog.addButton(withTitle: "확인"); dialog.runModal()
+        let dialog = NSAlert(); dialog.messageText = ui("Connect two Macs")
+        dialog.informativeText = ui("Open NearClip on both Macs and join the same network. Choose Connect and compare the six digits. If they match, confirm on both Macs. Copy text or an image, then paste it on the other Mac.\n\nAllow Local Network and paste access when prompted. You can change permissions in System Settings. Guest networks may block connections between devices.\n\nClipboard items can be up to 20 MiB. Images can contain up to 40 million pixels. To share something copied before connecting or while paused, choose Send Now. Items marked private by password managers are skipped.")
+        dialog.informativeText += ui("\n\nOpen Screen Layout to arrange the Macs. Enable mouse and keyboard sharing on both, then push the pointer against the shared edge. Press ⌃⌥Esc to stop. To send a file, choose Send File. The recipient chooses where to save it.")
+        dialog.addButton(withTitle: ui("OK")); dialog.runModal()
     }
     private func alert(_ message: String) {
         let dialog = NSAlert(); dialog.messageText = "NearClip"; dialog.informativeText = message
-        dialog.addButton(withTitle: "확인"); NSApp.activate(ignoringOtherApps: true); dialog.runModal()
+        dialog.addButton(withTitle: ui("OK")); NSApp.activate(ignoringOtherApps: true); dialog.runModal()
     }
     private func configureSharing() {
         permissions = preview ? MousePermissions(accessibility: true, posting: true, monitoring: true) : MouseSharing.permissions
@@ -1139,18 +1155,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         updateSharingUI()
     }
     private func updateHealthUI() {
-        guard let peer = featurePeer else { healthLabel.stringValue = "상대 Mac에 연결하면 입력 지연을 측정해요."; return }
+        guard let peer = featurePeer else { healthLabel.stringValue = ui("Connect to the other Mac to measure input latency."); return }
         if !peer.inputReady {
-            healthLabel.stringValue = "입력 연결 복구 중 · 클립보드와 파일 연결은 유지돼요."
+            healthLabel.stringValue = ui("Reconnecting input. Clipboard and file sharing are still connected.")
             if let failure = peer.inputFailure { healthLabel.stringValue += "\n" + failure }
         }
-        else if let inputHealth { healthLabel.stringValue = "입력 전용 연결 · " + inputHealth.label }
-        else if peer.features.contains(SharingFeature.inputMetrics) { healthLabel.stringValue = "입력 전용 연결 · 왕복 지연 측정 중…" }
-        else { healthLabel.stringValue = "상대도 최신 빌드로 업데이트하면 왕복 지연을 확인할 수 있어요." }
+        else if let inputHealth { healthLabel.stringValue = ui("Input connection · ") + inputHealth.label }
+        else if peer.features.contains(SharingFeature.inputMetrics) { healthLabel.stringValue = ui("Input connection · Measuring latency…") }
+        else { healthLabel.stringValue = ui("Update the other Mac to see input latency.") }
         if let timing = mouse.motionTimingLabel { healthLabel.stringValue += "\n" + timing }
         if !mouse.active, let message = mouse.lastEndMessage { healthLabel.stringValue += "\n" + message }
-        if mouse.active { healthLabel.stringValue += "\n현재 제어: NearClip · " + (mouse.mode == .receiving ? "상대 Mac에서 이 Mac 제어 중" : "이 Mac에서 상대 Mac 제어 중") }
-        else { healthLabel.stringValue += "\nNearClip 원격 제어 대기 · Apple 연결 여부는 디스플레이 설정에서 확인하세요." }
+        if mouse.active { healthLabel.stringValue += ui("\nCurrent control: NearClip · ") + (mouse.mode == .receiving ? ui("The other Mac controls this Mac") : ui("This Mac controls the other Mac")) }
+        else { healthLabel.stringValue += ui("\nNearClip is idle. Check Displays settings for Apple Universal Control.") }
     }
     private func configureUpdates() {
         guard !preview else { return }
@@ -1171,20 +1187,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func checkUpdates() { openUpdater() }
     private func openUpdater() {
         guard !preview, !terminating else { return }
-        guard !files.busy else { alert("파일 전송을 마치거나 취소한 뒤 업데이트해 주세요."); return }
+        guard !files.busy else { alert(ui("Finish or cancel the file transfer before updating.")); return }
         updateButton.isEnabled = false; updateDownloadButton.isEnabled = false
-        updateLabel.stringValue = "업데이트 창을 열고 있어요…"
+        updateLabel.stringValue = ui("Opening the update window…")
         UpdateInstaller.open { [weak self] error in
             guard let self else { return }
             self.updateButton.isEnabled = true; self.updateDownloadButton.isEnabled = true
-            self.updateLabel.stringValue = error?.localizedDescription ?? "업데이트 창에서 설치를 선택하면 연결을 종료하고 앱을 다시 열어요."
+            self.updateLabel.stringValue = error?.localizedDescription ?? ui("Installing the update disconnects sharing and restarts NearClip.")
             if let error { self.alert(error.localizedDescription) }
         }
     }
     private func performUpdateCheck() {
         guard !preview, !updateChecker.checking else { return }
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "lastUpdateAttempt")
-        updateButton.isEnabled = false; updateLabel.stringValue = "공개 배포를 확인하고 있어요…"
+        updateButton.isEnabled = false; updateLabel.stringValue = ui("Checking releases…")
         updateChecker.check { [weak self] result in
             guard let self, !self.terminating else { return }
             self.updateButton.isEnabled = true
@@ -1194,14 +1210,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 if let release, let latest = release.version {
                     if AppVersion.current < latest {
                         self.updateDownload = release.downloadURL
-                        self.updateLabel.stringValue = "새 버전 \(latest.label)이 있어요. 두 Mac을 함께 업데이트하세요."
-                    } else if latest < AppVersion.current { self.updateLabel.stringValue = "현재는 공개 배포보다 최신 테스트 빌드예요. 내려받을 업데이트가 없어요." }
-                    else { self.updateLabel.stringValue = "현재 공개된 최신 버전이에요." }
-                } else { self.updateLabel.stringValue = "아직 다운로드할 공개 배포가 없어요." }
+                        self.updateLabel.stringValue = ui("%1$@ is available. Update both Macs.", "\(latest.label)")
+                    } else if latest < AppVersion.current { self.updateLabel.stringValue = ui("This build is newer than the public release.") }
+                    else { self.updateLabel.stringValue = ui("You have the latest public release.") }
+                } else { self.updateLabel.stringValue = ui("No public release is available yet.") }
                 self.updateDownloadButton.isHidden = self.updateDownload == nil
-                self.updateMenu?.title = self.updateDownload == nil ? "업데이트 확인…" : "새 버전 있음 · 업데이트…"
+                self.updateMenu?.title = self.updateDownload == nil ? ui("Check for Updates…") : ui("Update Available…")
             case .failure:
-                self.updateLabel.stringValue = "업데이트 확인에 실패했어요. 네트워크를 확인하고 다시 눌러주세요."
+                self.updateLabel.stringValue = ui("Couldn’t check for updates. Check your connection and try again.")
             }
             self.updateWindowSize()
         }
@@ -1214,8 +1230,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard mouseToggle != nil else { return }
         mouseDetails?.isHidden = !mouseDetailsExpanded
         settingsContent?.isHidden = !settingsExpanded
-        mouseDisclosure?.title = mouseDetailsExpanded ? "화면 배치 ▾" : "화면 배치 ▸"
-        permissionLabel.stringValue = permissions.granted ? "✓ 손쉬운 사용 · 입력 모니터링 허용됨" : permissions.statusText
+        mouseDisclosure?.title = mouseDetailsExpanded ? ui("Screen Layout ▾") : ui("Screen Layout ▸")
+        permissionLabel.stringValue = permissions.granted ? ui("✓ Accessibility and Input Monitoring allowed") : permissions.statusText
         permissionActions?.isHidden = permissions.granted
         peerVersionLabel.isHidden = featurePeer == nil
         peerVersionLabel.stringValue = AppVersion.current.peerNotice(featurePeer?.appVersion)
@@ -1223,49 +1239,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         updateHealthUI()
         let supportsFiles = featurePeer?.features.contains(SharingFeature.files) == true
         let supportsMouse = featurePeer?.features.contains(SharingFeature.mouse) == true
-        if !DockSwipeAdapter.available { gestureHint.stringValue = "제스처 베타 · 현재 macOS 버전은 지원하지 않아요. 마우스·키보드는 계속 사용할 수 있어요." }
-        else if !supportsMouse { gestureHint.stringValue = "제스처 베타 · 연결하면 상대 앱의 지원 여부를 확인해요." }
+        if !DockSwipeAdapter.available { gestureHint.stringValue = ui("Gestures require a supported macOS version. Mouse and keyboard sharing are available.") }
+        else if !supportsMouse { gestureHint.stringValue = ui("After connecting, NearClip checks whether the other Mac supports gestures.") }
         else if !mouse.gesturesSupported {
-            let platform = featurePeer?.osMajor.map { "상대 macOS \($0) · " } ?? ""
-            gestureHint.stringValue = "제스처 연결 안 됨 · " + platform + "상대 앱의 기능 확인이 필요해요. 운영체제 호환성 확인에 실패하면 꺼져요."
+            let platform = featurePeer?.osMajor.map { ui("Other Mac: macOS %1$@ · ", "\($0)") } ?? ""
+            gestureHint.stringValue = ui("Gestures unavailable · ") + platform + ui("Update the other Mac to check features and macOS compatibility.")
         }
-        else { gestureHint.stringValue = "제스처 베타 · 3·4손가락으로 데스크탑·Mission Control 전환. 손가락 수는 조작하는 Mac의 설정을 따라요." }
+        else { gestureHint.stringValue = ui("Swipe with three or four fingers for Spaces and Mission Control. Use the finger count set on the controlling Mac.") }
         fileButton.isEnabled = enabled && supportsFiles && !files.busy
         fileActions?.isHidden = fileCancel.isHidden && revealButton.isHidden
         swapScreens.isEnabled = supportsMouse && !mouse.active
         mouseToggle.isEnabled = mouse.sharingRequested || (enabled && supportsMouse)
-        inputTitle.stringValue = featurePeer?.features.contains(SharingFeature.keyboard) == true || !supportsMouse ? "마우스·키보드" : "마우스"
+        inputTitle.stringValue = featurePeer?.features.contains(SharingFeature.keyboard) == true || !supportsMouse ? ui("Mouse & Keyboard") : ui("Mouse")
         mouseToggle.state = mouse.sharingRequested ? .on : .off
         let inputStatus = InputSharingStatus.resolve(requested: mouse.sharingRequested, connected: supportsMouse,
             inputReady: featurePeer?.inputReady == true, permissions: permissions.granted,
             captureEnabled: mouse.enabled, peerEnabled: mouse.remoteEnabled, paused: mouse.inputPauseMessage != nil)
-        inputStatusLabel.stringValue = inputStatus.rawValue
+        inputStatusLabel.stringValue = ui(inputStatus.rawValue)
         inputStatusLabel.textColor = inputStatus == .ready ? .systemGreen : inputStatus == .off ? .secondaryLabelColor : .systemOrange
         arrangement.update(peerID: supportsMouse ? featurePeer?.connection.uuidString : nil,
                            localName: preview ? "My MacBook" : deviceName,
-                           peerName: featurePeer?.name ?? "상대 Mac", side: mouse.side,
+                           peerName: featurePeer?.name ?? ui("other Mac"), side: mouse.side,
                            editable: supportsMouse && !mouse.active)
-        arrangementHint.stringValue = mouse.active ? "마우스 제어를 끝낸 뒤 배치를 바꿀 수 있어요. ⌃⌥Esc로 공유를 끄세요." : "화면을 드래그해 실제 Mac의 좌우 순서에 맞춰주세요. 양쪽에 자동 반영돼요."
+        arrangementHint.stringValue = mouse.active ? ui("End remote control before arranging screens. Press ⌃⌥Esc to stop input sharing.") : ui("Drag the screens to match your desk. Both Macs use this layout.")
         if featurePeer != nil && featurePeer?.inputReady == false {
             mouseHint.stringValue = mouse.sharingRequested
-                ? "켜기 선택을 저장했어요. 입력 연결이 복구되면 시작해요. 클립보드와 파일 공유는 계속돼요."
-                : "마우스·키보드 공유가 꺼져 있어요. 지금 켜두면 입력 연결이 복구된 뒤 시작해요."
+                ? ui("Input sharing starts when input reconnects. Clipboard and files are still available.")
+                : ui("Turn on input sharing now to start when the input connection is ready.")
         }
         else if mouse.sharingRequested && !mouse.enabled {
-            mouseHint.stringValue = permissions.granted ? "선택을 기억했어요 · 같은 Mac에 연결되면 다시 켜져요." : "권한 확인 필요 · 화면 배치를 펼쳐 허용 상태를 확인하세요."
+            mouseHint.stringValue = permissions.granted ? ui("Preference saved. Sharing resumes when this Mac reconnects.") : ui("Open Screen Layout to review permissions.")
         }
-        else if !supportsMouse { mouseHint.stringValue = "연결하면 커서와 키보드를 함께 사용할 수 있어요." }
-        else if !mouse.enabled { mouseHint.stringValue = mouseSetupError ?? (mouse.keyboardSupported ? "양쪽에서 켠 뒤 화면 가장자리로 이동하세요." : "상대 Mac을 업데이트하면 키보드도 공유해요.") }
+        else if !supportsMouse { mouseHint.stringValue = ui("Connect to share your pointer and keyboard.") }
+        else if !mouse.enabled { mouseHint.stringValue = mouseSetupError ?? (mouse.keyboardSupported ? ui("Turn sharing on at both ends, then move the pointer to the edge.") : ui("Update the other Mac to share the keyboard.")) }
         else if let pause = mouse.inputPauseMessage { mouseHint.stringValue = pause }
-        else if !mouse.remoteEnabled { mouseHint.stringValue = "이 Mac은 준비됐어요. 상대 Mac에서도 마우스 공유를 켜주세요." }
+        else if !mouse.remoteEnabled { mouseHint.stringValue = ui("This Mac is ready. Turn on mouse sharing on the other Mac.") }
         else {
-            mouseHint.stringValue = mouse.gesturesSupported ? "NearClip 준비 완료 · 화면 가장자리로 이동 · 3·4손가락 쓸어넘기기 베타" : "NearClip 준비 완료 · 화면 가장자리로 밀어 이동하세요."
+            mouseHint.stringValue = mouse.gesturesSupported ? ui("Ready · Move to the edge to switch Macs · Three- and four-finger swipes in beta") : ui("Ready · Push the pointer against the edge to switch Macs.")
         }
         menuMouseToggle?.state = mouse.sharingRequested ? .on : .off
         menuMouseToggle?.isEnabled = mouse.sharingRequested || mouseToggle.isEnabled
-        menuMouseToggle?.title = inputTitle.stringValue + " 공유"
+        menuMouseToggle?.title = inputTitle.stringValue + ui(" sharing")
         menuSwapScreens?.isEnabled = swapScreens.isEnabled
-        menuScreenOrder?.title = supportsMouse ? (mouse.side == .left ? "상대 Mac ← 이 Mac" : "이 Mac → 상대 Mac") : "화면 배치 · 연결 대기"
+        menuScreenOrder?.title = supportsMouse ? (mouse.side == .left ? ui("Other Mac ← This Mac") : ui("This Mac → Other Mac")) : ui("Screen Layout · Waiting for a Mac")
         menuScreenOrder?.isEnabled = false
         menuMouseStop?.isEnabled = mouse.sharingRequested
     }
@@ -1297,9 +1313,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         refresh()
     }
     @objc private func universalControlHelp() {
-        let dialog = NSAlert(); dialog.messageText = "Apple 유니버설 컨트롤과 함께 쓰고 있나요?"
-        dialog.informativeText = "유니버설 컨트롤은 같은 Apple 계정의 Mac·iPad 사이에서 동작해요. 두 기능을 동시에 사용 중이라면 테스트할 동안 시스템 설정 → 디스플레이 → 고급에서 ‘포인터 및 키보드가 근처의 Mac 또는 iPad 간에 이동하도록 허용’을 꺼보세요.\n\nNearClip은 이 설정을 자동으로 바꾸지 않아요. 지금 권한 오류가 난다면 손쉬운 사용·입력 모니터링을 먼저 확인하세요."
-        dialog.addButton(withTitle: "디스플레이 설정 열기"); dialog.addButton(withTitle: "닫기")
+        let dialog = NSAlert(); dialog.messageText = ui("Using Apple Universal Control?")
+        dialog.informativeText = ui("Universal Control links nearby Macs and iPads on the same Apple Account. To test NearClip on its own, open System Settings → Displays → Advanced and turn off pointer and keyboard sharing temporarily.\n\nFor permission errors, check Accessibility and Input Monitoring first.")
+        dialog.addButton(withTitle: ui("Open Displays Settings")); dialog.addButton(withTitle: ui("Close"))
         dialog.beginSheetModal(for: window) { result in
             if result == .alertFirstButtonReturn { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.displays")!) }
         }
@@ -1310,23 +1326,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if !preview { UserDefaults.standard.set(preventAppleRelay, forKey: "preventAppleRelay") }
     }
     @objc private func appleClipboardHelp() {
-        let dialog = NSAlert(); dialog.messageText = "Apple 기기 간 클립보드 공유"
-        dialog.informativeText = "위 옵션은 NearClip으로 새로 받은 내용이 Apple 유니버설 클립보드로 다시 전달되지 않도록 지정해요. 다른 앱의 복사, 이미 전달된 내용, 수동으로 다시 복사한 내용은 막지 않아요.\n\n이 Mac의 Apple 클립보드 공유 전체를 끄려면 시스템 설정 → 일반 → AirDrop 및 Handoff(또는 연속성)에서 ‘이 Mac과 iCloud 기기 간에 Handoff 허용’을 끄세요. 앱 이어서 작업하기 등 다른 Handoff 기능에도 영향을 줘요. NearClip은 이 시스템 설정을 자동으로 바꾸지 않아요."
-        dialog.addButton(withTitle: "일반 설정 열기"); dialog.addButton(withTitle: "닫기")
+        let dialog = NSAlert(); dialog.messageText = ui("Apple Universal Clipboard")
+        dialog.informativeText = ui("Turn on clipboard protection to keep new items received through NearClip on this Mac. Other apps and items you copy again can still use Universal Clipboard.\n\nTo turn off Universal Clipboard system-wide, open System Settings → General → AirDrop & Handoff and turn off Handoff. This also affects other Continuity features.")
+        dialog.addButton(withTitle: ui("Open General Settings")); dialog.addButton(withTitle: ui("Close"))
         dialog.beginSheetModal(for: window) { result in
             if result == .alertFirstButtonReturn { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.General-Settings.extension")!) }
         }
     }
     @objc private func keychainHelp() {
-        alert("NearClip은 저장된 기기 연결 키를 키체인에서 읽어요. 시작할 때 접근 확인이 뜨면 Mac 로그인 암호를 입력하고 ‘항상 허용(Always Allow)’을 선택할 수 있어요. ‘허용(Allow)’은 이번 접근만 승인해요.\n\n연결 키는 고정 서명의 NearClipKeyStore 구성요소가 읽어요. 이 구성요소를 처음 사용할 때 한 번 승인하면 일반 앱 업데이트에서는 그대로 사용해요. 구성요소나 서명이 바뀌거나 키체인이 잠기면 다시 확인할 수 있어요. 앱에 로그인 암호를 저장하거나 키체인 보호를 해제하지 않아요.")
+        alert(ui("NearClip stores its pairing key in your login keychain. Choose Always Allow to let the signed NearClipKeyStore helper read the key across updates. Allow grants access once.\n\nmacOS may ask again if the helper or its signature changes, or if the keychain is locked. Enter your password only in the macOS prompt."))
     }
     @objc private func stopInput() { mouse?.stop(); if window != nil { refresh() } }
     @objc private func accessibilitySettings() { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!) }
     @objc private func inputSettings() { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")!) }
     @objc private func sendFile() {
         guard !preview, enabled, let peer = featurePeer, peer.features.contains(SharingFeature.files), !files.busy else { return }
-        let panel = NSOpenPanel(); panel.title = "보낼 파일 선택"; panel.canChooseDirectories = false; panel.allowsMultipleSelection = false
-        panel.message = "일반 파일 하나를 2GB까지 보내요. 원본은 이 Mac에 남아요."
+        let panel = NSOpenPanel(); panel.title = ui("Choose a File to Send"); panel.canChooseDirectories = false; panel.allowsMultipleSelection = false
+        panel.message = ui("Send one file up to 2 GiB. The original stays on this Mac.")
         panel.beginSheetModal(for: window) { [weak self] response in
             guard let self, response == .OK, let url = panel.url, self.enabled, self.featurePeer?.connection == peer.connection else { return }
             do { try self.files.offer(url: url, to: peer.device) } catch { self.alert(error.localizedDescription) }
@@ -1335,9 +1351,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func receiveFile(_ offer: FilePacket) {
         guard !preview, enabled, window.attachedSheet == nil else { files.decline(id: offer.id); return }
         mouse.endSession(); showSharing()
-        let panel = NSSavePanel(); panel.title = "파일 받기"; panel.nameFieldStringValue = offer.name ?? "파일"
-        panel.message = "\(featurePeer?.name ?? "상대 Mac")에서 보낸 파일 · " + ByteCountFormatter.string(fromByteCount: offer.size ?? 0, countStyle: .file) + "\n저장 위치를 선택하면 전송을 시작해요. 기존 파일은 덮어쓰지 않아요."
-        panel.prompt = "받기"; panel.canCreateDirectories = true; receivePanel = panel
+        let panel = NSSavePanel(); panel.title = ui("Receive File"); panel.nameFieldStringValue = offer.name ?? ui("File")
+        panel.message = ui("From %1$@ · ", "\(featurePeer?.name ?? ui("other Mac"))") + ByteCountFormatter.string(fromByteCount: offer.size ?? 0, countStyle: .file) + ui("\nChoose where to save the file to start the transfer. Existing files are protected.")
+        panel.prompt = ui("Receive"); panel.canCreateDirectories = true; receivePanel = panel
         panel.beginSheetModal(for: window) { [weak self] response in
             guard let self else { return }; self.receivePanel = nil
             if response == .OK, let url = panel.url { self.files.accept(id: offer.id, destination: url) }

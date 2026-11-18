@@ -21,7 +21,7 @@ struct DockSwipePacket: Codable {
               progress.isFinite, abs(progress) <= 16,
               velocityX.isFinite, velocityY.isFinite,
               abs(velocityX) <= 10000, abs(velocityY) <= 10000 else {
-            throw ClipError.invalid("잘못된 트랙패드 제스처예요.")
+            throw ClipError.invalid(ui("Invalid trackpad gesture."))
         }
     }
 }

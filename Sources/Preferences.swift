@@ -12,14 +12,14 @@ struct ConnectionAddress: Equatable {
     init(_ input: String) throws {
         let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let split = value.lastIndex(of: ":"), let port = UInt16(value[value.index(after: split)...]), port > 0 else {
-            throw ClipError.invalid("주소:포트 형식으로 입력해 주세요. 예: my-mac.local:54321")
+            throw ClipError.invalid(ui("Enter a hostname and port, such as my-mac.local:54321."))
         }
         var host = String(value[..<split])
         if host.hasPrefix("["), host.hasSuffix("]") { host = String(host.dropFirst().dropLast()) }
         guard !host.isEmpty, host.utf8.count <= 253,
               !host.contains(where: { $0.isWhitespace }),
               !host.contains("/"), !host.contains("@"), !host.contains("[") , !host.contains("]") else {
-            throw ClipError.invalid("Mac의 IP 주소나 .local 주소를 입력해 주세요.")
+            throw ClipError.invalid(ui("Enter an IP address or a .local hostname."))
         }
         self.host = host; self.port = port
     }

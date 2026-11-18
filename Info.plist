@@ -1,19 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
+<key>CFBundleDevelopmentRegion</key><string>en</string>
 <key>CFBundleName</key><string>NearClip</string>
 <key>CFBundleDisplayName</key><string>NearClip</string>
 <key>CFBundleIdentifier</key><string>dev.nearclip.mac</string>
 <key>CFBundleExecutable</key><string>NearClip</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.4.4</string>
-<key>CFBundleVersion</key><string>35</string>
+<key>CFBundleVersion</key><string>36</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>LSUIElement</key><true/>
 <key>NSHighResolutionCapable</key><true/>
 <key>CFBundleIconFile</key><string>AppIcon</string>
 <key>NSPrincipalClass</key><string>NSApplication</string>
-<key>NSLocalNetworkUsageDescription</key><string>같은 네트워크에서 연결한 Mac을 찾고, 텍스트와 이미지 클립보드를 공유합니다.</string>
+<key>NSLocalNetworkUsageDescription</key><string>NearClip finds and connects to your paired Mac on the local network to share clipboard items, input, and files.</string>
 <key>NSBonjourServices</key><array><string>_nearclip._tcp</string></array>
 <key>SUFeedURL</key><string>https://raw.githubusercontent.com/iyk2h/nearclip/main/updates/appcast.xml</string>
 <key>SUPublicEDKey</key><string>5g0cyfm7/x6KC1mG9WvthMaH1oBQtcbH4G4G1nTrOdw=</string>

@@ -1,8 +1,8 @@
 import Foundation
 
 enum InputSharingStatus: String {
-    case off = "꺼짐", disconnected = "연결 대기", recovering = "연결 복구 중"
-    case permission = "권한 필요", suspended = "일시 대기", peerOff = "상대 켜기 대기", ready = "사용 가능"
+    case off = "Off", disconnected = "Waiting for connection", recovering = "Reconnecting"
+    case permission = "Permission needed", suspended = "Paused", peerOff = "Waiting for peer", ready = "Ready"
     static func resolve(requested: Bool, connected: Bool, inputReady: Bool, permissions: Bool,
                         captureEnabled: Bool, peerEnabled: Bool, paused: Bool) -> Self {
         guard requested else { return .off }
@@ -42,9 +42,9 @@ struct AppVersion: Codable, Equatable, Comparable {
         return value.components == nil ? nil : value
     }
     func peerNotice(_ peer: Self?) -> String {
-        guard let peer else { return "이 Mac \(label) · 상대 버전 확인 불가\n상대도 최신 빌드로 업데이트하면 버전을 확인할 수 있어요." }
-        if self == peer { return "양쪽 버전 같음 · \(label)" }
-        return "버전이 달라요 · 이 Mac \(label) / 상대 \(peer.label)\n같은 빌드로 맞추면 새 기능을 함께 사용할 수 있어요."
+        guard let peer else { return ui("This Mac %1$@ · Peer version unavailable\nUpdate the other Mac to see its version.", "\(label)") }
+        if self == peer { return ui("Builds match · %1$@", "\(label)") }
+        return ui("Different builds · This Mac %1$@ / other Mac %2$@\nUpdate both Macs to use the same features.", "\(label)", "\(peer.label)")
     }
 }
 
@@ -55,7 +55,7 @@ struct InputHealth: Equatable {
     let jitterMS: Double
     let queueMaxMS: Double
     var label: String {
-        "왕복 \(Int(rttMS.rounded()))ms · p95 \(Int(p95MS.rounded()))ms · 편차 \(Int(jitterMS.rounded()))ms · 입력 대기 최대 \(Int(queueMaxMS.rounded()))ms"
+        ui("Round trip %1$@ ms · p95 %2$@ ms · jitter %3$@ ms · peak queue wait %4$@ ms", "\(Int(rttMS.rounded()))", "\(Int(p95MS.rounded()))", "\(Int(jitterMS.rounded()))", "\(Int(queueMaxMS.rounded()))")
     }
 }
 
@@ -128,6 +128,6 @@ struct MotionCadence {
     var excessP95: Int { p95(excessIntervals) }
     var label: String? {
         guard count >= 10 else { return nil }
-        return "마우스 간격 p95 · 보냄 \(sourceP95)ms / 받음 \(arrivalP95)ms · 추가 흔들림 \(excessP95)ms"
+        return ui("Pointer interval p95 · sent %1$@ ms / received %2$@ ms · added jitter %3$@ ms", "\(sourceP95)", "\(arrivalP95)", "\(excessP95)")
     }
 }

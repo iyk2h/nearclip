@@ -18,7 +18,7 @@ struct PublicRelease: Decodable {
         assets.first { $0.name.hasPrefix("NearClip-") && $0.name.hasSuffix("-macOS.dmg") && Self.trustedURL($0.browser_download_url, download: true) }?.browser_download_url
     }
     static func newest(_ data: Data, includeBeta: Bool) throws -> Self? {
-        guard data.count <= 2 * 1024 * 1024 else { throw ClipError.invalid("업데이트 응답이 너무 커요.") }
+        guard data.count <= 2 * 1024 * 1024 else { throw ClipError.invalid(ui("Update response exceeds the size limit.")) }
         let releases = try JSONDecoder().decode([Self].self, from: data)
         return releases.filter { !$0.draft && (includeBeta || !$0.prerelease) && $0.version != nil && trustedURL($0.html_url) && $0.downloadURL != nil }
             .max { $0.version! < $1.version! }
@@ -45,7 +45,7 @@ final class UpdateChecker: NSObject, URLSessionTaskDelegate {
             if let error { result = .failure(error) }
             else if let response = response as? HTTPURLResponse, response.statusCode == 200, let data {
                 result = Result { try PublicRelease.newest(data, includeBeta: includeBeta) }
-            } else { result = .failure(ClipError.invalid("업데이트를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.")) }
+            } else { result = .failure(ClipError.invalid(ui("Couldn’t check for updates. Try again shortly."))) }
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.checking = false; self.task = nil; self.session?.finishTasksAndInvalidate(); self.session = nil

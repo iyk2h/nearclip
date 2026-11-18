@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.4 build 36
+
+- NearClip opens in English by default. Choose Korean under Settings → Language and reopen the app to apply it.
+- Includes input connection recovery and update retry improvements from builds 34 and 35.
+
 ## 0.4.4 build 35 — local validation
 
 - Keep input listener recovery separate from clipboard and file connections. Prevent duplicate hello messages after network readiness changes.

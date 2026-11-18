@@ -11,14 +11,14 @@ enum PairCode {
     static func create() throws -> String {
         var bytes = [UInt8](repeating: 0, count: 16)
         guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
-            throw ClipError.invalid("연결 코드를 만들 수 없어요.")
+            throw ClipError.invalid(ui("Couldn’t create a pairing code."))
         }
         return format(bytes.map { String(format: "%02X", $0) }.joined())
     }
     static func normalize(_ code: String) throws -> String {
         let clean = code.uppercased().filter { !$0.isWhitespace && $0 != "-" }
         guard clean.count == 32, clean.allSatisfy({ "0123456789ABCDEF".contains($0) }) else {
-            throw ClipError.invalid("32자리 연결 코드를 모두 입력해 주세요. 하이픈은 생략해도 돼요.")
+            throw ClipError.invalid(ui("Enter all 32 characters of the pairing code. Hyphens are optional."))
         }
         return clean
     }
@@ -50,17 +50,17 @@ enum KeyStore {
               SecCodeCopyStaticCode(own, [], &ownStatic) == errSecSuccess, let ownStatic,
               SecCodeCopyDesignatedRequirement(ownStatic, [], &ownRequirement) == errSecSuccess, let ownRequirement,
               SecRequirementCopyString(ownRequirement, [], &requirementText) == errSecSuccess, let requirementText else {
-            throw ClipError.invalid("앱 서명을 확인할 수 없어요.")
+            throw ClipError.invalid(ui("Couldn’t verify the app signature."))
         }
         let text = requirementText as String
         guard text.contains("identifier \"dev.nearclip.mac\""), text.contains("certificate"), !text.contains("cdhash") else {
-            throw ClipError.invalid("연결 정보를 저장하려면 고정 서명이 필요해요.")
+            throw ClipError.invalid(ui("Saving a pairing requires a stable signing identity."))
         }
         let helperRequirement = text.replacingOccurrences(of: "identifier \"dev.nearclip.mac\"", with: "identifier \"dev.nearclip.keystore\"")
         guard SecRequirementCreateWithString(helperRequirement as CFString, [], &required) == errSecSuccess,
               SecStaticCodeCreateWithPath(url as CFURL, [], &helper) == errSecSuccess, let helper,
               SecStaticCodeCheckValidity(helper, SecCSFlags(rawValue: kSecCSStrictValidate | kSecCSCheckAllArchitectures), required) == errSecSuccess else {
-            throw ClipError.invalid("키체인 구성요소의 서명을 확인할 수 없어요. 앱을 다시 설치해 주세요.")
+            throw ClipError.invalid(ui("Couldn’t verify the keychain helper. Reinstall NearClip."))
         }
         let process = Process(), stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
         process.executableURL = url; process.arguments = [operation]
@@ -81,13 +81,13 @@ enum KeyStore {
         let (status, data) = try run("load")
         if status == 2 { return nil }
         guard status == 0, data.count == 32, let code = String(data: data, encoding: .utf8) else {
-            throw ClipError.invalid("키체인에서 연결 정보를 읽지 못했어요. 오류 \(status)")
+            throw ClipError.invalid(ui("Couldn’t read the pairing from Keychain. Error %1$@", "\(status)"))
         }
         return PairCode.format(try PairCode.normalize(code))
     }
     static func save(_ code: String) throws {
         let (status, _) = try run("save", input: Data(try PairCode.normalize(code).utf8))
-        guard status == 0 else { throw ClipError.invalid("연결 정보를 저장하지 못했어요. 오류 \(status)") }
+        guard status == 0 else { throw ClipError.invalid(ui("Couldn’t save the pairing. Error %1$@", "\(status)")) }
     }
 }
 
@@ -103,12 +103,12 @@ struct ClipPayload: Codable, Equatable {
     static let maxBytes = 20 * 1024 * 1024
     let type: String // public.utf8-plain-text or public.png
     let data: Data
-    var label: String { type == "public.png" ? "이미지" : "텍스트" }
+    var label: String { type == "public.png" ? ui("image") : ui("text") }
     func validate() throws {
-        guard data.count <= Self.maxBytes, !data.isEmpty else { throw ClipError.invalid("한 번에 20MB까지 공유할 수 있어요.") }
-        guard type == "public.png" || type == "public.utf8-plain-text" else { throw ClipError.invalid("지원하지 않는 클립보드 형식이에요.") }
+        guard data.count <= Self.maxBytes, !data.isEmpty else { throw ClipError.invalid(ui("Clipboard items can be up to 20 MiB.")) }
+        guard type == "public.png" || type == "public.utf8-plain-text" else { throw ClipError.invalid(ui("This clipboard format isn’t supported.")) }
         if type == "public.utf8-plain-text", String(data: data, encoding: .utf8) == nil {
-            throw ClipError.invalid("텍스트를 읽을 수 없어요.")
+            throw ClipError.invalid(ui("Couldn’t read the text."))
         }
     }
 }
@@ -131,7 +131,7 @@ struct Hello: Codable {
     }
     func validate() throws {
         guard version == 1, UUID(uuidString: device) != nil, !name.isEmpty, name.utf8.count <= 320, nonce.count == 32 else {
-            throw ClipError.invalid("연결 형식이 올바르지 않아요.")
+            throw ClipError.invalid(ui("Invalid connection format."))
         }
     }
 }
@@ -156,7 +156,7 @@ final class SessionCipher {
     private var receiveSequence: UInt64 = 0
     init(secret: SymmetricKey, local: Hello, remote: Hello) throws {
         try local.validate(); try remote.validate()
-        guard local.device != remote.device else { throw ClipError.invalid("같은 기기에는 연결하지 않아요.") }
+        guard local.device != remote.device else { throw ClipError.invalid(ui("Choose a different device to connect.")) }
         let pair = [local, remote].sorted { $0.device < $1.device }
         var transcript = Data("NearClip session v1".utf8)
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
@@ -170,13 +170,13 @@ final class SessionCipher {
     func seal(kind: String, clip: ClipMessage? = nil, clock: UInt64? = nil, features: [String]? = nil, data: Data? = nil, app: AppVersion? = nil) throws -> Data {
         sendSequence += 1
         let plain = try JSONEncoder().encode(Envelope(sequence: sendSequence, kind: kind, clip: clip, clock: clock, features: features, osMajor: kind == "ready" ? DockSwipeAdapter.systemMajor : nil, app: app, data: data))
-        guard let sealed = try AES.GCM.seal(plain, using: outgoing).combined else { throw ClipError.invalid("암호화하지 못했어요.") }
+        guard let sealed = try AES.GCM.seal(plain, using: outgoing).combined else { throw ClipError.invalid(ui("Encryption failed.")) }
         return sealed
     }
     func open(_ data: Data) throws -> Envelope {
         let plain = try AES.GCM.open(AES.GCM.SealedBox(combined: data), using: incoming)
         let envelope = try JSONDecoder().decode(Envelope.self, from: plain)
-        guard envelope.sequence == receiveSequence + 1 else { throw ClipError.invalid("중복되거나 순서가 잘못된 메시지예요.") }
+        guard envelope.sequence == receiveSequence + 1 else { throw ClipError.invalid(ui("Duplicate or out-of-order message.")) }
         receiveSequence = envelope.sequence
         return envelope
     }
@@ -185,16 +185,16 @@ final class SessionCipher {
 enum Framing {
     static let maxFrame = 29 * 1024 * 1024
     static func encode(_ body: Data) throws -> Data {
-        guard !body.isEmpty, body.count <= maxFrame else { throw ClipError.invalid("전송 크기를 초과했어요.") }
+        guard !body.isEmpty, body.count <= maxFrame else { throw ClipError.invalid(ui("Transfer exceeds the size limit.")) }
         var length = UInt32(body.count).bigEndian
         var frame = withUnsafeBytes(of: &length) { Data($0) }
         frame.append(body)
         return frame
     }
     static func length(_ header: Data, limit: Int = maxFrame) throws -> Int {
-        guard header.count == 4 else { throw ClipError.invalid("전송 헤더가 잘못됐어요.") }
+        guard header.count == 4 else { throw ClipError.invalid(ui("Invalid transfer header.")) }
         let n = header.reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
-        guard n > 0, n <= limit else { throw ClipError.invalid("전송 크기를 초과했어요.") }
+        guard n > 0, n <= limit else { throw ClipError.invalid(ui("Transfer exceeds the size limit.")) }
         return Int(n)
     }
 }
@@ -207,7 +207,7 @@ struct InputFrameBuffer {
     private var bytes = Data()
     var pendingBytes: Int { bytes.count }
     mutating func append(_ chunk: Data) throws -> [Data] {
-        guard chunk.count <= Self.chunkLimit else { throw ClipError.invalid("입력 수신 크기를 초과했어요.") }
+        guard chunk.count <= Self.chunkLimit else { throw ClipError.invalid(ui("Input packet exceeds the size limit.")) }
         bytes.append(chunk)
         var offset = 0
         var frames: [Data] = []

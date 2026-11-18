@@ -27,11 +27,11 @@ static BOOL retryableUpdateError(NSError *error) {
     NSAlert *alert = [NSAlert new];
     BOOL install = [error.domain isEqualToString:SUSparkleErrorDomain] &&
         (error.code == SUInstallationError || error.code == SUAgentInvalidationError);
-    alert.messageText = install ? @"업데이트 설치를 끝내지 못했어요." : @"업데이트 서버에 연결하지 못했어요.";
+    alert.messageText = install ? NSLocalizedString(@"Couldn’t finish installing the update.", nil) : NSLocalizedString(@"Couldn’t reach the update server.", nil);
     alert.informativeText = install
-        ? @"설치 도우미 연결이 끊겼거나 응답이 늦었을 수 있어요. 다시 시도하면 업데이트를 확인하고 서명을 다시 검사해요."
-        : @"네트워크 연결을 확인한 뒤 다시 시도하세요.";
-    [alert addButtonWithTitle:@"다시 시도"]; [alert addButtonWithTitle:@"닫기"];
+        ? NSLocalizedString(@"The installer may have disconnected or timed out. Retry to check for updates and verify the signature again.", nil)
+        : NSLocalizedString(@"Check your network connection and try again.", nil);
+    [alert addButtonWithTitle:NSLocalizedString(@"Retry", nil)]; [alert addButtonWithTitle:NSLocalizedString(@"Close", nil)];
     if ([alert runModal] == NSAlertFirstButtonReturn && self.requestRetry) self.requestRetry();
     acknowledgement();
 }
@@ -89,8 +89,8 @@ done:
         [info[@"SUSignedFeedFailureExpirationInterval"] isEqual:@0];
     if (!configured || !validHost(url)) {
         if (!diagnostic) {
-            NSAlert *alert = [NSAlert new]; alert.messageText = @"업데이트 구성요소를 확인할 수 없어요.";
-            alert.informativeText = @"공식 NearClip 앱을 다시 설치해 주세요. 기존 앱은 변경하지 않았어요.";
+            NSAlert *alert = [NSAlert new]; alert.messageText = NSLocalizedString(@"Couldn’t verify the updater.", nil);
+            alert.informativeText = NSLocalizedString(@"Reinstall NearClip from its official release.", nil);
             [alert runModal];
         }
         fprintf(stderr, "FAIL: update configuration or host signature invalid.\n"); exit(2);
@@ -135,7 +135,7 @@ done:
 #ifdef NEARCLIP_UPDATE_TESTING
     trusted = trusted || ([url.scheme isEqualToString:@"http"] && [url.host isEqualToString:@"127.0.0.1"]);
 #endif
-    if (!trusted && error) *error = [NSError errorWithDomain:@"dev.nearclip.updater" code:1 userInfo:@{NSLocalizedDescriptionKey:@"공식 배포 주소가 아닌 업데이트는 설치할 수 없어요."}];
+    if (!trusted && error) *error = [NSError errorWithDomain:@"dev.nearclip.updater" code:1 userInfo:@{NSLocalizedDescriptionKey:NSLocalizedString(@"Choose an update from the official release feed.", nil)}];
     return trusted;
 }
 - (void)updater:(SPUUpdater *)updater didFindValidUpdate:(SUAppcastItem *)item { (void)updater; (void)item; self.found = YES; }

@@ -8,7 +8,7 @@ func connectionHealthTests() throws {
     try Check.that(AppVersion.releaseTag("v0.4.3-build18") == AppVersion(version: "0.4.3", build: 18), "release tag carries an explicit same-version build")
     try Check.that(AppVersion.releaseTag("v0.4.3-buildx") == nil && AppVersion.releaseTag("v0.4.3-beta") == nil, "unrecognized release tags cannot offer an update")
     try Check.that(AppVersion(version: "0.4.3\nspoof", build: 1).components == nil && AppVersion(version: "0.4.3", build: -1).components == nil, "peer versions reject control characters and negative builds")
-    try Check.that(a.peerNotice(nil).contains("확인 불가") && a.peerNotice(old).contains("달라요") && a.peerNotice(a).contains("같음"), "unknown, mismatched, and matched peer versions are distinct")
+    try Check.that(a.peerNotice(nil).contains("unavailable") && a.peerNotice(old).contains("Different builds") && a.peerNotice(a).contains("Builds match"), "unknown, mismatched, and matched peer versions are distinct")
     let secret = try PairCode.key(PairCode.create()), h1 = Hello.make(device: UUID().uuidString, name: "A"), h2 = Hello.make(device: UUID().uuidString, name: "B")
     let tx = try SessionCipher(secret: secret, local: h1, remote: h2), rx = try SessionCipher(secret: secret, local: h2, remote: h1)
     try Check.that(try rx.open(tx.seal(kind: "ready", app: a)).app == a, "version metadata is inside the authenticated envelope")

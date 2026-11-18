@@ -18,7 +18,7 @@ The mouse window contains at most 240 intervals. Source pauses longer than 100 m
 ## Repeatable physical comparison
 
 1. Use the same two Macs, network, display settings, and input device. Record both build numbers.
-2. For this comparison, disconnect Apple Universal Control and disable its automatic reconnection and edge connection in Displays → Advanced. NearClip does not change these settings. Enable NearClip input sharing on both Macs and confirm **사용 가능**.
+2. For this comparison, disconnect Apple Universal Control and disable its automatic reconnection and edge connection in Displays → Advanced. NearClip does not change these settings. Enable NearClip input sharing on both Macs and confirm **Ready**.
 3. Move the remote cursor continuously in small circles for 20 seconds.
 4. Stop the cursor and click a target.
 5. Type a short line in a test document.
@@ -28,7 +28,7 @@ The mouse window contains at most 240 intervals. Source pauses longer than 100 m
 
 Then put one Mac to sleep and wake it. Confirm that the saved sharing choice resumes, and repeat the handoff in both directions. Repeat after changing desktops with a four-finger gesture.
 
-Check Settings for **현재 제어: NearClip** during a handoff. A moving cursor alone does not establish which app controls it. Restore the Apple settings after the test if desired.
+Check Settings for **Current control: NearClip** during a handoff. A moving cursor alone does not establish which app controls it. Restore the Apple settings after the test if desired.
 
 Read mouse intervals on the receiving Mac. Compare runs with similar source intervals. A short idle pause is not evidence of network stutter.
 

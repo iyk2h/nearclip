@@ -185,7 +185,7 @@ func clipboardIPCIsolationTests() throws {
     var activity = ""; sync.onActivity = { activity = $0 }
     _ = sync.receive(ClipMessage(id: UUID(), stamp: ClipStamp(counter: sync.clock + 1, device: "remote"), payload: ClipPayload(type: "public.utf8-plain-text", data: Data("after baseline".utf8))))
     io.unblock(); try waitForClipboardIdle([sync])
-    try Check.that(activity.contains("받음"), "receive during asynchronous baseline is retained until baseline finishes")
+    try Check.that(activity.contains("Received"), "receive during asynchronous baseline is retained until baseline finishes")
     io.holdNext("count"); sync.poll(); waitFor({ io.blocked })
     let start = ProcessInfo.processInfo.systemUptime
     sync.enabled = false; sync.connected = false; sync.stop()
@@ -197,8 +197,8 @@ func clipboardIPCIsolationTests() throws {
     sync.stop(); sync.start(); io.unblock(); try waitForClipboardIdle([sync])
     activity = ""
     _ = sync.receive(ClipMessage(id: UUID(), stamp: ClipStamp(counter: sync.clock + 1, device: "remote"), payload: ClipPayload(type: "public.utf8-plain-text", data: Data("after restart".utf8))))
-    waitFor({ activity.contains("받음") })
-    try Check.that(activity.contains("받음"), "restart replaces a cancelled pending baseline and resumes incoming clipboard writes")
+    waitFor({ activity.contains("Received") })
+    try Check.that(activity.contains("Received"), "restart replaces a cancelled pending baseline and resumes incoming clipboard writes")
 }
 
 func asynchronousClipboardConvergenceTests() throws {

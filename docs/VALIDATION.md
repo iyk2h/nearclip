@@ -6,7 +6,7 @@
 
 The updater accepted a valid signed feed and archive. An isolated fixture first received a real HTTP 404 and showed the new Retry action. After the feed became available, the fixture was updated from build 20 to build 35; its complete bundle digest matched the validated distribution bundle. Retry policy rejects signature/validation/downgrade errors, including nested validation errors. Modified nested code was rejected. Build 34 and 35 retained the same signing requirement and identical Keychain helper, with prompt-free reads.
 
-The existing local app was replaced with build 35. It restored input consent and connected its input channel in 471 ms after the parent connection started. Both peers advertised input enabled; the live main window showed **사용 가능**. This confirms connection/readiness, not physical pointer handoff. The peer still ran build 33. The user deferred physical two-Mac testing. No public release or update feed was changed. See [the review](REVIEW-BUILD35.md) for the remaining uncertainty about earlier intermittent handshake timeouts and installer startup delay.
+The existing local app was replaced with build 35. It restored input consent and connected its input channel in 471 ms after the parent connection started. Both peers advertised input enabled; the live main window showed **Ready**. This confirms connection/readiness, not physical pointer handoff. The peer still ran build 33. The user deferred physical two-Mac testing. No public release or update feed was changed. See [the review](REVIEW-BUILD35.md) for the remaining uncertainty about earlier intermittent handshake timeouts and installer startup delay.
 
 ## Build 34 — local switch recovery fix
 

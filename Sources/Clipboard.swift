@@ -39,7 +39,7 @@ enum ClipboardCodec {
               w > 0, h > 0, w <= 16000, h <= 16000, w * h <= 40_000_000,
               CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCache: false] as CFDictionary) != nil,
               CGImageSourceGetStatusAtIndex(source, 0) == .statusComplete else {
-            throw ClipError.invalid("이미지는 20MB·4천만 화소까지 공유할 수 있어요.")
+            throw ClipError.invalid(ui("Images must be under the 20 MiB and 40-million-pixel limits."))
         }
     }
 
@@ -76,7 +76,7 @@ enum ClipboardCodec {
         try payload.validate()
         var tiff: Data?
         if payload.type == "public.png" {
-            guard payload.data.starts(with: [137, 80, 78, 71, 13, 10, 26, 10]) else { throw ClipError.invalid("PNG 형식이 아니에요.") }
+            guard payload.data.starts(with: [137, 80, 78, 71, 13, 10, 26, 10]) else { throw ClipError.invalid(ui("Expected a PNG image.")) }
             try validateImage(payload.data)
             tiff = NSBitmapImageRep(data: payload.data)?.tiffRepresentation
         }
@@ -91,7 +91,7 @@ enum ClipboardCodec {
         item.setString(id.uuidString, forType: remoteMarker)
         item.setString("local.nearclip.app", forType: .init("org.nspasteboard.source"))
         board.prepareForNewContents(with: preventAppleRelay ? [.currentHostOnly] : [])
-        guard board.writeObjects([item]) else { throw ClipError.invalid("클립보드에 쓸 수 없어요.") }
+        guard board.writeObjects([item]) else { throw ClipError.invalid(ui("Couldn’t write to the clipboard.")) }
     }
     static func write(_ payload: ClipPayload, to board: NSPasteboard, id: UUID, preventAppleRelay: Bool = true) throws {
         try commit(prepare(payload), to: board, id: id, preventAppleRelay: preventAppleRelay)
@@ -194,7 +194,7 @@ final class ClipboardSync {
         observed = count
         do {
             guard let payload = try ClipboardCodec.read(board, allowRemote: force) else {
-                if force { onActivity?("공유할 텍스트나 이미지가 없어요.") }; return
+                if force { onActivity?(ui("Copy some text or an image first.")) }; return
             }
             // Avoid publishing a partially replaced clipboard.
             guard board.changeCount == count else { return }
@@ -202,7 +202,7 @@ final class ClipboardSync {
             let stamp = ClipStamp(counter: clock, device: device)
             current = stamp
             onLocal?(ClipMessage(id: UUID(), stamp: stamp, payload: payload))
-            onActivity?("\(payload.label) 보냄 · \(Self.time())")
+            onActivity?(ui("Sent %1$@ · %2$@", "\(payload.label)", "\(Self.time())"))
         } catch { onActivity?(error.localizedDescription) }
     }
     @discardableResult func receive(_ message: ClipMessage) -> Bool {
@@ -222,7 +222,7 @@ final class ClipboardSync {
         do {
             try ClipboardCodec.write(message.payload, to: board, id: message.id, preventAppleRelay: preventAppleRelay)
             current = message.stamp; baseline()
-            onActivity?("\(message.payload.label) 받음 · \(Self.time())")
+            onActivity?(ui("Received %1$@ · %2$@", "\(message.payload.label)", "\(Self.time())"))
             return true
         } catch { onActivity?(error.localizedDescription); return false }
     }
@@ -275,13 +275,13 @@ final class ClipboardSync {
                     guard stable else { self.poll(); return }
                     self.observed = count
                     guard let payload = try payloadResult.get() else {
-                        if force { self.onActivity?("공유할 텍스트나 이미지가 없어요.") }; return
+                        if force { self.onActivity?(ui("Copy some text or an image first.")) }; return
                     }
                     self.clock += 1; self.persistClock?(self.clock)
                     let next = ClipStamp(counter: self.clock, device: self.device)
                     self.current = next; self.permit.advance()
                     self.onLocal?(ClipMessage(id: UUID(), stamp: next, payload: payload))
-                    self.onActivity?("\(payload.label) 보냄 · \(Self.time())")
+                    self.onActivity?(ui("Sent %1$@ · %2$@", "\(payload.label)", "\(Self.time())"))
                 } catch { self.onActivity?(error.localizedDescription) }
             }
         }
@@ -311,7 +311,7 @@ final class ClipboardSync {
                 do {
                     guard let writtenCount = try result.get() else { self.poll(); return }
                     self.observed = writtenCount
-                    self.onActivity?("\(message.payload.label) 받음 · \(Self.time())")
+                    self.onActivity?(ui("Received %1$@ · %2$@", "\(message.payload.label)", "\(Self.time())"))
                 } catch { self.onActivity?(error.localizedDescription) }
             }
         }
