@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.4 build 37 — beta candidate
+## 0.4.4 build 37 — 2026-11-18
 
 - Drag one file across the shared screen edge into Finder on another build 37 Mac. The receiver can approve a folder for subsequent drops during the current connection.
 - The original remains on the sending Mac. If Finder does not expose a destination, the receiver chooses where to save the file.

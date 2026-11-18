@@ -13,7 +13,7 @@
 - Edge progress bars and return-reason diagnostics.
 - Persistent local signing and upgrade identity checks.
 
-## Build 37 candidate
+## Build 37 beta
 
 Drag a regular file from Finder across the screen edge and release it on the other Mac. Verify folder targeting and cancellation on two physical Macs.
 

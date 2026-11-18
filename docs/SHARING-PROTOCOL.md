@@ -54,7 +54,7 @@ The macOS adapter creates a private, exclusive temporary file in the destination
 
 Windows needs an equivalent exclusive commit, reserved-name checks, and attachment security metadata such as Mark of the Web. Do not silently weaken these checks to make a transfer succeed.
 
-## Cross-screen file drag (build 37 candidate)
+## Cross-screen file drag (build 37)
 
 Both peers must advertise `finder-drag-v1`, `mouse-v1`, and `files-v1` and enable input sharing. The capability name is a wire identifier. A Windows Explorer adapter can use the same messages.
 
