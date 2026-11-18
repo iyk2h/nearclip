@@ -161,8 +161,8 @@ func fileTransferTests() throws {
 func mouseSharingTests() throws {
     let permissionStates = (0..<8).map { MousePermissions(accessibility: $0 & 1 != 0, posting: $0 & 2 != 0, monitoring: $0 & 4 != 0) }
     try Check.that(permissionStates.enumerated().allSatisfy { $0.element.granted == ($0.offset == 7) }, "input permission gate requires all three approvals")
-    try Check.that(permissionStates[3].missing == ["입력 모니터링"], "permission guidance identifies missing input monitoring")
-    try Check.that(permissionStates[5].missing == ["손쉬운 사용의 입력 제어"], "permission guidance distinguishes event posting from accessibility trust")
+    try Check.that(permissionStates[3].missing == ["Input Monitoring"], "permission guidance identifies missing input monitoring")
+    try Check.that(permissionStates[5].missing == ["Accessibility input control"], "permission guidance distinguishes event posting from accessibility trust")
     try Check.that(permissionStates[7].missing.isEmpty, "fully authorized input has no missing permission")
 
     let a = MouseSharing(local: "A", native: false), b = MouseSharing(local: "B", native: false)
@@ -403,6 +403,22 @@ func mouseResumeTests() throws {
     try Check.that(mouse.enabled, "repeated sleep cycles preserve the selected sharing state")
     mouse.stop(); mouse.setPeer(nil); mouse.setPeer("B")
     try Check.that(!mouse.enabled && !mouse.sharingRequested, "pause and shutdown stop clear the resume choice")
+    mouse.setPeer(nil)
+    var savedConsent: String?
+    mouse.onConsentChange = { savedConsent = $0 }
+    mouse.requestSharingWhenConnected(to: "B")
+    try Check.that(mouse.sharingRequested && !mouse.enabled && savedConsent == "B", "recovery enable persists a peer-specific choice without input capture")
+    mouse.stop()
+    try Check.that(!mouse.sharingRequested && savedConsent == nil, "recovery disable clears persisted pending consent")
+    mouse.setPeer("B")
+    try Check.that(!mouse.enabled, "cancelled recovery enable cannot activate on reconnect")
+    mouse.setPeer(nil); mouse.requestSharingWhenConnected(to: "B")
+    mouse.suspend(.screenLock); mouse.setPeer("B")
+    try Check.that(!mouse.enabled && mouse.sharingRequested, "pending enable cannot bypass screen lock")
+    mouse.resume(.screenLock)
+    try Check.that(mouse.enabled && !mouse.remoteEnabled, "pending enable resumes with fresh remote consent required")
+    mouse.setPeer(nil); mouse.requestSharingWhenConnected(to: "B"); mouse.setPeer("C")
+    try Check.that(!mouse.enabled && !mouse.sharingRequested && savedConsent == nil, "pending enable never transfers to another peer")
 }
 
 func featureNetworkTests() throws {

@@ -9,18 +9,18 @@ enum UpdateInstaller {
               SecCodeCopyStaticCode(own, [], &ownStatic) == errSecSuccess, let ownStatic,
               SecCodeCopyDesignatedRequirement(ownStatic, [], &requirement) == errSecSuccess, let requirement,
               SecRequirementCopyString(requirement, [], &raw) == errSecSuccess, let raw else {
-            throw ClipError.invalid("앱 서명을 확인할 수 없어요.")
+            throw ClipError.invalid(ui("Couldn’t verify the app signature."))
         }
         let text = raw as String
         guard text.contains("identifier \"dev.nearclip.mac\""), text.contains("certificate"), !text.contains("cdhash") else {
-            throw ClipError.invalid("이 개발용 빌드는 앱 내 업데이트를 지원하지 않아요. 공식 배포를 설치해 주세요.")
+            throw ClipError.invalid(ui("Install the public release to use in-app updates."))
         }
         let helperText = text.replacingOccurrences(of: "identifier \"dev.nearclip.mac\"", with: "identifier \"dev.nearclip.updater\"")
         var expected: SecRequirement?, helper: SecStaticCode?
         guard SecRequirementCreateWithString(helperText as CFString, [], &expected) == errSecSuccess,
               SecStaticCodeCreateWithPath(url as CFURL, [], &helper) == errSecSuccess, let helper,
               SecStaticCodeCheckValidity(helper, SecCSFlags(rawValue: kSecCSStrictValidate | kSecCSCheckAllArchitectures | kSecCSCheckNestedCode), expected) == errSecSuccess else {
-            throw ClipError.invalid("업데이트 구성요소의 서명을 확인할 수 없어요. 공식 앱을 다시 설치해 주세요.")
+            throw ClipError.invalid(ui("Couldn’t verify the updater signature. Reinstall the official app."))
         }
         return url
     }
@@ -37,6 +37,7 @@ enum UpdateInstaller {
                     }
                     let configuration = NSWorkspace.OpenConfiguration(); configuration.activates = true
                     configuration.createsNewApplicationInstance = true
+                    configuration.arguments = ["-AppleLanguages", "(\(AppLanguage.current))"]
                     NSWorkspace.shared.openApplication(at: url, configuration: configuration) { _, error in
                         DispatchQueue.main.async { completion(error) }
                     }

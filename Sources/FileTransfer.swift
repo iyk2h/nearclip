@@ -11,31 +11,31 @@ final class ReceivedFile {
     private(set) var count: Int64 = 0
     private var hash = SHA256()
     init(destination: URL) throws {
-        guard destination.isFileURL, FilePacket.safeName(destination.lastPathComponent) else { throw ClipError.invalid("저장할 파일 이름을 확인해 주세요.") }
+        guard destination.isFileURL, FilePacket.safeName(destination.lastPathComponent) else { throw ClipError.invalid(ui("Choose a valid filename.")) }
         var existing = stat()
         guard lstat(destination.path, &existing) != 0 && errno == ENOENT else {
-            throw ClipError.invalid("같은 이름의 파일이 있거나 저장 위치에 접근할 수 없어요. 다른 이름을 선택해 주세요.")
+            throw ClipError.invalid(ui("The name is taken or the folder is unavailable. Choose another name or location."))
         }
         self.destination = destination
         temporary = destination.deletingLastPathComponent().appendingPathComponent(".nearclip-" + UUID().uuidString + ".part")
         let fd = open(temporary.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, S_IRUSR | S_IWUSR)
-        guard fd >= 0 else { throw ClipError.invalid("선택한 폴더에 저장할 수 없어요.") }
+        guard fd >= 0 else { throw ClipError.invalid(ui("Couldn’t save to this folder.")) }
         handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
     }
     deinit { try? handle.close(); if !committed { try? FileManager.default.removeItem(at: temporary) } }
     func append(_ data: Data, offset: Int64, size: Int64) throws {
-        guard offset == count, !data.isEmpty, data.count <= FilePacket.chunkSize, count + Int64(data.count) <= size else { throw ClipError.invalid("파일 전송 순서나 크기가 맞지 않아요.") }
+        guard offset == count, !data.isEmpty, data.count <= FilePacket.chunkSize, count + Int64(data.count) <= size else { throw ClipError.invalid(ui("Unexpected file size or transfer order.")) }
         try handle.write(contentsOf: data); hash.update(data: data); count += Int64(data.count)
     }
     func finish(size: Int64, digest: Data) throws {
-        guard count == size, Data(hash.finalize()) == digest else { throw ClipError.invalid("파일 검증에 실패했어요. 다시 보내주세요.") }
+        guard count == size, Data(hash.finalize()) == digest else { throw ClipError.invalid(ui("File verification failed. Send the file again.")) }
         // Preserve Gatekeeper's first-open checks and never restore sender executable bits.
         let quarantine = "0083;" + String(Int(Date().timeIntervalSince1970), radix: 16) + ";NearClip;" + UUID().uuidString
         let marked = quarantine.withCString { fsetxattr(handle.fileDescriptor, "com.apple.quarantine", $0, strlen($0), 0, 0) }
-        guard marked == 0, fchmod(handle.fileDescriptor, S_IRUSR | S_IWUSR) == 0 else { throw ClipError.invalid("파일의 안전한 저장 속성을 설정하지 못했어요.") }
+        guard marked == 0, fchmod(handle.fileDescriptor, S_IRUSR | S_IWUSR) == 0 else { throw ClipError.invalid(ui("Couldn’t apply the file’s security attributes.")) }
         try handle.synchronize()
         // A hard link creates the final name atomically and fails if any item already exists.
-        guard link(temporary.path, destination.path) == 0 else { throw ClipError.invalid(errno == EEXIST ? "같은 이름의 파일이 있어요. 다른 이름으로 다시 받아주세요." : "이 폴더에 파일을 안전하게 저장할 수 없어요. 다른 폴더로 다시 받아주세요.") }
+        guard link(temporary.path, destination.path) == 0 else { throw ClipError.invalid(errno == EEXIST ? ui("A file with this name already exists. Choose another name.") : ui("Couldn’t save the file safely here. Choose another folder.")) }
         try? handle.close(); try? FileManager.default.removeItem(at: temporary); committed = true
     }
 }
@@ -51,12 +51,12 @@ final class FileTransferWorker {
         var finishing = false
         init(url: URL, peer: String) throws {
             let fd = open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
-            guard fd >= 0 else { throw ClipError.invalid("파일을 열 수 없어요.") }
+            guard fd >= 0 else { throw ClipError.invalid(ui("Couldn’t open the file.")) }
             let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
             var info = stat()
             guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG,
                   info.st_size >= 0, info.st_size <= FilePacket.maxSize, FilePacket.safeName(url.lastPathComponent) else {
-                try? handle.close(); throw ClipError.invalid("일반 파일 하나를 2GB까지 보낼 수 있어요. 폴더는 ZIP으로 압축해 주세요.")
+                try? handle.close(); throw ClipError.invalid(ui("Send one regular file up to 2 GiB. Compress folders first."))
             }
             self.handle = handle; self.peer = peer
             offer = FilePacket(kind: .offer, id: UUID(), name: url.lastPathComponent, size: info.st_size)
@@ -82,54 +82,54 @@ final class FileTransferWorker {
     private var peer: String? { outgoing?.peer ?? incoming?.peer }
     func stop() { cancel() }
     func offer(url: URL, to peer: String) throws {
-        guard !busy else { throw ClipError.invalid("진행 중인 파일 전송을 먼저 마치거나 취소해 주세요.") }
+        guard !busy else { throw ClipError.invalid(ui("Finish or cancel the current file transfer first.")) }
         let job = try Outgoing(url: url, peer: peer); outgoing = job; updated = Date()
-        status("상대의 수락을 기다리고 있어요 · " + (job.offer.name ?? "파일"))
+        status(ui("Waiting for the recipient · ") + (job.offer.name ?? ui("File")))
         emit(job.offer, to: peer)
     }
     func accept(id: UUID, destination: URL) {
         guard let job = incoming, job.offer.id == id, job.writer == nil else { return }
         do {
             job.writer = try ReceivedFile(destination: destination); updated = Date()
-            status("파일 받는 중 · " + (job.offer.name ?? "파일"), progress: 0)
+            status(ui("Receiving · ") + (job.offer.name ?? ui("File")), progress: 0)
             emit(FilePacket(kind: .accept, id: id), to: job.peer)
         } catch { fail(error.localizedDescription) }
     }
     func decline(id: UUID) { if activeID == id { cancel() } }
-    func disconnected() { if busy { fail("연결이 끊겨 파일 전송을 취소했어요.", notify: false) } }
+    func disconnected() { if busy { fail(ui("Transfer cancelled because the connection closed."), notify: false) } }
     func receive(_ message: FilePacket, from peer: String) {
         do {
             try message.validate()
             if message.kind == .offer {
                 guard !busy else { emit(FilePacket(kind: .cancel, id: message.id), to: peer); return }
                 incoming = Incoming(offer: message, peer: peer); updated = Date()
-                status("받을 파일을 확인해 주세요 · " + (message.name ?? "파일"))
+                status(ui("Review incoming file · ") + (message.name ?? ui("File")))
                 onOffer?(peer, message); return
             }
             guard peer == self.peer, message.id == activeID else { return }
             updated = Date()
             switch message.kind {
             case .accept:
-                guard let job = outgoing, !job.awaitingAck, job.offset == 0, !job.finishing else { throw ClipError.invalid("파일 수락 순서가 맞지 않아요.") }
+                guard let job = outgoing, !job.awaitingAck, job.offset == 0, !job.finishing else { throw ClipError.invalid(ui("Unexpected file acceptance.")) }
                 try nextChunk(job)
             case .ack:
-                guard let job = outgoing, job.awaitingAck, !job.finishing, message.offset == job.offset else { throw ClipError.invalid("파일 수신 확인이 맞지 않아요.") }
+                guard let job = outgoing, job.awaitingAck, !job.finishing, message.offset == job.offset else { throw ClipError.invalid(ui("Invalid file receipt.")) }
                 job.awaitingAck = false; try nextChunk(job)
             case .chunk:
-                guard let job = incoming, let writer = job.writer, let bytes = message.bytes, let offset = message.offset else { throw ClipError.invalid("수락하지 않은 파일은 저장하지 않아요.") }
+                guard let job = incoming, let writer = job.writer, let bytes = message.bytes, let offset = message.offset else { throw ClipError.invalid(ui("Accept the file before saving it.")) }
                 try writer.append(bytes, offset: offset, size: job.offer.size!)
-                status("파일 받는 중 · " + job.offer.name!, progress: Double(writer.count) / Double(max(1, job.offer.size!)))
+                status(ui("Receiving · ") + job.offer.name!, progress: Double(writer.count) / Double(max(1, job.offer.size!)))
                 emit(FilePacket(kind: .ack, id: message.id, offset: writer.count), to: peer)
             case .finish:
-                guard let job = incoming, let writer = job.writer, let digest = message.digest else { throw ClipError.invalid("수락하지 않은 파일이에요.") }
+                guard let job = incoming, let writer = job.writer, let digest = message.digest else { throw ClipError.invalid(ui("This file hasn’t been accepted.")) }
                 try writer.finish(size: job.offer.size!, digest: digest)
                 let destination = writer.destination; incoming = nil
                 emit(FilePacket(kind: .complete, id: message.id), to: peer)
-                status("파일을 저장했어요 · " + destination.lastPathComponent, progress: 1); onComplete?(destination)
+                status(ui("File saved · ") + destination.lastPathComponent, progress: 1); onComplete?(destination)
             case .complete:
-                guard outgoing?.finishing == true else { throw ClipError.invalid("파일 완료 순서가 맞지 않아요.") }
-                outgoing = nil; status("상대 Mac에 파일이 저장됐어요.", progress: 1); onComplete?(nil)
-            case .cancel: fail("파일 전송이 취소됐어요.", notify: false)
+                guard outgoing?.finishing == true else { throw ClipError.invalid(ui("Unexpected transfer completion.")) }
+                outgoing = nil; status(ui("File saved on the other Mac."), progress: 1); onComplete?(nil)
+            case .cancel: fail(ui("Transfer cancelled."), notify: false)
             case .offer: break
             }
         } catch { if self.peer == peer, activeID == message.id { fail(error.localizedDescription) } }
@@ -137,25 +137,25 @@ final class FileTransferWorker {
     private func nextChunk(_ job: Outgoing) throws {
         let remaining = job.offer.size! - job.offset
         if remaining == 0 {
-            guard (try job.handle.read(upToCount: 1) ?? Data()).isEmpty else { throw ClipError.invalid("전송 중 파일 크기가 바뀌었어요. 다시 보내주세요.") }
+            guard (try job.handle.read(upToCount: 1) ?? Data()).isEmpty else { throw ClipError.invalid(ui("The file size changed. Send it again.")) }
             job.finishing = true
             emit(FilePacket(kind: .finish, id: job.offer.id, digest: Data(job.hash.finalize())), to: job.peer)
             return
         }
         let data = try job.handle.read(upToCount: min(FilePacket.chunkSize, Int(remaining))) ?? Data()
-        guard !data.isEmpty else { throw ClipError.invalid("전송 중 파일이 변경됐어요. 다시 보내주세요.") }
+        guard !data.isEmpty else { throw ClipError.invalid(ui("The file changed during transfer. Send it again.")) }
         let offset = job.offset; job.offset += Int64(data.count); job.hash.update(data: data); job.awaitingAck = true
-        status("파일 보내는 중 · " + job.offer.name!, progress: Double(job.offset) / Double(max(1, job.offer.size!)))
+        status(ui("Sending · ") + job.offer.name!, progress: Double(job.offset) / Double(max(1, job.offer.size!)))
         emit(FilePacket(kind: .chunk, id: job.offer.id, offset: offset, bytes: data), to: job.peer)
     }
     private func emit(_ packet: FilePacket, to peer: String) {
-        guard let send else { fail("파일 전송 연결이 없어요.", notify: false); return }
+        guard let send else { fail(ui("Connect to a Mac to send files."), notify: false); return }
         send(peer, packet) { [weak self] success in
             guard let self, !success, self.activeID == packet.id else { return }
-            self.fail("파일을 보내지 못했어요. 연결을 확인해 주세요.", notify: false)
+            self.fail(ui("Couldn’t send the file. Check the connection."), notify: false)
         }
     }
-    func cancel() { if busy { fail("파일 전송을 취소했어요.") } }
+    func cancel() { if busy { fail(ui("File transfer cancelled.")) } }
     private func fail(_ message: String, notify: Bool = true) {
         let id = activeID, peer = self.peer; outgoing = nil; incoming = nil
         if notify, let id, let peer { emit(FilePacket(kind: .cancel, id: id), to: peer) }
@@ -170,7 +170,7 @@ final class FileTransferWorker {
     }
     func checkTimeout(now: Date = Date()) {
         let waiting = incoming?.writer == nil && incoming != nil || outgoing?.offset == 0 && outgoing?.awaitingAck == false
-        if busy, now.timeIntervalSince(updated) > (waiting ? 120 : 30) { fail("응답 시간이 지나 파일 전송을 취소했어요.") }
+        if busy, now.timeIntervalSince(updated) > (waiting ? 120 : 30) { fail(ui("Transfer cancelled after a timeout.")) }
     }
 }
 
@@ -212,8 +212,8 @@ final class FileTransfer {
         self.timer = timer; RunLoop.main.add(timer, forMode: .common)
     }
     func offer(url: URL, to peer: String) throws {
-        guard !busy else { throw ClipError.invalid("진행 중인 파일 전송을 먼저 마쳐주세요.") }
-        busy = true; onStatus?("파일을 준비하고 있어요.", nil, true)
+        guard !busy else { throw ClipError.invalid(ui("Finish the current file transfer first.")) }
+        busy = true; onStatus?(ui("Preparing file…"), nil, true)
         queue.async { [self] in
             do { try worker.offer(url: url, to: peer) }
             catch { worker.onStatus?(error.localizedDescription, nil, worker.busy) }

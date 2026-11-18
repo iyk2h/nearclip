@@ -25,7 +25,7 @@ final class PairingAgreement {
         try remote.hello.validate()
         guard remote.hello.device != local.hello.device, remote.publicKey.count == 32,
               commitment.count == 32, try remote.commitment() == commitment else {
-            throw ClipError.invalid("연결 확인에 실패했어요. 다시 시도해 주세요.")
+            throw ClipError.invalid(ui("Pairing failed. Try again."))
         }
         let shared = try privateKey.sharedSecretFromKeyAgreement(with: .init(rawRepresentation: remote.publicKey))
         var transcript = Data("NearClip numeric pairing v1".utf8)
@@ -92,7 +92,7 @@ final class PairingLink {
         onClose?(finished); onClose = nil; onVerify = nil; onPaired = nil
     }
     private func send(_ body: Data, completion: (() -> Void)? = nil) throws {
-        guard body.count <= 4096 else { throw ClipError.invalid("연결 메시지가 너무 커요.") }
+        guard body.count <= 4096 else { throw ClipError.invalid(ui("Pairing message exceeds the size limit.")) }
         connection.send(content: try Framing.encode(body), completion: .contentProcessed { [weak self] error in
             guard let self, !self.closed else { return }
             if error != nil { self.close() } else { completion?() }
@@ -123,21 +123,21 @@ final class PairingLink {
     private func handle(_ body: Data) throws {
         if remoteCommitment == nil {
             let commit = try JSONDecoder().decode(PairingCommit.self, from: body)
-            guard commit.version == 1, commit.hash.count == 32 else { throw ClipError.invalid("지원하지 않는 연결 방식이에요.") }
+            guard commit.version == 1, commit.hash.count == 32 else { throw ClipError.invalid(ui("Unsupported connection method.")) }
             remoteCommitment = commit.hash
             try send(agreement.local.encoded()); return
         }
         if remote == nil {
             let reveal = try JSONDecoder().decode(PairingReveal.self, from: body)
-            if let expected, reveal.hello.device != expected { throw ClipError.invalid("선택한 Mac과 달라요.") }
+            if let expected, reveal.hello.device != expected { throw ClipError.invalid(ui("This isn’t the Mac you selected.")) }
             let result = try agreement.finish(remote: reveal, commitment: remoteCommitment!)
             remote = reveal; code = result.code; cipher = result.cipher
             onVerify?(reveal.hello.name, result.digits, { [weak self] accepted in self?.confirm(accepted) })
             return
         }
-        guard let cipher, !remoteConfirmed else { throw ClipError.invalid("잘못된 연결 확인이에요.") }
+        guard let cipher, !remoteConfirmed else { throw ClipError.invalid(ui("Invalid pairing confirmation.")) }
         let message = try cipher.open(body)
-        guard message.kind == "pair-confirm", message.clip == nil else { throw ClipError.invalid("잘못된 연결 확인이에요.") }
+        guard message.kind == "pair-confirm", message.clip == nil else { throw ClipError.invalid(ui("Invalid pairing confirmation.")) }
         remoteConfirmed = true; completeIfConfirmed()
     }
     private func confirm(_ accepted: Bool) {
@@ -252,7 +252,7 @@ final class NearbyPairing {
                     self.logger.error("Pairing browser failed: \(String(describing: error), privacy: .public)")
                     self.onStatus?(Self.failureMessage(error)); finder.cancel(); self.browser = nil
                 case .waiting(let error): self.onStatus?(Self.failureMessage(error))
-                case .ready: self.onStatus?("주변 Mac을 찾고 있어요. 상대 Mac에서도 NearClip을 켜주세요.")
+                case .ready: self.onStatus?(ui("Looking for nearby Macs. Open NearClip on the other Mac."))
                 default: break
                 }
             }
@@ -274,13 +274,13 @@ final class NearbyPairing {
     private func attach(_ connection: NWConnection, expected: String? = nil) {
         let link = PairingLink(connection: connection, device: device, name: name, expected: expected, syncPort: syncPort)
         link.onRoute = { [weak self] in self?.onRoute?($0) }
-        active = link; onStatus?("양쪽 Mac에서 확인할 숫자를 준비하고 있어요.")
+        active = link; onStatus?(ui("Preparing the code for both Macs."))
         link.onVerify = { [weak self] name, digits, reply in self?.onVerify?(name, digits, reply) }
         link.onPaired = { [weak self] code, name in self?.onPaired?(code, name) }
         link.onClose = { [weak self, weak link] succeeded in
             guard let self, self.active === link else { return }
             self.active = nil; self.onEnded?()
-            if !succeeded { self.onStatus?("연결이 취소됐어요. 두 Mac에서 다시 시도해 주세요.") }
+            if !succeeded { self.onStatus?(ui("Pairing cancelled. Try again on both Macs.")) }
         }
         link.start()
     }

@@ -84,7 +84,7 @@ func keyboardSharingTests() throws {
     b.secureInputEnabled = { true }; b.tick(now: now); try pump()
     try Check.that(a.mode == .local && b.mode == .local && released == [1] && a.lastEndReason == .secureInput,
                    "secure input stops control and releases held keys without bypassing macOS protection")
-    try Check.that(b.secureInputBlocked && a.remoteSecureInputBlocked && a.inputPauseMessage?.contains("상대 Mac") == true,
+    try Check.that(b.secureInputBlocked && a.remoteSecureInputBlocked && a.inputPauseMessage?.contains("other Mac") == true,
                    "secure-input interruption identifies the blocked Mac without clearing consent")
     try Check.that(a.enabled && b.enabled, "secure-input pause keeps both sharing choices enabled")
     now = now.addingTimeInterval(3)

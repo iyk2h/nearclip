@@ -4,8 +4,8 @@ import AppKit
 final class ScreenArrangementView: NSView {
     private(set) var peerSide: ScreenSide = .right
     private var peerID: String?
-    private var localName = "이 Mac"
-    private var peerName = "상대 Mac"
+    private var localName = ui("this Mac")
+    private var peerName = ui("other Mac")
     private var editable = false
     private var draggingLocal: Bool?
     private var dragStart = CGPoint.zero
@@ -21,9 +21,9 @@ final class ScreenArrangementView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setAccessibilityElement(true); setAccessibilityRole(.group)
-        setAccessibilityLabel("Mac 화면 배치")
-        setAccessibilityHelp("두 Mac의 좌우 순서입니다. 순서 바꾸기 버튼으로도 변경할 수 있습니다.")
-        toolTip = "화면을 드래그해 순서를 바꾸세요. 선택 후 방향키로 상대 Mac을 왼쪽이나 오른쪽에 놓을 수도 있어요."
+        setAccessibilityLabel(ui("Screen layout"))
+        setAccessibilityHelp(ui("Use Swap Screens to switch the left and right Macs."))
+        toolTip = ui("Drag a screen to rearrange it, or select it and use the arrow keys.")
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
@@ -31,7 +31,7 @@ final class ScreenArrangementView: NSView {
         if self.peerID != peerID || peerSide != side || !editable { cancelDrag() }
         self.peerID = peerID; self.localName = localName; self.peerName = peerName
         peerSide = side; self.editable = editable
-        setAccessibilityValue(peerID == nil ? "상대 Mac 연결 대기" : (side == .right ? "이 Mac 왼쪽, \(peerName) 오른쪽" : "\(peerName) 왼쪽, 이 Mac 오른쪽"))
+        setAccessibilityValue(peerID == nil ? ui("Waiting for the other Mac") : (side == .right ? ui("This Mac on the left, %1$@ on the right", "\(peerName)") : ui("%1$@ on the left, this Mac on the right", "\(peerName)")))
         window?.invalidateCursorRects(for: self); needsDisplay = true
     }
     private var cardSize: NSSize { NSSize(width: min(188, max(100, (bounds.width - 64) / 2)), height: 112) }
@@ -103,7 +103,7 @@ final class ScreenArrangementView: NSView {
             drawCard(local: false, rect: frame(local: false, side: side), lifted: false)
             if peerID != nil { drawText("↔", rect: NSRect(x: bounds.midX - 12, y: 61, width: 24, height: 24), size: 16, color: .secondaryLabelColor) }
         }
-        let caption = peerID == nil ? "연결하면 화면을 배치할 수 있어요" : draggingLocal == nil ? "왼쪽 화면  ·  오른쪽 화면" : "놓으면 양쪽 Mac에 적용돼요"
+        let caption = peerID == nil ? ui("Connect a Mac to arrange screens") : draggingLocal == nil ? ui("Left screen  ·  Right screen") : ui("Release to apply on both Macs")
         drawText(caption, rect: NSRect(x: 12, y: 142, width: bounds.width - 24, height: 16), size: 10, color: .secondaryLabelColor)
         if window?.firstResponder === self, editable {
             NSColor.keyboardFocusIndicatorColor.setStroke(); background.lineWidth = 2; background.stroke()
@@ -123,8 +123,8 @@ final class ScreenArrangementView: NSView {
             NSColor.labelColor.withAlphaComponent(0.55).setFill()
             NSBezierPath(roundedRect: NSRect(x: screen.minX + 8, y: screen.minY + 7, width: screen.width - 16, height: 4), xRadius: 2, yRadius: 2).fill()
         }
-        drawText(local ? "이 Mac" : peerName, rect: NSRect(x: screen.minX + 10, y: screen.minY + 31, width: screen.width - 20, height: 20), size: 13, weight: .semibold, color: connected ? .labelColor : .secondaryLabelColor)
-        drawText(local ? localName : (peerID == nil ? "연결 대기" : "연결된 Mac"), rect: NSRect(x: screen.minX + 10, y: screen.minY + 54, width: screen.width - 20, height: 16), size: 10, color: .secondaryLabelColor)
+        drawText(local ? ui("this Mac") : peerName, rect: NSRect(x: screen.minX + 10, y: screen.minY + 31, width: screen.width - 20, height: 20), size: 13, weight: .semibold, color: connected ? .labelColor : .secondaryLabelColor)
+        drawText(local ? localName : (peerID == nil ? ui("Waiting for connection") : ui("Connected Mac")), rect: NSRect(x: screen.minX + 10, y: screen.minY + 54, width: screen.width - 20, height: 16), size: 10, color: .secondaryLabelColor)
         NSColor.tertiaryLabelColor.setFill()
         NSBezierPath(roundedRect: NSRect(x: rect.midX - 2, y: screen.maxY + 1, width: 4, height: 8), xRadius: 1, yRadius: 1).fill()
         NSBezierPath(roundedRect: NSRect(x: rect.midX - 19, y: screen.maxY + 8, width: 38, height: 3), xRadius: 1.5, yRadius: 1.5).fill()

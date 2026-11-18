@@ -10,6 +10,7 @@ for arch in arm64 x86_64; do
     -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker Info.plist -o "$out/NearClip-$arch"
 done
 xcrun lipo -create "$out/NearClip-arm64" "$out/NearClip-x86_64" -output "$out/NearClip.app/Contents/MacOS/NearClip"
+ditto Resources "$out/NearClip.app/Contents/Resources"
 cp Info.plist "$out/NearClip.app/Contents/Info.plist"
 cp THIRD_PARTY_NOTICES.md "$out/NearClip.app/Contents/Resources/THIRD_PARTY_NOTICES.md"
 xcrun swift -module-cache-path "$out/module-cache" scripts/make-icon.swift "$out/AppIcon.iconset"

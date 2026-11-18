@@ -33,7 +33,7 @@ final class ControlEdgeIndicator {
         panel.ignoresMouseEvents = true; panel.hidesOnDeactivate = false
         panel.level = .statusBar; panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         panel.contentView = bar
-        bar.setAccessibilityLabel("Mac 사이의 마우스·키보드 제어 전환 표시")
+        bar.setAccessibilityLabel(ui("Mouse and keyboard handoff indicator"))
     }
     var isNonInteractive: Bool { panel.ignoresMouseEvents && !panel.canBecomeKey && !panel.canBecomeMain }
     func show(at point: CGPoint, side: ScreenSide, progress: Double, connected: Bool) {
@@ -53,7 +53,7 @@ final class ControlEdgeIndicator {
     static func previewView() -> NSView {
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 180))
         view.wantsLayer = true; view.layer?.backgroundColor = NSColor(calibratedWhite: 0.10, alpha: 1).cgColor
-        for (index, title) in ["가장자리 밀기", "넘어가는 중", "제어 중"].enumerated() {
+        for (index, title) in [ui("Push to the edge"), ui("Switching Macs"), ui("Controlling")].enumerated() {
             let bar = EdgeBarView(frame: NSRect(x: 60 + index * 140, y: 44, width: 20, height: 112))
             bar.progress = [0, 0.65, 1][index]; bar.connected = index == 2; view.addSubview(bar)
             let label = NSTextField(labelWithString: title)

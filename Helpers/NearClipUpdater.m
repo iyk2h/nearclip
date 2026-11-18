@@ -1,6 +1,41 @@
 #import <AppKit/AppKit.h>
 #import <Security/Security.h>
 #import <Sparkle/Sparkle.h>
+#import <os/log.h>
+
+static BOOL retryableUpdateError(NSError *error) {
+    // Never turn a validation/signing failure into a retry shortcut.
+    NSError *cause = error;
+    for (NSUInteger depth = 0; cause && depth < 8; depth++, cause = cause.userInfo[NSUnderlyingErrorKey]) {
+        if ([cause.domain isEqualToString:SUSparkleErrorDomain] &&
+            (cause.code == SUSignatureError || cause.code == SUValidationError || cause.code == SUInsufficientSigningError ||
+             cause.code == SUDowngradeError || cause.code == SUNotValidUpdateError)) return NO;
+    }
+    return ([error.domain isEqualToString:NSURLErrorDomain] && error.code != NSURLErrorCancelled) ||
+        ([error.domain isEqualToString:SUSparkleErrorDomain] &&
+         (error.code == SUInstallationError || error.code == SUAgentInvalidationError ||
+          error.code == SUDownloadError || error.code == SUAppcastError));
+}
+
+@interface NearClipUserDriver : SPUStandardUserDriver
+@property(nonatomic, copy) void (^requestRetry)(void);
+@end
+@implementation NearClipUserDriver
+- (void)showUpdaterError:(NSError *)error acknowledgement:(void (^)(void))acknowledgement {
+    if (!retryableUpdateError(error)) { [super showUpdaterError:error acknowledgement:acknowledgement]; return; }
+    [self dismissUpdateInstallation];
+    NSAlert *alert = [NSAlert new];
+    BOOL install = [error.domain isEqualToString:SUSparkleErrorDomain] &&
+        (error.code == SUInstallationError || error.code == SUAgentInvalidationError);
+    alert.messageText = install ? NSLocalizedString(@"Couldn’t finish installing the update.", nil) : NSLocalizedString(@"Couldn’t reach the update server.", nil);
+    alert.informativeText = install
+        ? NSLocalizedString(@"The installer may have disconnected or timed out. Retry to check for updates and verify the signature again.", nil)
+        : NSLocalizedString(@"Check your network connection and try again.", nil);
+    [alert addButtonWithTitle:NSLocalizedString(@"Retry", nil)]; [alert addButtonWithTitle:NSLocalizedString(@"Close", nil)];
+    if ([alert runModal] == NSAlertFirstButtonReturn && self.requestRetry) self.requestRetry();
+    acknowledgement();
+}
+@end
 
 static NSString * const Feed = @"https://raw.githubusercontent.com/iyk2h/nearclip/main/updates/appcast.xml";
 static BOOL validHost(NSURL *url) {
@@ -31,13 +66,15 @@ done:
 @property(nonatomic, strong) NSBundle *host;
 @property(nonatomic) BOOL probe;
 @property(nonatomic) BOOL found;
+@property(nonatomic) BOOL retryRequested;
+@property(nonatomic) NSTimeInterval cycleStarted;
 @end
 @implementation UpdaterDelegate
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
     (void)notification;
     NSArray *args = NSProcessInfo.processInfo.arguments;
     self.probe = [args containsObject:@"--probe"];
-    BOOL diagnostic = self.probe || [args containsObject:@"--configuration-check"];
+    BOOL diagnostic = self.probe || [args containsObject:@"--configuration-check"] || [args containsObject:@"--error-policy-check"];
     [NSApp setActivationPolicy:diagnostic ? NSApplicationActivationPolicyProhibited : NSApplicationActivationPolicyAccessory];
     // The only target is the signed app containing this helper. No arbitrary
     // target paths, executable commands, or update URLs are accepted.
@@ -52,8 +89,8 @@ done:
         [info[@"SUSignedFeedFailureExpirationInterval"] isEqual:@0];
     if (!configured || !validHost(url)) {
         if (!diagnostic) {
-            NSAlert *alert = [NSAlert new]; alert.messageText = @"업데이트 구성요소를 확인할 수 없어요.";
-            alert.informativeText = @"공식 NearClip 앱을 다시 설치해 주세요. 기존 앱은 변경하지 않았어요.";
+            NSAlert *alert = [NSAlert new]; alert.messageText = NSLocalizedString(@"Couldn’t verify the updater.", nil);
+            alert.informativeText = NSLocalizedString(@"Reinstall NearClip from its official release.", nil);
             [alert runModal];
         }
         fprintf(stderr, "FAIL: update configuration or host signature invalid.\n"); exit(2);
@@ -61,7 +98,17 @@ done:
     if ([args containsObject:@"--configuration-check"]) {
         printf("PASS: signed host, pinned feed, archive verification and signed-feed policy.\n"); exit(0);
     }
-    SPUStandardUserDriver *driver = [[SPUStandardUserDriver alloc] initWithHostBundle:self.host delegate:nil];
+    if ([args containsObject:@"--error-policy-check"]) {
+        NSError *timeout = [NSError errorWithDomain:SUSparkleErrorDomain code:SUInstallationError userInfo:nil];
+        NSError *signature = [NSError errorWithDomain:SUSparkleErrorDomain code:SUSignatureError userInfo:nil];
+        NSError *wrapped = [NSError errorWithDomain:SUSparkleErrorDomain code:SUInstallationError userInfo:@{NSUnderlyingErrorKey:signature}];
+        NSError *cancelled = [NSError errorWithDomain:SUSparkleErrorDomain code:SUInstallationCanceledError userInfo:nil];
+        if (!retryableUpdateError(timeout) || retryableUpdateError(signature) || retryableUpdateError(wrapped) || retryableUpdateError(cancelled)) exit(2);
+        printf("PASS: retry permits transient installation failure and rejects nested signature failures and cancellation.\n"); exit(0);
+    }
+    NearClipUserDriver *driver = [[NearClipUserDriver alloc] initWithHostBundle:self.host delegate:nil];
+    __weak typeof(self) weakSelf = self;
+    driver.requestRetry = ^{ weakSelf.retryRequested = YES; };
     self.updater = [[SPUUpdater alloc] initWithHostBundle:self.host applicationBundle:self.host userDriver:driver delegate:self];
     NSError *error = nil;
     if (![self.updater startUpdater:&error]) {
@@ -69,7 +116,7 @@ done:
         fprintf(stderr, "FAIL: updater could not start.\n"); exit(2);
     }
     if (self.probe) [self.updater checkForUpdateInformation];
-    else { [NSApp activateIgnoringOtherApps:YES]; [self.updater checkForUpdates]; }
+    else { self.cycleStarted = NSProcessInfo.processInfo.systemUptime; [NSApp activateIgnoringOtherApps:YES]; [self.updater checkForUpdates]; }
 }
 - (NSString *)feedURLStringForUpdater:(SPUUpdater *)updater {
     (void)updater;
@@ -88,16 +135,38 @@ done:
 #ifdef NEARCLIP_UPDATE_TESTING
     trusted = trusted || ([url.scheme isEqualToString:@"http"] && [url.host isEqualToString:@"127.0.0.1"]);
 #endif
-    if (!trusted && error) *error = [NSError errorWithDomain:@"dev.nearclip.updater" code:1 userInfo:@{NSLocalizedDescriptionKey:@"공식 배포 주소가 아닌 업데이트는 설치할 수 없어요."}];
+    if (!trusted && error) *error = [NSError errorWithDomain:@"dev.nearclip.updater" code:1 userInfo:@{NSLocalizedDescriptionKey:NSLocalizedString(@"Choose an update from the official release feed.", nil)}];
     return trusted;
 }
 - (void)updater:(SPUUpdater *)updater didFindValidUpdate:(SUAppcastItem *)item { (void)updater; (void)item; self.found = YES; }
+- (void)logPhase:(NSString *)phase {
+    os_log_info(OS_LOG_DEFAULT, "nearclip_update_phase phase=%{public}@ elapsed_ms=%ld", phase,
+        (long)((NSProcessInfo.processInfo.systemUptime - self.cycleStarted) * 1000));
+}
+- (void)updater:(SPUUpdater *)updater didDownloadUpdate:(SUAppcastItem *)item { (void)updater; (void)item; [self logPhase:@"downloaded"]; }
+- (void)updater:(SPUUpdater *)updater willExtractUpdate:(SUAppcastItem *)item { (void)updater; (void)item; [self logPhase:@"extracting"]; }
+- (void)updater:(SPUUpdater *)updater didExtractUpdate:(SUAppcastItem *)item { (void)updater; (void)item; [self logPhase:@"extracted"]; }
+- (void)updater:(SPUUpdater *)updater willInstallUpdate:(SUAppcastItem *)item { (void)updater; (void)item; [self logPhase:@"installing"]; }
+- (void)updater:(SPUUpdater *)updater didAbortWithError:(NSError *)error {
+    (void)updater;
+    // Fixed event + domain/code only: no downloaded paths, keys, or user content.
+    os_log_error(OS_LOG_DEFAULT, "nearclip_update_failed domain=%{public}@ code=%ld retryable=%d", error.domain, (long)error.code, retryableUpdateError(error));
+}
 - (void)updater:(SPUUpdater *)updater didFinishUpdateCycleForUpdateCheck:(SPUUpdateCheck)check error:(NSError *)error {
     (void)updater; (void)check;
     if (self.probe) {
         if (self.found && !error) { printf("PASS: authenticated update available.\n"); exit(0); }
         if (error && error.code != SUNoUpdateError) { fprintf(stderr, "FAIL: update feed rejected (%ld).\n", (long)error.code); exit(2); }
         printf("PASS: no newer eligible update.\n"); exit(1);
+    }
+    if (self.retryRequested) {
+        self.retryRequested = NO; self.found = NO;
+        // The previous Sparkle cycle must finish before a new one can start.
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (self.updater.canCheckForUpdates) { self.cycleStarted = NSProcessInfo.processInfo.systemUptime; [self.updater checkForUpdates]; }
+            else [NSApp terminate:nil];
+        });
+        return;
     }
     [NSApp terminate:nil];
 }

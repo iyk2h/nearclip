@@ -10,17 +10,17 @@ struct MousePermissions {
     var granted: Bool { accessibility && posting && monitoring }
     var missing: [String] {
         var items: [String] = []
-        if !accessibility { items.append("손쉬운 사용") }
-        else if !posting { items.append("손쉬운 사용의 입력 제어") }
-        if !monitoring { items.append("입력 모니터링") }
+        if !accessibility { items.append(ui("Accessibility")) }
+        else if !posting { items.append(ui("Accessibility input control")) }
+        if !monitoring { items.append(ui("Input Monitoring")) }
         return items
     }
     var statusText: String {
-        let control = accessibility && posting ? "허용됨" : accessibility ? "입력 제어 확인 필요" : "허용 필요"
-        return "손쉬운 사용: \(control) · 입력 모니터링: \(monitoring ? "허용됨" : "허용 필요")\n설정에서 돌아오면 다시 확인해요. 반영됐으면 바로 켤 수 있어요."
+        let control = accessibility && posting ? ui("Allowed") : accessibility ? ui("Check input control") : ui("Required")
+        return ui("Accessibility: %1$@ · Input Monitoring: %2$@\nNearClip checks again when you return from Settings.", "\(control)", "\(monitoring ? ui("Allowed") : ui("Required"))")
     }
     var explanation: String {
-        "\(missing.joined(separator: " · ")) 권한을 확인해 주세요. 설정에서 허용한 뒤 다시 켜세요. macOS가 재실행을 요구할 때만 앱을 다시 여세요."
+        ui("Check %1$@ in System Settings, then turn on sharing again. Restart NearClip only if macOS asks.", "\(missing.joined(separator: " · "))")
     }
 }
 
@@ -38,8 +38,8 @@ final class MouseSharing {
     private(set) var secureInputBlocked = false
     private(set) var remoteSecureInputBlocked = false
     var inputPauseMessage: String? {
-        if secureInputBlocked { return "이 Mac의 보안 입력으로 일시 중지됐어요. 암호 입력을 마치거나 보안 입력을 사용하는 앱에서 빠져나오세요. 해제되면 다시 넘길 수 있어요." }
-        if remoteSecureInputBlocked { return "상대 Mac의 보안 입력으로 일시 중지됐어요. 상대에서 암호 입력을 마치거나 보안 입력을 사용하는 앱에서 빠져나오면 다시 넘길 수 있어요." }
+        if secureInputBlocked { return ui("Secure Input on this Mac paused input sharing. Finish entering your password or leave the protected app, then move to the edge again.") }
+        if remoteSecureInputBlocked { return ui("Secure Input on the other Mac paused input sharing. Finish entering your password there, then move to the edge again.") }
         return nil
     }
     private(set) var keyboardSupported = false
@@ -56,7 +56,7 @@ final class MouseSharing {
     private(set) var endedByPeer = false
     var lastEndMessage: String? {
         guard let reason = lastEndReason else { return nil }
-        return "마지막 복귀: \(endedByPeer ? "상대 Mac" : "이 Mac") · \(reason.explanation)"
+        return ui("Last return: %1$@ · %2$@", "\(endedByPeer ? ui("other Mac") : ui("this Mac"))", "\(reason.explanation)")
     }
     private(set) var layout: ScreenLayout?
     private(set) var peer: String?
@@ -171,7 +171,7 @@ final class MouseSharing {
         }
     }
     func setEnabled(_ value: Bool) throws {
-        if value, !suspensions.isEmpty { throw ClipError.invalid("잠자기나 잠금이 끝나면 입력 공유를 다시 사용할 수 있어요.") }
+        if value, !suspensions.isEmpty { throw ClipError.invalid(ui("Input sharing resumes after wake or unlock.")) }
         if !value { requestedPeer = nil }
         try applyEnabled(value)
         if value { requestedPeer = peer }
@@ -183,6 +183,14 @@ final class MouseSharing {
     func restoreConsent(for peer: String) {
         guard !enabled, self.peer == nil else { return }
         requestedPeer = peer
+    }
+    // Explicit user choice while the authenticated peer's input socket recovers.
+    // Do not install an event tap or reuse the previous remote consent/session.
+    func requestSharingWhenConnected(to peer: String) {
+        guard !enabled, self.peer == nil else { return }
+        requestedPeer = peer
+        onConsentChange?(peer)
+        onChange?()
     }
     func retryRequestedSharing() { restoreIfReady() }
     // Suspend capture, not the user's choice. Consent is scoped to this peer
@@ -267,6 +275,9 @@ final class MouseSharing {
             return
         }
         if packet.kind == .availability {
+            if native, remoteEnabled != (packet.enabled == true) {
+                logger.notice("input_peer_enabled value=\(packet.enabled == true, privacy: .public)")
+            }
             remoteEnabled = packet.enabled == true
             remoteSecureInputBlocked = packet.secureInputActive == true
             if remoteSecureInputBlocked && active { endSession(notify: false, reason: .secureInput, byPeer: true) }
@@ -598,7 +609,7 @@ final class MouseSharing {
                 guard let context else { return Unmanaged.passUnretained(event) }
                 return Unmanaged<MouseSharing>.fromOpaque(context).takeUnretainedValue().handle(type, event: event)
             }, userInfo: Unmanaged.passUnretained(self).toOpaque()) else {
-            throw ClipError.invalid("마우스 이벤트를 열 수 없어요. 권한을 허용한 뒤 NearClip을 다시 실행해 주세요.")
+            throw ClipError.invalid(ui("Couldn’t start mouse input. Allow access, then restart NearClip."))
         }
         self.tap = tap
         runSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
