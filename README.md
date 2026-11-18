@@ -2,7 +2,7 @@
 
 Copy on one Mac. Paste on the other. NearClip connects two Macs on the same local network, even if they use different Apple accounts. Move the pointer across the screen edge to keep typing on the other Mac, or send a file and choose where to save it.
 
-[**Download the macOS beta**](https://github.com/iyk2h/nearclip/releases) · macOS 13 or later · Apple silicon and Intel
+[**Download NearClip for Mac**](https://github.com/iyk2h/nearclip/releases/download/v0.4.4-build36/NearClip-0.4.4-build36-macOS.dmg) · [Release notes](https://github.com/iyk2h/nearclip/releases) · macOS 13 or later · Apple silicon and Intel
 
 ![NearClip demo showing text copied between Macs, a pointer crossing the screen edge, and file selection](docs/media/nearclip-connected.gif)
 
@@ -10,7 +10,7 @@ Copy on one Mac. Paste on the other. NearClip connects two Macs on the same loca
 
 ## Make your first connection
 
-1. On each Mac, download the DMG from the newest beta release. Drag **NearClip** into **Applications** and open it there. The beta uses a self-signed certificate. If macOS blocks it, follow the [first-launch guide](docs/TROUBLESHOOTING.md#macos-blocks-the-first-launch).
+1. On each Mac, download and open the DMG. Drag **NearClip** into **Applications** and open it there. The beta uses a self-signed certificate. If macOS blocks it, follow the [first-launch guide](docs/TROUBLESHOOTING.md#macos-blocks-the-first-launch).
 2. Connect both Macs to the same Wi-Fi or Ethernet network. Allow local network access, then click **Connect** next to the other Mac. Compare the six digits and confirm on both screens.
 3. Copy fresh text or an image with **⌘C**. Press **⌘V** on the other Mac. NearClip remembers the pairing for next time.
 
