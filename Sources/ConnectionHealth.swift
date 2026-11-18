@@ -1,5 +1,19 @@
 import Foundation
 
+enum InputSharingStatus: String {
+    case off = "꺼짐", disconnected = "연결 대기", recovering = "연결 복구 중"
+    case permission = "권한 필요", suspended = "일시 대기", peerOff = "상대 켜기 대기", ready = "사용 가능"
+    static func resolve(requested: Bool, connected: Bool, inputReady: Bool, permissions: Bool,
+                        captureEnabled: Bool, peerEnabled: Bool, paused: Bool) -> Self {
+        guard requested else { return .off }
+        guard connected else { return .disconnected }
+        guard permissions else { return .permission }
+        guard inputReady else { return .recovering }
+        guard captureEnabled, !paused else { return .suspended }
+        return peerEnabled ? .ready : .peerOff
+    }
+}
+
 struct AppVersion: Codable, Equatable, Comparable {
     let version: String
     let build: Int

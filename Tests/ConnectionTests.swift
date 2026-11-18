@@ -111,6 +111,16 @@ func inputRecoveryNetworkTests() throws {
     client?.sendFeature(FeaturePacket(mouse: MousePacket(kind: .availability, enabled: false))) { _ in }
     waitFor({ inputArrived && health != nil }, seconds: 4)
     try Check.that(inputArrived && health?.samples ?? 0 > 0, "recovered input transports fresh packets and authenticated RTT probes")
+    for cycle in 1...5 {
+        let previousInput = client?.inputLink?.id
+        client?.inputLink?.close()
+        waitFor({ client?.hasSeparateInput == true && client?.inputLink?.id != previousInput && serverHasInput() }, seconds: 5)
+        inputArrived = false
+        client?.sendFeature(FeaturePacket(mouse: MousePacket(kind: .availability, enabled: false))) { _ in }
+        waitFor({ inputArrived })
+        try Check.that(inputArrived && detail?.connection == parentID && !dataDisconnected,
+            "recovery cycle \(cycle) delivers fresh input without replacing the clipboard/file session")
+    }
     client?.inputLink?.close(); client?.close(); server.stop()
     RunLoop.main.run(until: Date().addingTimeInterval(0.7))
     try Check.that(client?.inputLink == nil && client?.closed == true && server.peerCount == 0, "shutdown cancels a pending input reconnect")
@@ -397,4 +407,79 @@ func inputFramingAndCadenceTests() throws {
                    MousePacket(kind: .heartbeat, token: token, motionSentAt: 1)] {
         try Check.rejects("invalid or misplaced motion timing is rejected") { try packet.validate() }
     }
+}
+
+// Exercise real sockets without relying on LocalTransport's periodic timer.
+func inputHandshakeRecoveryTests() throws {
+    let secret = try PairCode.key(PairCode.create())
+    let senderID = "00000000-0000-0000-0000-000000000001", receiverID = "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF"
+    let listener = try NWListener(using: LocalTransport.parameters())
+    let blackhole = try NWListener(using: LocalTransport.parameters())
+    var server: PeerLink?, client: PeerLink?, held: [NWConnection] = []
+    var attempts = 0, clipboardReceived = false
+    defer {
+        client?.close(); server?.close(); listener.cancel(); blackhole.cancel()
+        held.forEach { $0.cancel() }
+    }
+    blackhole.newConnectionHandler = { connection in held.append(connection); connection.start(queue: .main) }
+    blackhole.start(queue: .main)
+    listener.newConnectionHandler = { connection in
+        server = PeerLink(connection: connection, secret: secret, device: receiverID, name: "Receiver")
+        server?.onClip = { _, _ in clipboardReceived = true }
+        server?.start()
+    }
+    listener.start(queue: .main)
+    waitFor({
+        if case .ready = listener.state, case .ready = blackhole.state { return true }
+        return false
+    })
+    guard let port = listener.port, let stalledPort = blackhole.port else { throw ClipError.invalid("fixture listeners unavailable") }
+    client = PeerLink(connection: NWConnection(host: "127.0.0.1", port: port, using: LocalTransport.parameters()), secret: secret, device: senderID, name: "Sender")
+    client?.inputHandshakeTimeout = 0.4
+    client?.inputConnectionFactory = { host, actualPort in
+        attempts += 1
+        return NWConnection(host: host, port: attempts == 1 ? stalledPort : actualPort, using: LocalTransport.parameters(interactive: true))
+    }
+    client?.start()
+    waitFor({ client?.inputLink?.handshakeStage == .waitingForHello })
+    let parent = client?.id
+    client?.send(ClipMessage(id: UUID(), stamp: ClipStamp(counter: 1, device: senderID), payload: ClipPayload(type: "public.utf8-plain-text", data: Data("synthetic stalled input".utf8))))
+    waitFor({ clipboardReceived && client?.hasSeparateInput == true && server?.hasSeparateInput == true }, seconds: 4)
+    try Check.that(clipboardReceived && attempts == 2 && client?.hasSeparateInput == true && client?.id == parent,
+        "silent input handshake times out and redials without a parent tick or clipboard disconnect")
+    try Check.that(client?.lastInputClosure?.stage == .waitingForHello && server?.lastPeerInputClosure?.stage == .waitingForHello,
+        "authenticated peer diagnostics distinguish a TCP connection from a missing hello")
+    RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+    try Check.that(client?.hasSeparateInput == true, "completed handshake cancels its deadline")
+
+    let advertisedPort = server?.inputListener?.port
+    server?.inputListener?.stateUpdateHandler?(.ready)
+    server?.inputListener?.stateUpdateHandler?(.ready)
+    RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+    try Check.that(server?.ready == true && client?.ready == true && client?.closed == false,
+        "repeated listener-ready notifications never inject plaintext into the authenticated parent")
+    server?.inputListener?.cancel()
+    client?.inputLink?.close()
+    waitFor({ server?.inputListener?.port == advertisedPort && client?.hasSeparateInput == true && server?.hasSeparateInput == true }, seconds: 5)
+    try Check.that(server?.inputListener?.port == advertisedPort && client?.hasSeparateInput == true && client?.id == parent,
+        "cancelled input listener rebinds its advertised port and recovers without replacing the bulk session")
+    server?.inputListener?.cancel(); server?.close(); client?.close()
+    RunLoop.main.run(until: Date().addingTimeInterval(0.7))
+    try Check.that(server?.inputListener == nil && server?.closed == true, "shutdown cancels queued listener recreation")
+}
+
+func inputStatusTests() throws {
+    func status(_ requested: Bool = true, _ connected: Bool = true, _ ready: Bool = true,
+                _ permissions: Bool = true, _ enabled: Bool = true, _ peer: Bool = true, _ paused: Bool = false) -> InputSharingStatus {
+        InputSharingStatus.resolve(requested: requested, connected: connected, inputReady: ready,
+            permissions: permissions, captureEnabled: enabled, peerEnabled: peer, paused: paused)
+    }
+    try Check.that(status(false) == .off && status(true, false) == .disconnected, "input status distinguishes explicit off from saved connection waiting")
+    try Check.that(status(true, true, false) == .recovering && status(true, true, false, false) == .permission, "input status exposes missing permissions before connection recovery")
+    try Check.that(status(true, true, true, true, false) == .suspended && status(true, true, true, true, true, true, true) == .suspended, "input status reports capture and secure-input suspension")
+    try Check.that(status(true, true, true, true, true, false) == .peerOff && status() == .ready, "input availability requires consent from both Macs")
+    let legacy = Data(#"{"reason":"handshakeTimeout","idleMS":12000,"loopDelayMS":0}"#.utf8)
+    try Check.that(try PeerLink.InputClosureReport.decode(legacy, negotiated: true, inputOnly: false).stage == nil, "older diagnostic messages remain compatible without stage metadata")
+    let unknown = Data(#"{"reason":"handshakeTimeout","idleMS":12000,"loopDelayMS":0,"stage":"forged"}"#.utf8)
+    try Check.rejects("unknown handshake stages fail closed") { _ = try PeerLink.InputClosureReport.decode(unknown, negotiated: true, inputOnly: false) }
 }

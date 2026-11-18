@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var revealButton: NSButton!
     private var mouseToggle: NSSwitch!
     private let inputTitle = NSTextField(labelWithString: "마우스·키보드")
+    private let inputStatusLabel = NSTextField(labelWithString: "꺼짐")
     private var permissionActions: NSView!
     private var connectionHint = NSTextField(wrappingLabelWithString: "")
     private let arrangement = ScreenArrangementView(frame: .zero)
@@ -409,6 +410,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         mouseToggle.setAccessibilityLabel("마우스·키보드 공유")
         mouseToggle.setContentHuggingPriority(.required, for: .horizontal)
         inputTitle.font = .systemFont(ofSize: 13, weight: .semibold)
+        inputStatusLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        inputStatusLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
         mouseHint.font = .systemFont(ofSize: 11); mouseHint.textColor = .secondaryLabelColor
         fileButton = button("파일 보내기…", action: #selector(sendFile))
         fileCancel = button("전송 취소", action: #selector(cancelFile)); fileCancel.isHidden = true
@@ -438,7 +441,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             flexible(column([label("클립보드", size: 13, weight: .semibold), activityLabel], spacing: 5)), sendButton
         ]))
         let inputCard = panel(column([
-            row([symbol("keyboard", size: 20), flexible(inputTitle), mouseDisclosure, mouseToggle]),
+            row([symbol("keyboard", size: 20), flexible(inputTitle), inputStatusLabel, mouseDisclosure, mouseToggle]),
             mouseHint, label("이 Mac의 선택을 기억해요 · 긴급 정지 ⌃⌥Esc", size: 10, color: .secondaryLabelColor), mouseDetails
         ], spacing: 8))
         fileActions = row([fileCancel, revealButton, flexible(NSView())]); fileActions.isHidden = true
@@ -865,10 +868,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         require(!mouse.enabled && mouse.sharingRequested && mouseToggle.state == .on && mouseToggle.isEnabled,
                 "input outage retains consent and allows explicit stop while clipboard peer remains")
         require(menuMouseToggle.isEnabled && menuMouseToggle.state == .on, "menu bar can revoke input consent during channel recovery")
+        require(inputStatusLabel.stringValue == "연결 복구 중", "main window identifies input recovery separately from clipboard connectivity")
         require(fileButton.isEnabled && peerVersionLabel.stringValue.contains("양쪽 버전 같음"), "input outage preserves file controls and reports matched versions")
+        setMouseSharing(false)
+        require(inputStatusLabel.stringValue == "꺼짐", "main window shows the explicit off choice during a transport outage")
+        require(!mouse.sharingRequested && mouseToggle.state == .off && mouseToggle.isEnabled && menuMouseToggle.isEnabled,
+                "turning sharing off during recovery keeps both enable controls available")
+        toggleMouseFromMenu()
+        require(mouse.sharingRequested && !mouse.enabled && mouse.peer == nil && mouseToggle.state == .on,
+                "menu enable during recovery records consent without capturing input")
+        require(mouseHint.stringValue.contains("복구되면"), "pending input choice is distinguished from active sharing")
+        setMouseSharing(false)
+        recoveryPeer.inputReady = true; recoveryPeer.inputSession = UUID()
+        updateFeaturePeer([recoveryPeer])
+        require(!mouse.enabled && !mouse.sharingRequested, "revoked pending choice stays off when input reconnects")
+        recoveryPeer.inputReady = false
+        updateFeaturePeer([recoveryPeer])
+        mouseToggle.state = .on; toggleMouse()
+        require(mouse.sharingRequested && !mouse.enabled, "main switch also accepts enable during recovery")
         recoveryPeer.inputReady = true; recoveryPeer.inputSession = UUID()
         updateFeaturePeer([recoveryPeer])
         require(mouse.enabled && !mouse.remoteEnabled && mouse.mode == .local, "input reconnect restores local readiness with fresh remote consent")
+        require(inputStatusLabel.stringValue == "상대 켜기 대기", "connected input is not presented as usable before remote consent")
         require(updateDownloadButton.isHidden && updateButton.isEnabled, "update controls never offer an unchecked download")
         displaySlept(); screenLocked(); sessionDeactivated(); willSleep()
         require(!mouse.enabled && mouseToggle.state == .on, "sleep stops capture while the sharing checkbox retains the choice")
@@ -1119,12 +1140,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     private func updateHealthUI() {
         guard let peer = featurePeer else { healthLabel.stringValue = "상대 Mac에 연결하면 입력 지연을 측정해요."; return }
-        if !peer.inputReady { healthLabel.stringValue = "입력 연결 복구 중 · 클립보드와 파일 연결은 유지돼요." }
+        if !peer.inputReady {
+            healthLabel.stringValue = "입력 연결 복구 중 · 클립보드와 파일 연결은 유지돼요."
+            if let failure = peer.inputFailure { healthLabel.stringValue += "\n" + failure }
+        }
         else if let inputHealth { healthLabel.stringValue = "입력 전용 연결 · " + inputHealth.label }
         else if peer.features.contains(SharingFeature.inputMetrics) { healthLabel.stringValue = "입력 전용 연결 · 왕복 지연 측정 중…" }
         else { healthLabel.stringValue = "상대도 최신 빌드로 업데이트하면 왕복 지연을 확인할 수 있어요." }
         if let timing = mouse.motionTimingLabel { healthLabel.stringValue += "\n" + timing }
         if !mouse.active, let message = mouse.lastEndMessage { healthLabel.stringValue += "\n" + message }
+        if mouse.active { healthLabel.stringValue += "\n현재 제어: NearClip · " + (mouse.mode == .receiving ? "상대 Mac에서 이 Mac 제어 중" : "이 Mac에서 상대 Mac 제어 중") }
+        else { healthLabel.stringValue += "\nNearClip 원격 제어 대기 · Apple 연결 여부는 디스플레이 설정에서 확인하세요." }
     }
     private func configureUpdates() {
         guard !preview else { return }
@@ -1207,15 +1233,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         fileButton.isEnabled = enabled && supportsFiles && !files.busy
         fileActions?.isHidden = fileCancel.isHidden && revealButton.isHidden
         swapScreens.isEnabled = supportsMouse && !mouse.active
-        mouseToggle.isEnabled = mouse.sharingRequested || (enabled && supportsMouse && featurePeer?.inputReady == true)
-        inputTitle.stringValue = mouse.keyboardSupported || !supportsMouse ? "마우스·키보드" : "마우스"
+        mouseToggle.isEnabled = mouse.sharingRequested || (enabled && supportsMouse)
+        inputTitle.stringValue = featurePeer?.features.contains(SharingFeature.keyboard) == true || !supportsMouse ? "마우스·키보드" : "마우스"
         mouseToggle.state = mouse.sharingRequested ? .on : .off
+        let inputStatus = InputSharingStatus.resolve(requested: mouse.sharingRequested, connected: supportsMouse,
+            inputReady: featurePeer?.inputReady == true, permissions: permissions.granted,
+            captureEnabled: mouse.enabled, peerEnabled: mouse.remoteEnabled, paused: mouse.inputPauseMessage != nil)
+        inputStatusLabel.stringValue = inputStatus.rawValue
+        inputStatusLabel.textColor = inputStatus == .ready ? .systemGreen : inputStatus == .off ? .secondaryLabelColor : .systemOrange
         arrangement.update(peerID: supportsMouse ? featurePeer?.connection.uuidString : nil,
                            localName: preview ? "My MacBook" : deviceName,
                            peerName: featurePeer?.name ?? "상대 Mac", side: mouse.side,
                            editable: supportsMouse && !mouse.active)
         arrangementHint.stringValue = mouse.active ? "마우스 제어를 끝낸 뒤 배치를 바꿀 수 있어요. ⌃⌥Esc로 공유를 끄세요." : "화면을 드래그해 실제 Mac의 좌우 순서에 맞춰주세요. 양쪽에 자동 반영돼요."
-        if featurePeer != nil && featurePeer?.inputReady == false { mouseHint.stringValue = "입력 연결을 복구하고 있어요. 클립보드와 파일 공유는 계속돼요." }
+        if featurePeer != nil && featurePeer?.inputReady == false {
+            mouseHint.stringValue = mouse.sharingRequested
+                ? "켜기 선택을 저장했어요. 입력 연결이 복구되면 시작해요. 클립보드와 파일 공유는 계속돼요."
+                : "마우스·키보드 공유가 꺼져 있어요. 지금 켜두면 입력 연결이 복구된 뒤 시작해요."
+        }
         else if mouse.sharingRequested && !mouse.enabled {
             mouseHint.stringValue = permissions.granted ? "선택을 기억했어요 · 같은 Mac에 연결되면 다시 켜져요." : "권한 확인 필요 · 화면 배치를 펼쳐 허용 상태를 확인하세요."
         }
@@ -1224,7 +1259,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         else if let pause = mouse.inputPauseMessage { mouseHint.stringValue = pause }
         else if !mouse.remoteEnabled { mouseHint.stringValue = "이 Mac은 준비됐어요. 상대 Mac에서도 마우스 공유를 켜주세요." }
         else {
-            mouseHint.stringValue = mouse.gesturesSupported ? "사용 중 · 화면 가장자리로 이동 · 3·4손가락 쓸어넘기기 베타" : "사용 중 · 화면 가장자리로 밀어 이동하세요."
+            mouseHint.stringValue = mouse.gesturesSupported ? "NearClip 준비 완료 · 화면 가장자리로 이동 · 3·4손가락 쓸어넘기기 베타" : "NearClip 준비 완료 · 화면 가장자리로 밀어 이동하세요."
         }
         menuMouseToggle?.state = mouse.sharingRequested ? .on : .off
         menuMouseToggle?.isEnabled = mouse.sharingRequested || mouseToggle.isEnabled
@@ -1246,6 +1281,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func toggleMouse() { setMouseSharing(mouseToggle.state == .on) }
     private func setMouseSharing(_ requested: Bool) {
         mouseSetupError = nil
+        if requested, enabled, let peer = featurePeer,
+           peer.features.contains(SharingFeature.mouse), !peer.inputReady {
+            mouse.requestSharingWhenConnected(to: peer.device)
+            refresh()
+            return
+        }
         do { try mouse.setEnabled(requested) }
         catch {
             mouseDetailsExpanded = true

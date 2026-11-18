@@ -184,6 +184,14 @@ final class MouseSharing {
         guard !enabled, self.peer == nil else { return }
         requestedPeer = peer
     }
+    // Explicit user choice while the authenticated peer's input socket recovers.
+    // Do not install an event tap or reuse the previous remote consent/session.
+    func requestSharingWhenConnected(to peer: String) {
+        guard !enabled, self.peer == nil else { return }
+        requestedPeer = peer
+        onConsentChange?(peer)
+        onChange?()
+    }
     func retryRequestedSharing() { restoreIfReady() }
     // Suspend capture, not the user's choice. Consent is scoped to this peer
     // and its pairing; a new device or an explicit stop never inherits it.
@@ -267,6 +275,9 @@ final class MouseSharing {
             return
         }
         if packet.kind == .availability {
+            if native, remoteEnabled != (packet.enabled == true) {
+                logger.notice("input_peer_enabled value=\(packet.enabled == true, privacy: .public)")
+            }
             remoteEnabled = packet.enabled == true
             remoteSecureInputBlocked = packet.secureInputActive == true
             if remoteSecureInputBlocked && active { endSession(notify: false, reason: .secureInput, byPeer: true) }
