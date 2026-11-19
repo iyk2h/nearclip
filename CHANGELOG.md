@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.4 build 39 — 2026-11-19
+
+- Drop a file into an app window on the other Mac. The receiving app decides whether it accepts the file. Keep the pointer over the target until the transfer finishes. Both Macs need input sharing enabled.
+- Keep the sending cursor at its original height when capturing movement after a handoff. Automated tests cover entry near the top and bottom in both directions.
+
 ## 0.4.4 build 37 — 2026-11-18
 
 - Drag one file across the shared screen edge into Finder on another build 37 Mac. The receiver can approve a folder for subsequent drops during the current connection.

@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var showingFileEdge = false
     private var fileDestination: (id: UUID, name: String, folder: URL, date: Date)?
     private var approvedDropDirectory: ReceiveDirectory?
+    private var appDrop: AppFileDrop?
     private var featurePeer: ConnectedPeer?
     private let peerVersionLabel = NSTextField(wrappingLabelWithString: "")
     private let healthLabel = NSTextField(wrappingLabelWithString: ui("Input latency appears after you connect."))
@@ -129,6 +130,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(headlessDiagnostics ? .accessory : .regular)
+        if CommandLine.arguments.contains("--app-drop-smoke") { AppDropSmoke.start(); return }
+        if let i = CommandLine.arguments.firstIndex(of: "--app-drop-test-window"),
+           i + 1 < CommandLine.arguments.count, let id = UUID(uuidString: CommandLine.arguments[i + 1]) {
+            AppDropSmoke.openTarget(id); return
+        }
         if CommandLine.arguments.contains("--light") { NSApp.appearance = NSAppearance(named: .aqua) }
         if CommandLine.arguments.contains("--dark") { NSApp.appearance = NSAppearance(named: .darkAqua) }
         if CommandLine.arguments.contains("--update-check") {
@@ -833,7 +839,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     @objc private func toggleSharing() {
         enabled.toggle();
-        if !enabled { approvedDropDirectory = nil; fileDestination = nil; mouse?.stop(); files.cancel() }
+        if !enabled { appDrop = nil; approvedDropDirectory = nil; fileDestination = nil; mouse?.stop(); files.cancel() }
          sync?.enabled = enabled
         if !preview { UserDefaults.standard.set(enabled, forKey: "enabled") }
         refresh()
@@ -1111,6 +1117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard let self, let peer = self.featurePeer, self.enabled, !self.files.busy,
                   !self.dropCommitted, self.draggingFile == nil,
                   let point = CGEvent(source: nil)?.location,
+                  ScreenGeometry.exit(at: point, deltaX: self.mouse.side == .left ? -1 : 1, side: self.mouse.side, displays: self.mouse.displays()) != nil,
                   let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]),
                   values.isRegularFile == true, values.isSymbolicLink == false,
                   let size = values.fileSize, size <= FilePacket.maxSize else { return false }
@@ -1139,7 +1146,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 defer { self.showingFileEdge = false }
                 guard self.enabled, !self.files.busy, self.mouse.enabled, self.mouse.remoteEnabled,
                       self.mouse.mode == .local, self.mouse.side == side, NSEvent.pressedMouseButtons & 1 == 1,
-                      NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.finder" else { return }
+                      (NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.finder" || FinderFileDrop.fileURL(from: NSPasteboard(name: .drag)) != nil) else { return }
                 self.fileEdge.present(at: point, side: side)
                 self.fileEdge.dismissWhenDragEnds()
             }
@@ -1147,6 +1154,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         mouse.onFileDropPosition = { [weak self] id, point in
             guard let self else { return }
             self.fileBadge.orderOut(nil)
+            self.appDrop = AppFileDrop(id: id, name: self.mouse.draggedFileName ?? "", point: point)
             self.fileDestination = finderFolder(at: point).map { (id, self.mouse.draggedFileName ?? "", $0, Date()) }
         }
         mouse.onFileDropReady = { [weak self] id in
@@ -1193,11 +1201,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard let self else { return }
             self.fileLabel.stringValue = text; self.fileProgress.isHidden = progress == nil
             self.fileProgress.doubleValue = progress ?? 0; self.fileCancel?.isHidden = !busy
+            if !busy && progress == nil { self.appDrop = nil }
             if !busy, let panel = self.receivePanel { panel.cancel(nil); self.receivePanel = nil }
             self.refresh()
         }
         files.onOffer = { [weak self] _, offer in self?.receiveFile(offer) }
-        files.onComplete = { [weak self] url in self?.receivedFile = url; self?.revealButton?.isHidden = url == nil }
+        files.onComplete = { [weak self] url in
+            guard let self else { return }
+            if let drop = self.appDrop, let url, drop.destination == url {
+                self.receivedFile = url; self.revealButton?.isHidden = false
+                drop.deliver(authorized: { [weak self, weak drop] in
+                    guard let self, let drop else { return false }
+                    return self.enabled && self.appDrop === drop && self.mouse.isReceivingDrop(drop.id)
+                }) { [weak self, weak drop] accepted in
+                    guard let self, let drop, self.appDrop === drop else { return }
+                    self.appDrop = nil
+                    self.fileLabel.stringValue = accepted ? ui("File dropped.") : ui("Drop declined or target changed. Use Show in Finder to find the file.")
+                }
+                return
+            }
+            self.receivedFile = url; self.revealButton?.isHidden = url == nil
+        }
     }
     private func updateFeaturePeer(_ peers: [ConnectedPeer]) {
         let next = peers.count == 1 ? peers.first : nil
@@ -1205,7 +1229,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let parentChanged = previous?.connection != next?.connection
         let inputChanged = parentChanged || previous?.inputReady != next?.inputReady || previous?.inputSession != next?.inputSession
         featurePeer = next
-        if inputChanged { fileDestination = nil; approvedDropDirectory = nil }
+        if inputChanged { appDrop = nil; fileDestination = nil; approvedDropDirectory = nil }
         if parentChanged { files.disconnected() }
         if inputChanged {
             inputHealth = nil
@@ -1420,6 +1444,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard !preview, enabled, window.attachedSheet == nil else { files.decline(id: offer.id); return }
         let target = fileDestination
         fileDestination = nil
+        if let drop = appDrop, mouse.isReceivingDrop(offer.id),
+           drop.id == offer.id, drop.name == offer.name, Date().timeIntervalSince(drop.date) < 5 {
+            do { files.accept(id: offer.id, destination: try drop.stage()) }
+            catch { files.decline(id: offer.id); fileLabel.stringValue = error.localizedDescription }
+            return
+        }
+        appDrop = nil
         let folder = target.flatMap { mouse.isReceivingDrop(offer.id) && $0.id == offer.id && $0.name == offer.name && Date().timeIntervalSince($0.date) < 5 ? $0.folder : nil }
         if let folder, let name = offer.name, let approved = approvedDropDirectory, approved.matches(folder) {
             files.accept(id: offer.id, destination: folder.appendingPathComponent(name), directory: approved)

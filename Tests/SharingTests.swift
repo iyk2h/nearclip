@@ -97,6 +97,11 @@ func fileTransferTests() throws {
     try Check.that(FinderFileDrop.fileURL(from: board) == nil, "reject multiple files without sending a partial selection")
     board.clearContents(); board.setString(source.path, forType: .string)
     try Check.that(FinderFileDrop.fileURL(from: board) == nil, "plain text paths are not Finder drags")
+    let appFolder = try testFolder(); defer { try? FileManager.default.removeItem(at: appFolder) }
+    let firstDrop = try AppFileDrop.stage("photo.png", in: appFolder)
+    let secondDrop = try AppFileDrop.stage("photo.png", in: appFolder)
+    try Check.that(firstDrop != secondDrop && firstDrop.lastPathComponent == "photo.png", "native app drops preserve filenames without overwriting another drop")
+    try Check.rejects("native drops reject remote paths") { _ = try AppFileDrop.stage("../photo.png", in: appFolder) }
     let pinned = try ReceiveDirectory(folder)
     let alternate = try testFolder(); defer { try? FileManager.default.removeItem(at: alternate) }
     try Check.rejects("drop approval cannot address a different folder") {
@@ -205,6 +210,22 @@ func mouseSharingTests() throws {
     b.receive(MousePacket(kind: .enter, token: denied, side: .left, fraction: 0.5), from: "A", now: now)
     try Check.that(b.mode == .local, "pairing alone cannot authorize mouse control"); pump()
     try a.setEnabled(true); try b.setEnabled(true); pump()
+    for (sender, receiver, edgeX, height, otherHeight, dx) in [
+        (a, b, 999.0, 600.0, 1200.0, 2.0),
+        (b, a, 0.0, 1200.0, 600.0, -2.0)
+    ] {
+        for fraction in [0.1, 0.9] {
+            now = now.addingTimeInterval(2)
+            let point = CGPoint(x: edgeX, y: height * fraction)
+            _ = sender.localMove(point: point, dx: dx, dy: 0, now: now)
+            now = now.addingTimeInterval(0.2)
+            _ = sender.localMove(point: point, dx: dx, dy: 0, now: now); pump()
+            try Check.that(receiver.mode == .receiving && receiver.indicatorPoint.y == otherHeight * fraction,
+                           "handoff preserves the relative entry height in either direction")
+            sender.endSession(); pump()
+        }
+    }
+    now = now.addingTimeInterval(2)
     let edge = CGPoint(x: 999, y: 300)
     try Check.that(!a.startFileDrag(named: "photo.png", at: edge, now: now), "no file drag with a legacy peer")
     a.setPeer("B", savedLayout: original, supportsFileDrag: true)

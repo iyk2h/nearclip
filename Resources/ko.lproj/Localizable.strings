@@ -386,3 +386,5 @@
 "Language" = "언어";
 "Changes take effect the next time you open NearClip." = "다음에 NearClip을 열 때 적용돼요.";
 "Connect to %1$@" = "%1$@에 연결";
+"File dropped." = "앱에 파일을 놓았어요.";
+"Drop declined or target changed. Use Show in Finder to find the file." = "앱이 파일을 받지 않았거나 대상이 바뀌었어요. Finder에서 보기로 파일을 찾을 수 있어요.";

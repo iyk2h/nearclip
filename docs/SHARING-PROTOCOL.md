@@ -62,6 +62,8 @@ Both peers must advertise `finder-drag-v1`, `mouse-v1`, and `files-v1` and enabl
 2. On release, the sender flushes pending motion and sends `dropFile` with the active input token. The receiver resolves the drop position locally and replies with `dropReady` for that token. Escape before release cancels the handoff.
 3. After the matching acknowledgement, the sender issues a normal file offer on the bulk channel, using the input token as the transfer ID. The recipient approves the destination, or reuses an explicit approval for that folder on this connection. If the destination cannot be identified, the recipient chooses it in the save dialog.
 
+On macOS build 39, a drop over an application window can use the same correlated offer to stage the verified file in the receiver’s cache. NearClip checks the active input session and drop target again before passing a local file URL through an AppKit drag session. The destination chooses whether to accept it.
+
 Only the basename crosses the network during the drag. Each platform handles its own drag session, resolves its own destination directory, and creates the copy under its own filesystem rules. Older peers can still use **Send File**.
 
 ## Shared screen layout

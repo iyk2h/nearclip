@@ -20,11 +20,12 @@ Copy on one Mac. Paste on the other. NearClip is a free, ad-free app that connec
 | --- | --- |
 | Share a screenshot | Press **⌃⇧⌘4**, select an area, then paste on the other Mac. |
 | Use one mouse and keyboard | Enable **Mouse & Keyboard** on both Macs and grant the requested permissions. In **Screen Layout**, drag the screens to match your desk. Push the pointer across the shared edge and type. Press **⌃⌥Esc** to stop. |
-| Send a file | Click **Send File**. The recipient chooses where to save it. With build 37 on both Macs and input sharing enabled, you can also drag a Finder file across the shared edge and release it over a Finder folder or the desktop. Confirm the first save on the receiving Mac. To allow future drops in the same folder until disconnect, select the checkbox in the save dialog. Send one regular file up to 2 GiB at a time. |
+| Send a file | Click **Send File**. The recipient chooses where to save it. With build 37 or later on both Macs and input sharing enabled, you can also drag a Finder file across the shared edge and release it over a Finder folder or the desktop. Confirm the first save on the receiving Mac. To allow future drops in the same folder until disconnect, select the checkbox in the save dialog. Send one regular file up to 2 GiB at a time. |
+| Drop a file into an app (build 39) | Drag a file across the shared edge and release it over a window that accepts files. Keep the pointer over the target until the file arrives. The receiving app handles the drop. |
 | Change the language | In build 36 and later, open **Settings → Language**, choose English or Korean, then quit and reopen NearClip. English is the default. |
 | Update NearClip | Choose **Check for Updates** from the menu bar on each Mac. Install the update and relaunch. |
 
-NearClip sends data directly between paired Macs over an encrypted connection. It keeps no clipboard history. File transfers need the recipient’s approval, and input sharing needs permission on both Macs. Input sharing and [trackpad gestures](docs/GESTURES.md) are beta features.
+NearClip sends data directly between paired Macs over an encrypted connection. It keeps no clipboard history. Send File asks the recipient where to save. Cross-screen drops use the input-sharing permissions on both Macs. Input sharing and [trackpad gestures](docs/GESTURES.md) are beta features.
 
 ## Beta feedback
 

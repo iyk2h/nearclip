@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 // Opt-in diagnostic with synthetic identities. Never touches the user's clipboard or Keychain.
 final class BundledSmoke {
@@ -92,5 +92,53 @@ final class BundledSmoke {
         let cleaned = !a.busy && !b.busy && (ta?.peerCount ?? 0) == 0 && (tb?.peerCount ?? 0) == 0
         print(cleaned ? "PASS: packaged app closes all network sessions" : "FAIL: network cleanup")
         let reply = complete; complete = nil; reply?(success && cleaned)
+    }
+}
+
+final class AppDropSmoke: NSView {
+    private let id: UUID
+    init(_ id: UUID) {
+        self.id = id
+        super.init(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        registerForDraggedTypes([.fileURL])
+    }
+    required init?(coder: NSCoder) { nil }
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { .copy }
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard let url = FinderFileDrop.fileURL(from: sender.draggingPasteboard), url.lastPathComponent == id.uuidString,
+              (try? Data(contentsOf: url)) == Data(id.uuidString.utf8) else { return false }
+        print("PASS: target process received the exact native file URL and bytes")
+        fflush(stdout); DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { exit(0) }; return true
+    }
+    static func openTarget(_ id: UUID) {
+        NSApp.setActivationPolicy(.regular)
+        let point = NSEvent.mouseLocation
+        let window = NSPanel(contentRect: NSRect(x: point.x-50, y: point.y-50, width: 100, height: 100),
+                             styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: false)
+        window.contentView = AppDropSmoke(id); window.title = "NearClip drop test"; window.level = .floating; window.orderFrontRegardless()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { window.orderOut(nil); exit(1) }
+    }
+    static func start() {
+        guard let executable = Bundle.main.executableURL else { exit(1) }
+        let id = UUID(), child = Process()
+        child.executableURL = executable; child.arguments = ["--app-drop-test-window", id.uuidString]
+        do { try child.run() } catch { exit(1) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            guard let point = CGEvent(source: nil)?.location,
+                  let drop = AppFileDrop(id: id, name: id.uuidString, point: point, expectedPID: child.processIdentifier) else {
+                print("FAIL: test drop window unavailable"); exit(1)
+            }
+            do {
+                let file = try drop.stage(); try Data(id.uuidString.utf8).write(to: file)
+                var completed = false
+                drop.deliver(authorized: { child.isRunning }) { completed = $0 }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                    try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
+                    let received = !child.isRunning && child.terminationStatus == 0
+                    if child.isRunning { child.terminate() }
+                    withExtendedLifetime(drop) { print(completed && received ? "PASS: native drop completed" : "FAIL: native drop did not complete"); exit(completed && received ? 0 : 1) }
+                }
+            } catch { print(error); exit(1) }
+        }
     }
 }

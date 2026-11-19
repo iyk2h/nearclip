@@ -10,10 +10,10 @@ enum ScreenGeometry {
         guard let rect = displays.sorted(by: { side == .left ? $0.minX < $1.minX : $0.maxX > $1.maxX }).first else { return nil }
         return (clamp(CGPoint(x: side == .left ? rect.minX + 4 : rect.maxX - 4, y: rect.minY + rect.height * fraction), to: rect), rect)
     }
-    static func exit(at p: CGPoint, deltaX: Double, side: ScreenSide, displays: [CGRect]) -> CGRect? {
+    static func exit(at p: CGPoint, deltaX: Double, side: ScreenSide, displays: [CGRect], distance: CGFloat = 2) -> CGRect? {
         guard (side == .left ? deltaX < 0 : deltaX > 0), let rect = displays.first(where: { $0.insetBy(dx: -1, dy: -1).contains(p) }) else { return nil }
         let edge = side == .left ? rect.minX : rect.maxX
-        guard abs(p.x - edge) <= 2 else { return nil }
+        guard abs(p.x - edge) <= distance else { return nil }
         let beyond = CGPoint(x: edge + (side == .left ? -3 : 3), y: p.y)
         guard !displays.contains(where: { $0.contains(beyond) }) else { return nil }
         return rect

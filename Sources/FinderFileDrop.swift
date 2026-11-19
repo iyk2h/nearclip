@@ -22,15 +22,20 @@ final class FinderFileDrop: NSView {
     }
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         accepted = nil
+        return draggingUpdated(sender)
+    }
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        if let accepted {
+            return accepted.sequence == sender.draggingSequenceNumber && sender.draggingSourceOperationMask.contains(.copy) ? .copy : []
+        }
         guard sender.draggingSourceOperationMask.contains(.copy),
               let url = Self.fileURL(from: sender.draggingPasteboard), enter?(url) == true else { return [] }
         accepted = (sender.draggingSequenceNumber, url)
         return .copy
     }
-    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        accepted?.sequence == sender.draggingSequenceNumber && sender.draggingSourceOperationMask.contains(.copy) ? .copy : []
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        accepted?.sequence == sender.draggingSequenceNumber && sender.draggingSourceOperationMask.contains(.copy)
     }
-    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool { draggingUpdated(sender) == .copy }
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         guard let accepted, draggingUpdated(sender) == .copy,
               Self.fileURL(from: sender.draggingPasteboard) == accepted.url else { return false }
@@ -155,5 +160,130 @@ final class DraggedFileBadge: NSPanel {
         }
         setFrameOrigin(NSPoint(x: point.x + 12, y: primary.frame.maxY - point.y - 32))
         if !isVisible { orderFrontRegardless() }
+    }
+}
+
+// AppKit advertises the verified local URL on the drag pasteboard. Some apps read it
+// later (for example, when a draft is sent), so keep it in the user's caches.
+private final class FileDragSourceView: NSView {
+    var begin: ((NSEvent) -> Void)?
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func mouseDown(with event: NSEvent) {
+        guard event.cgEvent?.getIntegerValueField(.eventSourceUserData) == MouseSharing.marker else { return }
+        let start = begin; begin = nil; start?(event)
+    }
+}
+
+final class AppFileDrop: NSObject, NSDraggingSource {
+    let id: UUID
+    let name: String
+    let date = Date()
+    private let point: CGPoint
+    private let target: AXUIElement?
+    private let windowNumber: Int
+    private var panel: NSPanel?
+    private var session: NSDraggingSession?
+    private var authorized: (() -> Bool)?
+    private var completion: ((Bool) -> Void)?
+    private(set) var destination: URL?
+
+    private static func hit(_ point: CGPoint) -> AXUIElement? {
+        let system = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(system, 0.15)
+        var item: AXUIElement?
+        return AXUIElementCopyElementAtPosition(system, Float(point.x), Float(point.y), &item) == .success ? item : nil
+    }
+    private var appKitPoint: CGPoint {
+        CGPoint(x: point.x, y: (NSScreen.screens.first?.frame.maxY ?? 0) - point.y)
+    }
+    init?(id: UUID, name: String, point: CGPoint, expectedPID: pid_t? = nil) {
+        guard FilePacket.safeName(name), let primary = NSScreen.screens.first else { return nil }
+        let number = NSWindow.windowNumber(at: CGPoint(x: point.x, y: primary.frame.maxY - point.y), belowWindowWithWindowNumber: 0)
+        guard number > 0, let info = (CGWindowListCopyWindowInfo(.optionIncludingWindow, CGWindowID(number)) as? [[String: Any]])?.first,
+              let pid = info[kCGWindowOwnerPID as String] as? pid_t, pid != getpid(), expectedPID == nil || expectedPID == pid,
+              let app = NSRunningApplication(processIdentifier: pid), app.activationPolicy == .regular,
+              app.bundleIdentifier != "com.apple.finder" else { return nil }
+        let target = Self.hit(point)
+        self.id = id; self.name = name; self.point = point; self.target = target; windowNumber = number
+    }
+
+    static func stage(_ name: String, in base: URL) throws -> URL {
+        guard FilePacket.safeName(name) else { throw ClipError.invalid(ui("Choose a valid filename.")) }
+        let folder = base.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        return folder.appendingPathComponent(name)
+    }
+    func stage() throws -> URL {
+        let base = try FileManager.default.url(for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+        let url = try Self.stage(name, in: base.appendingPathComponent("dev.nearclip.mac/Drops", isDirectory: true))
+        destination = url
+        return url
+    }
+    deinit {
+        // Remove empty directories left by interrupted transfers. Retain completed files.
+        if let destination { _ = rmdir(destination.deletingLastPathComponent().path) }
+    }
+    private var sameTarget: Bool {
+        guard authorized?() == true, let cursor = CGEvent(source: nil)?.location,
+              hypot(cursor.x - point.x, cursor.y - point.y) <= 8,
+              NSWindow.windowNumber(at: appKitPoint, belowWindowWithWindowNumber: 0) == windowNumber else { return false }
+        guard let target else { return true }
+        guard let current = Self.hit(point) else { return false }
+        return CFEqual(target, current)
+    }
+    func deliver(authorized: @escaping () -> Bool, completion: @escaping (Bool) -> Void) {
+        self.authorized = authorized
+        guard let destination, sameTarget, CGPreflightPostEventAccess(), NSEvent.pressedMouseButtons == 0 else { completion(false); return }
+        let frame = NSRect(x: appKitPoint.x - 5, y: appKitPoint.y - 5, width: 10, height: 10)
+        let panel = NSPanel(contentRect: frame, styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: false)
+        panel.isOpaque = false; panel.backgroundColor = NSColor.controlBackgroundColor; panel.hasShadow = false
+        panel.level = .popUpMenu; panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        let view = FileDragSourceView(frame: NSRect(origin: .zero, size: frame.size))
+        self.panel = panel; self.completion = completion
+        view.begin = { [weak self, weak view] event in
+            guard let self, let view else { return }
+            let item = NSDraggingItem(pasteboardWriter: destination as NSURL)
+            item.setDraggingFrame(view.bounds, contents: NSImage(size: view.bounds.size))
+            self.session = view.beginDraggingSession(with: [item], event: event, source: self)
+            self.session?.animatesToStartingPositionsOnCancelOrFail = false
+        }
+        panel.contentView = view; panel.orderFrontRegardless()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [self] in
+            guard authorized(), NSEvent.pressedMouseButtons == 0, let cursor = CGEvent(source: nil)?.location, hypot(cursor.x - point.x, cursor.y - point.y) < 5,
+                  NSWindow.windowNumber(at: appKitPoint, belowWindowWithWindowNumber: 0) == panel.windowNumber else {
+                view.begin = nil; panel.orderOut(nil); completion(false); return
+            }
+            MouseSharing.makeEvent(MousePacket(kind: .input, token: id, action: .down, button: 0), at: point, pressed: [])?.post(tap: .cghidEventTap)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [self] in
+            guard view.begin != nil else { return }
+            view.begin = nil
+            MouseSharing.makeEvent(MousePacket(kind: .input, token: id, action: .up, button: 0), at: point, pressed: [])?.post(tap: .cghidEventTap)
+            panel.orderOut(nil); completion(false)
+        }
+    }
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        authorized?() == true ? .copy : []
+    }
+    func draggingSession(_ session: NSDraggingSession, willBeginAt screenPoint: NSPoint) {
+        panel?.orderOut(nil)
+        MouseSharing.makeEvent(MousePacket(kind: .input, token: id, action: .move), at: point, pressed: [0])?.post(tap: .cghidEventTap)
+        // Allow the window server to deliver draggingEntered before completing the remote release.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [self] in
+            guard self.session === session else { return }
+            if sameTarget {
+                MouseSharing.makeEvent(MousePacket(kind: .input, token: id, action: .up, button: 0), at: point, pressed: [])?.post(tap: .cghidEventTap)
+            } else {
+                for action in [KeyboardPacket.Action.down, .up] {
+                    MouseSharing.makeKeyboardEvent(KeyboardPacket(token: id, action: action, keyCode: 53))?.post(tap: .cghidEventTap)
+                }
+                MouseSharing.makeEvent(MousePacket(kind: .input, token: id, action: .up, button: 0), at: point, pressed: [])?.post(tap: .cghidEventTap)
+            }
+        }
+    }
+    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        self.session = nil; panel?.orderOut(nil); panel = nil
+        let finished = completion; completion = nil; authorized = nil
+        finished?(operation.contains(.copy))
     }
 }

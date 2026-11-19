@@ -112,7 +112,7 @@ final class MouseSharing {
     }
     private var hiddenOn: CGDirectDisplayID?
     private var lastPermissionCheck = Date.distantPast
-    private static let marker: Int64 = 0x4E434C4950
+    static let marker: Int64 = 0x4E434C4950
     var displays: () -> [CGRect] = {
         var ids = [CGDirectDisplayID](repeating: 0, count: 16); var count: UInt32 = 0
         guard CGGetActiveDisplayList(16, &ids, &count) == .success else { return [CGDisplayBounds(CGMainDisplayID())] }
@@ -324,7 +324,7 @@ final class MouseSharing {
             if native {
                 let id = CGMainDisplayID()
                 if CGDisplayHideCursor(id) == .success { hiddenOn = id }
-                if draggedFileName == nil { CGWarpMouseCursorPosition(CGPoint(x: originRect.midX, y: originRect.midY)) }
+                if draggedFileName == nil { CGWarpMouseCursorPosition(CGPoint(x: originRect.midX, y: origin.y)) }
             }
             onChange?()
         case .dropFile:
@@ -337,7 +337,7 @@ final class MouseSharing {
             guard mode == .controlling, draggedFileName != nil, fileDropReleased else { return }
             onFileDropReady?(token)
             draggedFileName = nil; fileDropReleased = false; dropDeadline = nil
-            if native { CGWarpMouseCursorPosition(CGPoint(x: originRect.midX, y: originRect.midY)) }
+            if native { CGWarpMouseCursorPosition(CGPoint(x: originRect.midX, y: origin.y)) }
             onChange?()
         case .input:
             guard mode == .receiving, draggedFileName == nil || (packet.action == .move && !fileDropReleased) else { return }
@@ -702,12 +702,12 @@ final class MouseSharing {
         case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
             let down = (0...2).contains { CGEventSource.buttonState(.combinedSessionState, button: CGMouseButton(rawValue: UInt32($0))!) }
             if mode == .local, type == .leftMouseDragged, supportsFileDrag, remoteEnabled, !secureInputBlocked, !remoteSecureInputBlocked,
-               flags == 0, ScreenGeometry.exit(at: event.location, deltaX: Double(event.getIntegerValueField(.mouseEventDeltaX)), side: side, displays: displays()) != nil {
+               flags == 0, ScreenGeometry.exit(at: event.location, deltaX: Double(event.getIntegerValueField(.mouseEventDeltaX)), side: side, displays: displays(), distance: 120) != nil {
                 onFileEdge?(event.location, side)
             }
             let blocked = localMove(point: event.location, dx: Double(event.getIntegerValueField(.mouseEventDeltaX)), dy: Double(event.getIntegerValueField(.mouseEventDeltaY)), flags: flags, buttonsDown: down)
             if blocked {
-                if draggedFileName == nil { CGWarpMouseCursorPosition(CGPoint(x: originRect.midX, y: originRect.midY)) }
+                if draggedFileName == nil { CGWarpMouseCursorPosition(CGPoint(x: originRect.midX, y: origin.y)) }
                 return nil
             }
         case .leftMouseDown, .rightMouseDown, .otherMouseDown, .leftMouseUp, .rightMouseUp, .otherMouseUp:
