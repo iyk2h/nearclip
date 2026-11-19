@@ -7,7 +7,7 @@ final class WindowBackground: NSView {
 
 final class DeviceList: NSStackView { override var isFlipped: Bool { true } }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPathControlDelegate {
     private let files = FileTransfer()
     private var mouse: MouseSharing!
     private let edgeIndicator = ControlEdgeIndicator()
@@ -33,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var fileButton: NSButton!
     private var fileCancel: NSButton!
     private var fileActions: NSView!
+    private let retryFile = NSPathControl()
     private var revealButton: NSButton!
     private var mouseToggle: NSSwitch!
     private let inputTitle = NSTextField(labelWithString: ui("Mouse & Keyboard"))
@@ -133,7 +134,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(headlessDiagnostics ? .accessory : .regular)
-        if CommandLine.arguments.contains("--app-drop-smoke") { AppDropSmoke.start(); return }
+        if CommandLine.arguments.contains("--app-drop-smoke") || CommandLine.arguments.contains("--web-drop-smoke") { AppDropSmoke.start(); return }
         if let i = CommandLine.arguments.firstIndex(of: "--app-drop-test-window"),
            i + 1 < CommandLine.arguments.count, let id = UUID(uuidString: CommandLine.arguments[i + 1]) {
             AppDropSmoke.openTarget(id); return
@@ -432,6 +433,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         fileButton = button(ui("Send File…"), action: #selector(sendFile))
         fileCancel = button(ui("Cancel Transfer"), action: #selector(cancelFile)); fileCancel.isHidden = true
         revealButton = button(ui("Show in Finder"), action: #selector(revealFile)); revealButton.isHidden = true
+        retryFile.isEditable = false; retryFile.backgroundColor = .clear
+        retryFile.controlSize = .small; retryFile.delegate = self; retryFile.isHidden = true
+        retryFile.setDraggingSourceOperationMask(.copy, forLocal: false)
+        retryFile.target = self; retryFile.doubleAction = #selector(revealFile)
+        retryFile.toolTip = ui("Drag this file into your app, or double-click to show it in Finder.")
+        retryFile.setAccessibilityHelp(retryFile.toolTip)
         fileLabel.font = .systemFont(ofSize: 11); fileLabel.textColor = .secondaryLabelColor
         fileLabel.maximumNumberOfLines = 2
         fileProgress.isIndeterminate = false; fileProgress.minValue = 0; fileProgress.maxValue = 1
@@ -462,7 +469,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         ], spacing: 8))
         fileActions = row([fileCancel, revealButton, flexible(NSView())]); fileActions.isHidden = true
         let fileCard = panel(column([
-            row([symbol("arrow.up.doc", size: 20), flexible(column([label(ui("Files"), size: 13, weight: .semibold), fileLabel], spacing: 5)), fileButton]),
+            row([symbol("arrow.up.doc", size: 20), flexible(column([label(ui("Files"), size: 13, weight: .semibold), fileLabel, retryFile], spacing: 5)), fileButton]),
             fileProgress, fileActions
         ], spacing: 8))
         let sharing = column([clipboardCard, inputCard, fileCard], spacing: 10)
@@ -895,9 +902,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         fileStatus("Cancelled", progress: nil, busy: false)
         require(fileProgress.isHidden && fileActions.isHidden && fileLabel.stringValue == "Cancelled", "failed transfer clears progress and keeps its explanation")
         finishAppDrop(accepted: false, url: testURL)
-        require(receivedFile == testURL && !revealButton.isHidden && !fileActions.isHidden, "rejected drop exposes the saved file")
+        require(receivedFile == testURL && !retryFile.isHidden && fileActions.isHidden && retryFile.pathItems.count == 1, "retry shows only the draggable filename in the Files card")
+        if let leaf = retryFile.pathItems.last {
+            require(leaf.url == testURL && pathControl(retryFile, shouldDrag: leaf, with: .init(name: .drag)), "retry drag offers the received URL")
+        }
         finishAppDrop(accepted: true, url: testURL)
-        require(receivedFile == nil && fileProgress.isHidden && fileActions.isHidden && fileLabel.stringValue == Self.fileHint, "accepted app drop leaves the file card idle")
+        require(receivedFile == nil && retryFile.isHidden && fileProgress.isHidden && fileActions.isHidden && fileLabel.stringValue == Self.fileHint, "accepted app drop leaves the file card idle")
         require(!mouse.enabled, "mouse capture starts disabled")
         try? mouse.setEnabled(true)
         toggleMouseDetails(); require(mouse.enabled && mouseDetails.isHidden, "collapsing setup does not revoke enabled mouse sharing")
@@ -1273,15 +1283,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         fileCancel.isHidden = false; fileActions.isHidden = false
         if layoutChanged { updateWindowSize() }
     }
-    private func showReceivedFile(_ url: URL?) {
+    private func showReceivedFile(_ url: URL?, forRetry: Bool = false) {
         receivedFile = url
-        revealButton.isHidden = url == nil
+        retryFile.url = forRetry ? url : nil
+        if let leaf = retryFile.pathItems.last { retryFile.pathItems = [leaf] }
+        retryFile.isHidden = !forRetry
+        revealButton.isHidden = url == nil || forRetry
         let hidden = fileCancel.isHidden && revealButton.isHidden
         if fileActions.isHidden != hidden { fileActions.isHidden = hidden; updateWindowSize() }
     }
+    func pathControl(_ pathControl: NSPathControl, shouldDrag pathItem: NSPathControlItem, with pasteboard: NSPasteboard) -> Bool {
+        pathControl === retryFile && !retryFile.isHidden && receivedFile != nil && pathItem.url == receivedFile
+    }
     private func finishAppDrop(accepted: Bool, url: URL) {
-        fileLabel.stringValue = accepted ? Self.fileHint : ui("Drop declined or target changed. Use Show in Finder to find the file.")
-        showReceivedFile(accepted ? nil : url)
+        fileLabel.stringValue = accepted ? Self.fileHint : ui("Drag the file below into your app.")
+        showReceivedFile(accepted ? nil : url, forRetry: !accepted)
     }
     private func updateFeaturePeer(_ peers: [ConnectedPeer]) {
         let next = peers.count == 1 ? peers.first : nil

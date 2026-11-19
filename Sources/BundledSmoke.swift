@@ -1,3 +1,4 @@
+import WebKit
 import AppKit
 
 // Opt-in diagnostic with synthetic identities. Never touches the user's clipboard or Keychain.
@@ -95,15 +96,59 @@ final class BundledSmoke {
     }
 }
 
+private final class WebDropFixture: NSObject, WKScriptMessageHandler {
+    static let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgqWr8DwADhAH/SDByBQAAAABJRU5ErkJggg=="
+    static func composer(id: UUID) -> WKWebView {
+        let config = WKWebViewConfiguration()
+        config.userContentController.add(WebDropFixture(), name: "result")
+        let view = WKWebView(frame: .zero, configuration: config)
+        view.loadHTMLString("""
+            <style>body,textarea{position:absolute;inset:0;margin:0}</style><textarea></textarea>
+            <script>
+            document.ondragenter = event => {
+                event.preventDefault();
+                document.querySelector('textarea')?.replaceWith('Attach here');
+            };
+            document.ondragover = event => { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; };
+            document.ondrop = async event => {
+                event.preventDefault();
+                const file = event.dataTransfer.files[0];
+                if (file?.name !== '\(id.uuidString).png' || file.type !== 'image/png') return;
+                const image = await createImageBitmap(file);
+                if (image.width !== 1 || image.height !== 1) return;
+                const bytes = new Uint8Array(await file.arrayBuffer());
+                window.webkit.messageHandlers.result.postMessage(btoa(String.fromCharCode(...bytes)));
+            };
+            </script>
+            """, baseURL: nil)
+        return view
+    }
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.body as? String == Self.png else { exit(1) }
+        print("PASS: web composer attached the original PNG after replacing its drop zone"); fflush(stdout)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { exit(0) }
+    }
+}
+
 final class AppDropSmoke: NSView {
     private let id: UUID
     init(_ id: UUID) {
         self.id = id
         super.init(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        let composer = NSTextField(labelWithString: "Message")
+        composer.frame = bounds
+        composer.unregisterDraggedTypes()
+        composer.setAccessibilityLabel("Test message field")
+        addSubview(composer)
         registerForDraggedTypes([.fileURL])
     }
     required init?(coder: NSCoder) { nil }
-    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { .copy }
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        // Model a chat composer that swaps its input field for a drop target on hover.
+        subviews.forEach { $0.removeFromSuperview() }
+        print("PASS: test window replaced its composer with a drop zone"); fflush(stdout)
+        return .copy
+    }
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         guard let url = FinderFileDrop.fileURL(from: sender.draggingPasteboard), url.lastPathComponent == id.uuidString,
               (try? Data(contentsOf: url)) == Data(id.uuidString.utf8) else { return false }
@@ -115,21 +160,26 @@ final class AppDropSmoke: NSView {
         let point = NSEvent.mouseLocation
         let window = NSPanel(contentRect: NSRect(x: point.x-50, y: point.y-50, width: 100, height: 100),
                              styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: false)
-        window.contentView = AppDropSmoke(id); window.title = "NearClip drop test"; window.level = .floating; window.orderFrontRegardless()
+        window.contentView = CommandLine.arguments.contains("--web-target") ? WebDropFixture.composer(id: id) : AppDropSmoke(id)
+        window.title = "NearClip drop test"; window.level = .floating; window.orderFrontRegardless()
         DispatchQueue.main.asyncAfter(deadline: .now() + 8) { window.orderOut(nil); exit(1) }
     }
     static func start() {
         guard let executable = Bundle.main.executableURL else { exit(1) }
         let id = UUID(), child = Process()
         child.executableURL = executable; child.arguments = ["--app-drop-test-window", id.uuidString]
+        let web = CommandLine.arguments.contains("--web-drop-smoke")
+        if web { child.arguments?.append("--web-target") }
         do { try child.run() } catch { exit(1) }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + (web ? 1.7 : 1)) {
             guard let point = CGEvent(source: nil)?.location,
-                  let drop = AppFileDrop(id: id, name: id.uuidString, point: point, expectedPID: child.processIdentifier) else {
+                  let drop = AppFileDrop(id: id, name: web ? id.uuidString + ".png" : id.uuidString, point: point, expectedPID: child.processIdentifier) else {
                 print("FAIL: test drop window unavailable"); exit(1)
             }
             do {
-                let file = try drop.stage(); try Data(id.uuidString.utf8).write(to: file)
+                let file = try drop.stage()
+                let bytes = web ? Data(base64Encoded: WebDropFixture.png)! : Data(id.uuidString.utf8)
+                try bytes.write(to: file)
                 var completed = false
                 drop.deliver(authorized: { child.isRunning }) { completed = $0 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 4) {

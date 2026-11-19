@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.4 build 42 — 2026-11-19
+
+- Drop files into apps that show a new drop zone when you hover. Small pointer movements over the same control during transfer are OK.
+- If a drop fails, drag the received file directly from the Files card to try again. Double-click its name to reveal it in Finder.
+
 ## 0.4.4 build 41 — 2026-11-19
 
 - Two build 41 Macs can send up to three file chunks before waiting for a receipt. Older peers keep the single-chunk transfer mode.

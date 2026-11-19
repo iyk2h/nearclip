@@ -1,4 +1,5 @@
 import AppKit
+import OSLog
 
 // Finder owns the drag pasteboard. Accept exactly one local file URL and copy only.
 final class FinderFileDrop: NSView {
@@ -178,7 +179,8 @@ final class AppFileDrop: NSObject, NSDraggingSource {
     let id: UUID
     let name: String
     let date = Date()
-    private let point: CGPoint
+    private var point: CGPoint
+    private let logger = Logger(subsystem: "dev.nearclip.mac", category: "input")
     private let target: AXUIElement?
     private let windowNumber: Int
     private var panel: NSPanel?
@@ -193,8 +195,11 @@ final class AppFileDrop: NSObject, NSDraggingSource {
         var item: AXUIElement?
         return AXUIElementCopyElementAtPosition(system, Float(point.x), Float(point.y), &item) == .success ? item : nil
     }
-    private var appKitPoint: CGPoint {
-        CGPoint(x: point.x, y: (NSScreen.screens.first?.frame.maxY ?? 0) - point.y)
+    private func appKitPoint(_ location: CGPoint) -> CGPoint {
+        CGPoint(x: location.x, y: (NSScreen.screens.first?.frame.maxY ?? 0) - location.y)
+    }
+    private func originalWindow(at location: CGPoint) -> Bool {
+        NSWindow.windowNumber(at: appKitPoint(location), belowWindowWithWindowNumber: 0) == windowNumber
     }
     init?(id: UUID, name: String, point: CGPoint, expectedPID: pid_t? = nil) {
         guard FilePacket.safeName(name), let primary = NSScreen.screens.first else { return nil }
@@ -223,20 +228,27 @@ final class AppFileDrop: NSObject, NSDraggingSource {
         // Remove empty directories left by interrupted transfers. Retain completed files.
         if let destination { _ = rmdir(destination.deletingLastPathComponent().path) }
     }
-    private var sameTarget: Bool {
-        guard authorized?() == true, let cursor = CGEvent(source: nil)?.location,
-              hypot(cursor.x - point.x, cursor.y - point.y) <= 8,
-              NSWindow.windowNumber(at: appKitPoint, belowWindowWithWindowNumber: 0) == windowNumber else { return false }
-        guard let target else { return true }
-        guard let current = Self.hit(point) else { return false }
-        return CFEqual(target, current)
+    private func deliveryPoint() -> CGPoint? {
+        guard let cursor = CGEvent(source: nil)?.location, originalWindow(at: point), originalWindow(at: cursor) else { return nil }
+        let distance = hypot(cursor.x - point.x, cursor.y - point.y)
+        guard distance <= 32 else { return nil }
+        guard let target else { return distance < 5 ? point : nil }
+        guard let current = Self.hit(cursor), CFEqual(target, current) else { return nil }
+        return cursor
     }
     func deliver(authorized: @escaping () -> Bool, completion: @escaping (Bool) -> Void) {
         self.authorized = authorized
-        guard let destination, sameTarget, CGPreflightPostEventAccess(), NSEvent.pressedMouseButtons == 0 else { completion(false); return }
-        let frame = NSRect(x: appKitPoint.x - 5, y: appKitPoint.y - 5, width: 10, height: 10)
+        guard let destination, authorized(), CGPreflightPostEventAccess(), NSEvent.pressedMouseButtons == 0 else {
+            logger.notice("file_drop_unavailable"); completion(false); return
+        }
+        guard let cursor = deliveryPoint() else {
+            logger.notice("file_drop_target_changed"); completion(false); return
+        }
+        point = cursor
+        let origin = appKitPoint(cursor)
+        let frame = NSRect(x: origin.x - 5, y: origin.y - 5, width: 10, height: 10)
         let panel = NSPanel(contentRect: frame, styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: false)
-        panel.isOpaque = false; panel.backgroundColor = NSColor.controlBackgroundColor; panel.hasShadow = false
+        panel.isOpaque = false; panel.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.05); panel.hasShadow = false
         panel.level = .popUpMenu; panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         let view = FileDragSourceView(frame: NSRect(origin: .zero, size: frame.size))
         self.panel = panel; self.completion = completion
@@ -250,7 +262,9 @@ final class AppFileDrop: NSObject, NSDraggingSource {
         panel.contentView = view; panel.orderFrontRegardless()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [self] in
             guard authorized(), NSEvent.pressedMouseButtons == 0, let cursor = CGEvent(source: nil)?.location, hypot(cursor.x - point.x, cursor.y - point.y) < 5,
-                  NSWindow.windowNumber(at: appKitPoint, belowWindowWithWindowNumber: 0) == panel.windowNumber else {
+                  NSWindow.windowNumber(at: appKitPoint(point), belowWindowWithWindowNumber: 0) == panel.windowNumber,
+                  NSWindow.windowNumber(at: appKitPoint(point), belowWindowWithWindowNumber: panel.windowNumber) == windowNumber else {
+                logger.notice("file_drop_source_changed")
                 view.begin = nil; panel.orderOut(nil); completion(false); return
             }
             MouseSharing.makeEvent(MousePacket(kind: .input, token: id, action: .down, button: 0), at: point, pressed: [])?.post(tap: .cghidEventTap)
@@ -265,15 +279,28 @@ final class AppFileDrop: NSObject, NSDraggingSource {
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
         authorized?() == true ? .copy : []
     }
+    private func stillOverTarget() -> Bool {
+        guard authorized?() == true, let cursor = CGEvent(source: nil)?.location else { return false }
+        return hypot(cursor.x - point.x, cursor.y - point.y) <= 8 && originalWindow(at: cursor) && originalWindow(at: point)
+    }
     func draggingSession(_ session: NSDraggingSession, willBeginAt screenPoint: NSPoint) {
         panel?.orderOut(nil)
         MouseSharing.makeEvent(MousePacket(kind: .input, token: id, action: .move), at: point, pressed: [0])?.post(tap: .cghidEventTap)
-        // Allow the window server to deliver draggingEntered before completing the remote release.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [self] in
+        // Web drop zones negotiate acceptance on dragover, after their first dragenter.
+        for (delay, offset) in [(0.035, 2.0), (0.085, 0.0)] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [self] in
+                let hover = CGPoint(x: point.x + offset, y: point.y)
+                guard self.session === session, stillOverTarget(), originalWindow(at: hover) else { return }
+                MouseSharing.makeEvent(MousePacket(kind: .input, token: id, action: .move), at: hover, pressed: [0])?.post(tap: .cghidEventTap)
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [self] in
             guard self.session === session else { return }
-            if sameTarget {
+            // Apps may replace the hovered element with a drop zone on draggingEntered.
+            if stillOverTarget() {
                 MouseSharing.makeEvent(MousePacket(kind: .input, token: id, action: .up, button: 0), at: point, pressed: [])?.post(tap: .cghidEventTap)
             } else {
+                logger.notice("file_drop_target_changed_during_drag")
                 for action in [KeyboardPacket.Action.down, .up] {
                     MouseSharing.makeKeyboardEvent(KeyboardPacket(token: id, action: action, keyCode: 53))?.post(tap: .cghidEventTap)
                 }
@@ -284,6 +311,7 @@ final class AppFileDrop: NSObject, NSDraggingSource {
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
         self.session = nil; panel?.orderOut(nil); panel = nil
         let finished = completion; completion = nil; authorized = nil
+        if !operation.contains(.copy) { logger.notice("file_drop_not_accepted") }
         finished?(operation.contains(.copy))
     }
 }
