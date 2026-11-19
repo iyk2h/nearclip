@@ -4,7 +4,7 @@ import AppKit
 final class FinderFileDrop: NSView {
     var enter: ((URL) -> Bool)?
     var drop: ((URL) -> Bool)?
-    var exit: (() -> Void)?
+    var exit: ((_ ended: Bool) -> Void)?
     private var accepted: (sequence: Int, url: URL)?
 
     override init(frame: NSRect) {
@@ -42,8 +42,8 @@ final class FinderFileDrop: NSView {
         self.accepted = nil
         return drop?(accepted.url) == true
     }
-    override func draggingExited(_ sender: NSDraggingInfo?) { accepted = nil; exit?() }
-    override func draggingEnded(_ sender: NSDraggingInfo) { accepted = nil; exit?() }
+    override func draggingExited(_ sender: NSDraggingInfo?) { accepted = nil; exit?(false) }
+    override func draggingEnded(_ sender: NSDraggingInfo) { accepted = nil; exit?(true) }
 }
 
 final class FileEdgePanel: NSPanel {
@@ -73,7 +73,7 @@ final class FileEdgePanel: NSPanel {
             guard let self else { timer.invalidate(); return }
             let released = NSEvent.pressedMouseButtons & 1 == 0
             if !self.isVisible || (released && releasedOnPreviousTick) {
-                if self.isVisible { self.target.exit?(); self.orderOut(nil) }
+                if self.isVisible { self.target.exit?(true); self.orderOut(nil) }
                 timer.invalidate(); self.dismissTimer = nil
             }
             releasedOnPreviousTick = released

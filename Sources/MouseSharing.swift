@@ -70,7 +70,8 @@ final class MouseSharing {
     private var origin = CGPoint.zero
     private var originRect = CGRect.zero
     private(set) var draggedFileName: String?
-    private var fileDropReleased = false
+    private(set) var fileDropReleased = false
+    private var fileDragAnchor: CGPoint?
     private var dropDeadline: Date?
     private var supportsFileDrag = false
     var onFileEdge: ((CGPoint, ScreenSide) -> Void)?
@@ -330,12 +331,15 @@ final class MouseSharing {
         case .dropFile:
             guard mode == .receiving, draggedFileName != nil, !fileDropReleased else { return }
             fileDropReleased = true
+            if native { logger.notice("file_drop_received") }
             onFileDropPosition?(token, position)
             draggedFileName = nil; fileDropReleased = false
             emit(MousePacket(kind: .dropReady, token: token))
         case .dropReady:
             guard mode == .controlling, draggedFileName != nil, fileDropReleased else { return }
+            if native { logger.notice("file_drop_acknowledged") }
             onFileDropReady?(token)
+            fileDragAnchor = nil
             draggedFileName = nil; fileDropReleased = false; dropDeadline = nil
             if native { CGWarpMouseCursorPosition(CGPoint(x: originRect.midX, y: origin.y)) }
             onChange?()
@@ -391,6 +395,7 @@ final class MouseSharing {
         guard supportsFileDrag, enabled, remoteEnabled, mode == .local, now >= cooldown, !observeSecureInput(),
               !remoteSecureInputBlocked, localHeldKeys.isEmpty, FilePacket.safeName(name),
               let rect = ScreenGeometry.exit(at: point, deltaX: side == .left ? -1 : 1, side: side, displays: displays()) else { return false }
+        fileDragAnchor = point
         draggedFileName = name
         requestHandoff(at: point, rect: rect, now: now)
         return draggedFileName != nil
@@ -400,6 +405,7 @@ final class MouseSharing {
         flushMove(force: true)
         guard mode == .controlling, !observeSecureInput() else { return false }
         fileDropReleased = true; dropDeadline = Date().addingTimeInterval(2)
+        if native { logger.notice("file_drop_released") }
         emit(MousePacket(kind: .dropFile, token: token))
         return true
     }
@@ -412,6 +418,12 @@ final class MouseSharing {
         onChange?()
     }
     func localButton(action: MousePacket.Action, button: Int, clicks: Int = 1, flags: UInt64 = 0) -> Bool {
+        if draggedFileName != nil, mode == .requesting || mode == .controlling {
+            if action == .up && button == 0 && mode == .controlling {
+                if !fileDropReleased && !releaseFileDrag() { endSession(reason: .handoffCancelled) }
+            } else { endSession(reason: .localButton) }
+            return false // Finder must receive the button-up to finish its native drag.
+        }
         if mode == .receiving || mode == .requesting { endSession(reason: .localButton); return false }
         guard enabled, mode == .controlling else { return false }
         flushMove(force: true)
@@ -604,6 +616,7 @@ final class MouseSharing {
         }
         controlStarted = nil; sentMoves = 0; receivedMoves = 0; maxTimerDelayMS = 0
         if old != .local { lastEndReason = reason; endedByPeer = byPeer }
+        fileDragAnchor = nil
         draggedFileName = nil; fileDropReleased = false; dropDeadline = nil
         mode = .local; token = nil; pendingX = 0; pendingY = 0; edgeSince = nil; movesInFlight = 0
         updateTimer()
@@ -667,7 +680,7 @@ final class MouseSharing {
         if let runSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), runSource, .commonModes) }
         tap = nil; runSource = nil
     }
-    private func handle(_ type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+    func handle(_ type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput { emergencyStop(); return Unmanaged.passUnretained(event) }
         if event.getIntegerValueField(.eventSourceUserData) == Self.marker { return Unmanaged.passUnretained(event) }
         if type == .keyDown || type == .keyUp || type == .flagsChanged {
@@ -707,16 +720,18 @@ final class MouseSharing {
             }
             let blocked = localMove(point: event.location, dx: Double(event.getIntegerValueField(.mouseEventDeltaX)), dy: Double(event.getIntegerValueField(.mouseEventDeltaY)), flags: flags, buttonsDown: down)
             if blocked {
+                if let anchor = fileDragAnchor, type == .leftMouseDragged {
+                    // Move the remote pointer while keeping Finder over the source drop target.
+                    event.location = anchor
+                    return Unmanaged.passUnretained(event)
+                }
                 if draggedFileName == nil { CGWarpMouseCursorPosition(CGPoint(x: originRect.midX, y: origin.y)) }
                 return nil
             }
         case .leftMouseDown, .rightMouseDown, .otherMouseDown, .leftMouseUp, .rightMouseUp, .otherMouseUp:
             let button = Int(event.getIntegerValueField(.mouseEventButtonNumber))
             guard (0...2).contains(button) else { if active { endSession(reason: .localButton) }; return Unmanaged.passUnretained(event) }
-            if draggedFileName != nil, mode == .controlling || mode == .requesting {
-                if type != .leftMouseUp { endSession(reason: .localButton) }
-                return Unmanaged.passUnretained(event)
-            }
+            if type == .leftMouseUp, mode == .controlling, let anchor = fileDragAnchor { event.location = anchor }
             let down = [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(type)
             if localButton(action: down ? .down : .up, button: button, clicks: Int(event.getIntegerValueField(.mouseEventClickState)), flags: flags) { return nil }
         case .scrollWheel:

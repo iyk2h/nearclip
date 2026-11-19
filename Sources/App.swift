@@ -14,7 +14,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private lazy var fileEdge = FileEdgePanel()
     private lazy var fileBadge = DraggedFileBadge()
     private var draggingFile: (url: URL, connection: UUID)?
-    private var dropCommitted = false
     private var showingFileEdge = false
     private var fileDestination: (id: UUID, name: String, folder: URL, date: Date)?
     private var approvedDropDirectory: ReceiveDirectory?
@@ -1115,7 +1114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         fileEdge.target.enter = { [weak self] url in
             guard let self, let peer = self.featurePeer, self.enabled, !self.files.busy,
-                  !self.dropCommitted, self.draggingFile == nil,
+                  self.draggingFile == nil,
                   let point = CGEvent(source: nil)?.location,
                   ScreenGeometry.exit(at: point, deltaX: self.mouse.side == .left ? -1 : 1, side: self.mouse.side, displays: self.mouse.displays()) != nil,
                   let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]),
@@ -1129,14 +1128,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         fileEdge.target.drop = { [weak self] url in
             guard let self, let drag = self.draggingFile, drag.url == url,
                   drag.connection == self.featurePeer?.connection else { return false }
-            self.dropCommitted = true
-            if self.mouse.releaseFileDrag() { return true }
-            self.dropCommitted = false
-            return false
+            return self.mouse.fileDropReleased || self.mouse.releaseFileDrag()
         }
-        fileEdge.target.exit = { [weak self] in
-            guard let self, !self.dropCommitted else { return }
-            if self.draggingFile != nil { self.mouse.endSession(reason: .handoffCancelled) }
+        fileEdge.target.exit = { [weak self] ended in
+            guard let self, !self.mouse.fileDropReleased else { return }
+            if self.draggingFile != nil {
+                if !ended && self.mouse.mode == .controlling { return }
+                self.mouse.endSession(reason: .handoffCancelled)
+            }
             self.fileEdge.orderOut(nil)
         }
         mouse.onFileEdge = { [weak self] point, side in
@@ -1158,7 +1157,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             self.fileDestination = finderFolder(at: point).map { (id, self.mouse.draggedFileName ?? "", $0, Date()) }
         }
         mouse.onFileDropReady = { [weak self] id in
-            guard let self, self.dropCommitted, let drag = self.draggingFile, self.enabled,
+            guard let self, self.mouse.fileDropReleased, let drag = self.draggingFile, self.enabled,
                   let peer = self.featurePeer, peer.connection == drag.connection else { return }
             do { try self.files.offer(url: drag.url, to: peer.device, id: id) }
             catch { self.alert(error.localizedDescription) }
@@ -1175,8 +1174,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         mouse.onChange = { [weak self] in
             guard let self else { return }
             if !self.headlessDiagnostics {
-                if self.mouse.mode == .local || (self.dropCommitted && self.mouse.draggedFileName == nil) {
-                    self.draggingFile = nil; self.dropCommitted = false
+                if self.mouse.mode == .local || (self.draggingFile != nil && self.mouse.draggedFileName == nil) {
+                    self.draggingFile = nil
                     self.fileEdge.orderOut(nil); self.fileBadge.orderOut(nil)
                 }
                 if self.mouse.mode == .receiving, let name = self.mouse.draggedFileName {

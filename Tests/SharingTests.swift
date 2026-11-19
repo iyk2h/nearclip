@@ -238,7 +238,8 @@ func mouseSharingTests() throws {
     try Check.that(!a.releaseFileDrag(), "early release cannot send a file before acceptance")
     pump()
     _ = a.localMove(point: edge, dx: 50, dy: -10, buttonsDown: true, now: now)
-    try Check.that(a.releaseFileDrag() && !a.releaseFileDrag(), "one Finder drop per drag")
+    try Check.that(!a.localButton(action: .up, button: 0) && a.fileDropReleased, "physical button release commits the accepted file and lets Finder end its drag")
+    try Check.that(!a.releaseFileDrag(), "later AppKit drop callback cannot duplicate the transfer")
     pump()
     try Check.that(droppedAt == CGPoint(x: 54, y: 590) && acknowledged.map(b.isReceivingDrop) == true, "final motion precedes the matching received drop acknowledgement")
     try Check.that(a.mode == .controlling && b.mode == .receiving && a.draggedFileName == nil && b.draggedFileName == nil, "successful drop leaves ordinary pointer control on destination")
@@ -557,7 +558,14 @@ func featureNetworkTests() throws {
     }
     try Check.that(sourceMouse.startFileDrag(named: source.lastPathComponent, at: CGPoint(x: 899, y: 200)), "start a file handoff between two connected clients")
     waitFor { sourceMouse.mode == .controlling }
-    try Check.that(sourceMouse.releaseFileDrag(), "native release starts the network drop handshake")
+    let sourceEdge = CGPoint(x: 899, y: 200), drift = CGPoint(x: 760, y: 320)
+    let move = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDragged, mouseCursorPosition: drift, mouseButton: .left)!
+    move.setIntegerValueField(.mouseEventDeltaY, value: 120)
+    try Check.that(sourceMouse.handle(.leftMouseDragged, event: move) != nil && move.location == sourceEdge,
+                   "remote motion keeps the local Finder drag anchored at its accepted edge")
+    let release = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: drift, mouseButton: .left)!
+    try Check.that(sourceMouse.handle(.leftMouseUp, event: release) != nil && release.location == sourceEdge && sourceMouse.fileDropReleased,
+                   "the real event-tap release path starts the network drop before Finder responds")
     waitFor({ done }, seconds: 12)
     try Check.that(done && (try Data(contentsOf: dropped)) == data, "acknowledged input-channel drop delivers the intact file through the separate file channel")
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.4 build 40 — 2026-11-19
+
+- Release a file over the other Mac to start its transfer as soon as you let go. The sender keeps Finder’s drag at the shared edge while the remote pointer moves.
+
 ## 0.4.4 build 39 — 2026-11-19
 
 - Drop a file into an app window on the other Mac. The receiving app decides whether it accepts the file. Keep the pointer over the target until the transfer finishes. Both Macs need input sharing enabled.
