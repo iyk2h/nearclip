@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.4 build 41 — 2026-11-19
+
+- Two build 41 Macs can send up to three file chunks before waiting for a receipt. Older peers keep the single-chunk transfer mode.
+- Short file transfers finish in the background. Longer transfers show progress and a cancel button.
+- A successful drop into an app clears the progress bar and Finder shortcut. If the target declines the file, use **Show in Finder** to recover it.
+
 ## 0.4.4 build 40 — 2026-11-19
 
 - Release a file over the other Mac to start its transfer as soon as you let go. The sender keeps Finder’s drag at the shared edge while the remote pointer moves.

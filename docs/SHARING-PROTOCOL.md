@@ -39,8 +39,8 @@ A file packet contains `kind` and UUID `id`. Optional fields are `name`, signed 
 | Kind | Fields and meaning |
 | --- | --- |
 | `offer` | Basename and size, from 0 through 2 GiB. No file is created yet. |
-| `accept` | Recipient chose a destination. Start sending. |
-| `chunk` | Exact next offset and 1–49,152 bytes. Only one chunk is outstanding. |
+| `accept` | Recipient chose a destination. Optional integer `chunkWindow` allows 1–3 outstanding chunks. If absent, send one at a time. |
+| `chunk` | Exact next offset and 1–49,152 bytes. Acknowledge each chunk in order. |
 | `ack` | Next expected offset after the recipient wrote and hashed the chunk. |
 | `finish` | SHA-256 of the full stream. Size and digest must match. |
 | `complete` | Destination was committed successfully. |

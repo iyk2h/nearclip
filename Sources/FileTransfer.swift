@@ -66,7 +66,8 @@ final class FileTransferWorker {
         let handle: FileHandle
         var hash = SHA256()
         var offset: Int64 = 0
-        var awaitingAck = false
+        var pendingOffsets: [Int64] = []
+        var chunkWindow = 1
         var finishing = false
         init(url: URL, peer: String, id: UUID) throws {
             let fd = open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
@@ -111,7 +112,7 @@ final class FileTransferWorker {
         do {
             job.writer = try ReceivedFile(destination: destination, directory: directory); updated = Date()
             status(ui("Receiving · ") + (job.offer.name ?? ui("File")), progress: 0)
-            emit(FilePacket(kind: .accept, id: id), to: job.peer)
+            emit(FilePacket(kind: .accept, id: id, chunkWindow: FilePacket.maxChunkWindow), to: job.peer)
         } catch { fail(error.localizedDescription) }
     }
     func decline(id: UUID) { if activeID == id { cancel() } }
@@ -129,11 +130,12 @@ final class FileTransferWorker {
             updated = Date()
             switch message.kind {
             case .accept:
-                guard let job = outgoing, !job.awaitingAck, job.offset == 0, !job.finishing else { throw ClipError.invalid(ui("Unexpected file acceptance.")) }
-                try nextChunk(job)
+                guard let job = outgoing, job.offset == 0, !job.finishing else { throw ClipError.invalid(ui("Unexpected file acceptance.")) }
+                job.chunkWindow = message.chunkWindow ?? 1
+                try sendChunks(job)
             case .ack:
-                guard let job = outgoing, job.awaitingAck, !job.finishing, message.offset == job.offset else { throw ClipError.invalid(ui("Invalid file receipt.")) }
-                job.awaitingAck = false; try nextChunk(job)
+                guard let job = outgoing, let first = job.pendingOffsets.first, message.offset == first else { throw ClipError.invalid(ui("Invalid file receipt.")) }
+                job.pendingOffsets.removeFirst(); try sendChunks(job)
             case .chunk:
                 guard let job = incoming, let writer = job.writer, let bytes = message.bytes, let offset = message.offset else { throw ClipError.invalid(ui("Accept the file before saving it.")) }
                 try writer.append(bytes, offset: offset, size: job.offer.size!)
@@ -153,19 +155,21 @@ final class FileTransferWorker {
             }
         } catch { if self.peer == peer, activeID == message.id { fail(error.localizedDescription) } }
     }
-    private func nextChunk(_ job: Outgoing) throws {
-        let remaining = job.offer.size! - job.offset
-        if remaining == 0 {
-            guard (try job.handle.read(upToCount: 1) ?? Data()).isEmpty else { throw ClipError.invalid(ui("The file size changed. Send it again.")) }
-            job.finishing = true
-            emit(FilePacket(kind: .finish, id: job.offer.id, digest: Data(job.hash.finalize())), to: job.peer)
-            return
+    private func sendChunks(_ job: Outgoing) throws {
+        let size = job.offer.size!
+        while outgoing === job && job.pendingOffsets.count < job.chunkWindow && job.offset < size {
+            let offset = job.offset
+            let data = try job.handle.read(upToCount: min(FilePacket.chunkSize, Int(size - offset))) ?? Data()
+            guard !data.isEmpty else { throw ClipError.invalid(ui("The file changed during transfer. Send it again.")) }
+            job.offset += Int64(data.count); job.hash.update(data: data)
+            job.pendingOffsets.append(job.offset)
+            status(ui("Sending · ") + (job.offer.name ?? ui("File")), progress: Double(job.offset) / Double(size))
+            emit(FilePacket(kind: .chunk, id: job.offer.id, offset: offset, bytes: data), to: job.peer)
         }
-        let data = try job.handle.read(upToCount: min(FilePacket.chunkSize, Int(remaining))) ?? Data()
-        guard !data.isEmpty else { throw ClipError.invalid(ui("The file changed during transfer. Send it again.")) }
-        let offset = job.offset; job.offset += Int64(data.count); job.hash.update(data: data); job.awaitingAck = true
-        status(ui("Sending · ") + job.offer.name!, progress: Double(job.offset) / Double(max(1, job.offer.size!)))
-        emit(FilePacket(kind: .chunk, id: job.offer.id, offset: offset, bytes: data), to: job.peer)
+        guard outgoing === job, job.offset == size, job.pendingOffsets.isEmpty, !job.finishing else { return }
+        guard (try job.handle.read(upToCount: 1) ?? Data()).isEmpty else { throw ClipError.invalid(ui("The file size changed. Send it again.")) }
+        job.finishing = true
+        emit(FilePacket(kind: .finish, id: job.offer.id, digest: Data(job.hash.finalize())), to: job.peer)
     }
     private func emit(_ packet: FilePacket, to peer: String) {
         guard let send else { fail(ui("Connect to a Mac to send files."), notify: false); return }
@@ -188,7 +192,7 @@ final class FileTransferWorker {
         onStatus?(text, progress, busy)
     }
     func checkTimeout(now: Date = Date()) {
-        let waiting = incoming?.writer == nil && incoming != nil || outgoing?.offset == 0 && outgoing?.awaitingAck == false
+        let waiting = incoming?.writer == nil && incoming != nil || outgoing?.offset == 0 && outgoing?.finishing == false
         if busy, now.timeIntervalSince(updated) > (waiting ? 120 : 30) { fail(ui("Transfer cancelled after a timeout.")) }
     }
 }

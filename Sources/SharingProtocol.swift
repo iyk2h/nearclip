@@ -51,6 +51,7 @@ struct FeaturePacket: Codable {
 
 struct FilePacket: Codable {
     enum Kind: String, Codable { case offer, accept, chunk, ack, finish, complete, cancel }
+    static let maxChunkWindow = 3
     static let chunkSize = 48 * 1024
     static let maxSize: Int64 = 2 * 1024 * 1024 * 1024
     let kind: Kind
@@ -60,7 +61,11 @@ struct FilePacket: Codable {
     var offset: Int64? = nil
     var bytes: Data? = nil
     var digest: Data? = nil
+    var chunkWindow: Int? = nil
     func validate() throws {
+        if let chunkWindow, kind != .accept || !(1...Self.maxChunkWindow).contains(chunkWindow) {
+            throw ClipError.invalid(ui("Invalid file message."))
+        }
         if let offset, offset < 0 || offset > Self.maxSize { throw ClipError.invalid(ui("Invalid file offset.")) }
         switch kind {
         case .offer:

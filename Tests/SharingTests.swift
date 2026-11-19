@@ -124,7 +124,11 @@ func fileTransferTests() throws {
     try a.offer(url: source, to: "B"); pump()
     try Check.that(offered != nil && !FileManager.default.fileExists(atPath: destination.path), "file offer requires explicit recipient acceptance")
     try Check.that(try FileManager.default.contentsOfDirectory(atPath: folder.path).count == 1, "no temporary file is created before acceptance")
-    b.accept(id: offered!.id, destination: destination); pump()
+    b.accept(id: offered!.id, destination: destination)
+    a.receive(queue.removeFirst().1, from: "B")
+    try Check.that(queue.map { $0.1.offset } == [0, Int64(FilePacket.chunkSize), Int64(2 * FilePacket.chunkSize)],
+                   "new peers send three ordered chunks before waiting for the first receipt")
+    pump()
     try Check.that(complete && !a.busy && !b.busy, "bounded chunk transfer reaches acknowledged completion")
     try Check.that(try Data(contentsOf: destination) == data && Data(contentsOf: source) == data, "file bytes preserved and source is not deleted")
     try Check.that(getxattr(destination.path, "com.apple.quarantine", nil, 0, 0, 0) > 0, "received file retains Gatekeeper quarantine metadata")
@@ -132,6 +136,16 @@ func fileTransferTests() throws {
     try Check.that((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600, "received file is private and not executable")
     try Check.that(!(try FileManager.default.contentsOfDirectory(atPath: folder.path)).contains(where: { $0.hasSuffix(".part") }), "successful transfer removes partial file")
 
+    try a.offer(url: source, to: "B")
+    let legacyOffer = queue.removeFirst().1
+    a.receive(FilePacket(kind: .accept, id: legacyOffer.id), from: "B")
+    try Check.that(queue.count == 1 && queue[0].1.kind == .chunk, "legacy acceptance keeps one outstanding chunk")
+    a.receive(FilePacket(kind: .ack, id: legacyOffer.id, offset: 2 * Int64(FilePacket.chunkSize)), from: "B")
+    try Check.that(!a.busy && queue.last?.1.kind == .cancel, "a receipt cannot skip an outstanding chunk")
+    queue.removeAll()
+    try Check.rejects("unbounded transfer window is rejected") {
+        try FilePacket(kind: .accept, id: legacyOffer.id, chunkWindow: 4).validate()
+    }
     // A corruption on the authenticated application stream must still fail the final digest.
     let bad = folder.appendingPathComponent("bad.bin")
     complete = false; offered = nil

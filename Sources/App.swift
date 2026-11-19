@@ -44,7 +44,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let arrangementHint = NSTextField(wrappingLabelWithString: ui("Drag the screens to match your desk."))
     private let mouseHint = NSTextField(wrappingLabelWithString: ui("Turn on mouse sharing on both Macs."))
     private let gestureHint = NSTextField(wrappingLabelWithString: "")
-    private let fileLabel = NSTextField(wrappingLabelWithString: ui("Send a file, or drag it across the shared screen edge in Finder."))
+    private static let fileHint = ui("Send a file, or drag it across the shared screen edge in Finder.")
+    private let fileLabel = NSTextField(wrappingLabelWithString: AppDelegate.fileHint)
+    private var progressDelay: Timer?
+    private var pendingProgress: (text: String, value: Double?)?
+    private var directDrop = false
     private let fileProgress = NSProgressIndicator()
     private var receivePanel: NSSavePanel?
     private var receivedFile: URL?
@@ -228,7 +232,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     func applicationWillTerminate(_ notification: Notification) {
         terminating = true
-        updateTimer?.invalidate(); updateChecker.cancel()
+        progressDelay?.invalidate(); updateTimer?.invalidate(); updateChecker.cancel()
         NSWorkspace.shared.notificationCenter.removeObserver(self)
         DistributedNotificationCenter.default().removeObserver(self)
         NotificationCenter.default.removeObserver(self)
@@ -876,6 +880,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         showSharing(); require(!mouseDetails.isHidden && fileButton.superview != nil, "file and mouse controls are reachable without tabs")
         toggleMouseDetails(); require(mouseDetails.isHidden, "mouse arrangement can collapse independently")
         toggleMouseDetails()
+        directDrop = true
+        fileStatus("Sending test image", progress: 0.5, busy: true)
+        require(fileProgress.isHidden && fileActions.isHidden, "short drop stays quiet")
+        fileStatus("Sent", progress: 1, busy: false)
+        require(progressDelay == nil && fileProgress.isHidden && fileLabel.stringValue == Self.fileHint, "completed drop never flashes a progress bar")
+        let testURL = URL(fileURLWithPath: "/synthetic/drop.png")
+        files.onComplete?(testURL)
+        require(receivedFile == nil && revealButton.isHidden, "direct folder drops finish quietly")
+        files.onComplete?(testURL)
+        require(receivedFile == testURL && !revealButton.isHidden, "manual saves keep Show in Finder")
+        fileStatus("Receiving", progress: 0.25, busy: true); progressDelay?.fire()
+        require(!fileProgress.isHidden && !fileCancel.isHidden && fileProgress.doubleValue == 0.25, "long transfer exposes progress and cancellation")
+        fileStatus("Cancelled", progress: nil, busy: false)
+        require(fileProgress.isHidden && fileActions.isHidden && fileLabel.stringValue == "Cancelled", "failed transfer clears progress and keeps its explanation")
+        finishAppDrop(accepted: false, url: testURL)
+        require(receivedFile == testURL && !revealButton.isHidden && !fileActions.isHidden, "rejected drop exposes the saved file")
+        finishAppDrop(accepted: true, url: testURL)
+        require(receivedFile == nil && fileProgress.isHidden && fileActions.isHidden && fileLabel.stringValue == Self.fileHint, "accepted app drop leaves the file card idle")
         require(!mouse.enabled, "mouse capture starts disabled")
         try? mouse.setEnabled(true)
         toggleMouseDetails(); require(mouse.enabled && mouseDetails.isHidden, "collapsing setup does not revoke enabled mouse sharing")
@@ -1154,13 +1176,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard let self else { return }
             self.fileBadge.orderOut(nil)
             self.appDrop = AppFileDrop(id: id, name: self.mouse.draggedFileName ?? "", point: point)
-            self.fileDestination = finderFolder(at: point).map { (id, self.mouse.draggedFileName ?? "", $0, Date()) }
+            self.fileDestination = self.appDrop == nil ? finderFolder(at: point).map { (id, self.mouse.draggedFileName ?? "", $0, Date()) } : nil
         }
         mouse.onFileDropReady = { [weak self] id in
             guard let self, self.mouse.fileDropReleased, let drag = self.draggingFile, self.enabled,
                   let peer = self.featurePeer, peer.connection == drag.connection else { return }
+            self.directDrop = true
             do { try self.files.offer(url: drag.url, to: peer.device, id: id) }
-            catch { self.alert(error.localizedDescription) }
+            catch { self.directDrop = false; self.alert(error.localizedDescription) }
         }
         mouse.onInput = { [weak self] _, point in
             guard let self, self.mouse.mode == .receiving, let name = self.mouse.draggedFileName else { return }
@@ -1197,30 +1220,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             transport.sendFeature(FeaturePacket(file: packet), to: peer, completion: reply)
         }
         files.onStatus = { [weak self] text, progress, busy in
-            guard let self else { return }
-            self.fileLabel.stringValue = text; self.fileProgress.isHidden = progress == nil
-            self.fileProgress.doubleValue = progress ?? 0; self.fileCancel?.isHidden = !busy
-            if !busy && progress == nil { self.appDrop = nil }
-            if !busy, let panel = self.receivePanel { panel.cancel(nil); self.receivePanel = nil }
-            self.refresh()
+            self?.fileStatus(text, progress: progress, busy: busy)
         }
         files.onOffer = { [weak self] _, offer in self?.receiveFile(offer) }
         files.onComplete = { [weak self] url in
             guard let self else { return }
+            let direct = self.directDrop; self.directDrop = false
             if let drop = self.appDrop, let url, drop.destination == url {
-                self.receivedFile = url; self.revealButton?.isHidden = false
                 drop.deliver(authorized: { [weak self, weak drop] in
                     guard let self, let drop else { return false }
                     return self.enabled && self.appDrop === drop && self.mouse.isReceivingDrop(drop.id)
                 }) { [weak self, weak drop] accepted in
                     guard let self, let drop, self.appDrop === drop else { return }
                     self.appDrop = nil
-                    self.fileLabel.stringValue = accepted ? ui("File dropped.") : ui("Drop declined or target changed. Use Show in Finder to find the file.")
+                    self.finishAppDrop(accepted: accepted, url: url)
                 }
                 return
             }
-            self.receivedFile = url; self.revealButton?.isHidden = url == nil
+            self.showReceivedFile(direct ? nil : url)
         }
+    }
+    private func fileStatus(_ text: String, progress: Double?, busy: Bool) {
+        if busy {
+            if fileCancel.isHidden {
+                pendingProgress = (text, progress)
+                if progressDelay == nil {
+                    fileButton.isEnabled = false
+                    showReceivedFile(nil)
+                    fileLabel.stringValue = Self.fileHint
+                    let delay = Timer(timeInterval: 0.55, repeats: false) { [weak self] _ in
+                        guard let self, let pending = self.pendingProgress else { return }
+                        self.progressDelay = nil; self.pendingProgress = nil
+                        self.showFileProgress(pending.text, value: pending.value)
+                    }
+                    progressDelay = delay; RunLoop.main.add(delay, forMode: .common)
+                }
+            } else { showFileProgress(text, value: progress) }
+            return
+        }
+        progressDelay?.invalidate(); progressDelay = nil; pendingProgress = nil
+        fileProgress.isHidden = true; fileCancel.isHidden = true
+        let quietSuccess = progress != nil && (directDrop || appDrop?.destination != nil)
+        fileLabel.stringValue = quietSuccess ? Self.fileHint : text
+        if progress == nil { directDrop = false; appDrop = nil }
+        if let panel = receivePanel { panel.cancel(nil); receivePanel = nil }
+        refresh()
+    }
+    private func showFileProgress(_ text: String, value: Double?) {
+        let layoutChanged = fileCancel.isHidden || fileProgress.isHidden != (value == nil)
+        fileLabel.stringValue = text
+        fileProgress.doubleValue = value ?? 0; fileProgress.isHidden = value == nil
+        fileCancel.isHidden = false; fileActions.isHidden = false
+        if layoutChanged { updateWindowSize() }
+    }
+    private func showReceivedFile(_ url: URL?) {
+        receivedFile = url
+        revealButton.isHidden = url == nil
+        let hidden = fileCancel.isHidden && revealButton.isHidden
+        if fileActions.isHidden != hidden { fileActions.isHidden = hidden; updateWindowSize() }
+    }
+    private func finishAppDrop(accepted: Bool, url: URL) {
+        fileLabel.stringValue = accepted ? Self.fileHint : ui("Drop declined or target changed. Use Show in Finder to find the file.")
+        showReceivedFile(accepted ? nil : url)
     }
     private func updateFeaturePeer(_ peers: [ConnectedPeer]) {
         let next = peers.count == 1 ? peers.first : nil
@@ -1452,6 +1513,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         appDrop = nil
         let folder = target.flatMap { mouse.isReceivingDrop(offer.id) && $0.id == offer.id && $0.name == offer.name && Date().timeIntervalSince($0.date) < 5 ? $0.folder : nil }
         if let folder, let name = offer.name, let approved = approvedDropDirectory, approved.matches(folder) {
+            directDrop = true
             files.accept(id: offer.id, destination: folder.appendingPathComponent(name), directory: approved)
             return
         }
