@@ -890,6 +890,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
         }
         require(statusItem.menu?.items.contains(where: { $0.action == #selector(quit) }) == true, "menu bar exposes quit")
         require(edgeIndicator.isNonInteractive, "edge indicator cannot take keyboard focus or intercept clicks")
+        if let screen = NSScreen.screens.first, let display = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID {
+            let bounds = CGDisplayBounds(display)
+            for side in [ScreenSide.left, .right] {
+                fileEdge.present(at: CGPoint(x: bounds.midX, y: bounds.midY), side: side)
+                require(fileEdge.frame.minY == screen.frame.minY && fileEdge.frame.maxY == screen.frame.maxY &&
+                        (side == .left ? fileEdge.frame.minX == screen.frame.minX : fileEdge.frame.maxX == screen.frame.maxX),
+                        "a diagonal file drag can reach the full shared edge")
+                fileEdge.orderOut(nil)
+            }
+        }
         require(NSApp.mainMenu?.items.first?.submenu?.items.contains(where: { $0.keyEquivalent == "q" }) == true, "Command-Q is installed in app menu")
         toggleSharing(); require(!enabled && statusLabel.stringValue == ui("Sharing paused"), "pause updates visible state")
         toggleSharing(); require(enabled, "resume updates sharing state")
@@ -1167,11 +1177,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
             guard let transport = self?.transport else { reply(false); return }
             transport.sendFeature(FeaturePacket(keyboard: packet), to: peer, completion: reply)
         }
-        fileEdge.target.enter = { [weak self] source in
+        fileEdge.target.enter = { [weak self] source, point in
             let url = source.url
             guard let self, let peer = self.featurePeer, self.enabled, !self.files.busy,
                   self.draggingFile == nil,
-                  let point = CGEvent(source: nil)?.location,
                   ScreenGeometry.exit(at: point, deltaX: self.mouse.side == .left ? -1 : 1, side: self.mouse.side, displays: self.mouse.displays()) != nil,
                   let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]),
                   values.isRegularFile == true, values.isSymbolicLink == false,
@@ -1202,7 +1211,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
                 defer { self.showingFileEdge = false }
                 guard self.enabled, !self.files.busy, self.mouse.enabled, self.mouse.remoteEnabled,
                       self.mouse.side == side, self.mouse.canPickUpRemoteDrag || (self.mouse.mode == .local && NSEvent.pressedMouseButtons & 1 == 1),
-                      (NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.finder" || FinderFileDrop.fileURL(from: NSPasteboard(name: .drag)) != nil || DragSourceFile.hasImage(on: NSPasteboard(name: .drag))) else { return }
+                      (self.mouse.canPickUpRemoteDrag || NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.finder" || FinderFileDrop.fileURL(from: NSPasteboard(name: .drag)) != nil || DragSourceFile.hasImage(on: NSPasteboard(name: .drag))) else { return }
                 self.fileEdge.present(at: point, side: side)
                 self.fileEdge.dismissWhenDragEnds { [weak self] in self?.mouse.canPickUpRemoteDrag == true }
             }

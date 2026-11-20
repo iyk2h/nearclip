@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.4 build 50
+
+Drag a Finder file back with the mouse on your own Mac, even when you approach the shared edge diagonally. NearClip uses the native drag location and ignores stray modifier releases during pickup. Update the Mac that holds the original file.
+
 ## 0.4.4 build 49
 
 Chat apps can redraw their attachment field as you release a file. NearClip now completes the drop when the field refreshes under the pointer in the same window. Update the receiving Mac.

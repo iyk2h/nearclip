@@ -28,7 +28,7 @@ final class DragSourceFile {
 }
 
 final class FinderFileDrop: NSView {
-    var enter: ((DragSourceFile) -> Bool)?
+    var enter: ((DragSourceFile, CGPoint) -> Bool)?
     var drop: ((URL) -> Bool)?
     var exit: ((_ ended: Bool) -> Void)?
     private var candidate: (sequence: Int, revision: Int, source: DragSourceFile?)?
@@ -59,7 +59,14 @@ final class FinderFileDrop: NSView {
             let source = DragSourceFile(from: board)
             candidate = (sender.draggingSequenceNumber, board.changeCount, source)
         }
-        if !accepted, let source = candidate?.source { accepted = enter?(source) == true }
+        if !accepted, let source = candidate?.source, let window, let screen = window.screen,
+           let display = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID {
+            let location = window.convertPoint(toScreen: sender.draggingLocation)
+            let bounds = CGDisplayBounds(display)
+            let point = CGPoint(x: bounds.minX + (location.x - screen.frame.minX) * bounds.width / screen.frame.width,
+                                y: bounds.minY + (screen.frame.maxY - location.y) * bounds.height / screen.frame.height)
+            accepted = enter?(source, point) == true
+        }
         return accepted ? .copy : []
     }
     override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
@@ -111,11 +118,9 @@ final class FileEdgePanel: NSPanel {
         guard !isVisible, let screen = NSScreen.screens.first(where: { screen in
             guard let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID else { return false }
             return CGDisplayBounds(id).insetBy(dx: -1, dy: -1).contains(point)
-        }), let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID else { return }
-        let bounds = CGDisplayBounds(id)
-        let y = screen.frame.maxY - (point.y - bounds.minY) * screen.frame.height / bounds.height
+        }) else { return }
         let x = side == .left ? screen.frame.minX : screen.frame.maxX - frame.width
-        setFrameOrigin(NSPoint(x: x, y: max(screen.frame.minY, min(screen.frame.maxY - frame.height, y - frame.height / 2))))
+        setFrame(NSRect(x: x, y: screen.frame.minY, width: frame.width, height: screen.frame.height), display: false)
         orderFrontRegardless()
     }
 }

@@ -80,7 +80,7 @@ final class MouseSharing {
     private var releasedReturn: UUID?
     var canPickUpRemoteDrag: Bool {
         supportsReturnFile && mode == .receiving && pressed == [0] && draggedFileName == nil &&
-            pressedKeys.isEmpty && receivedKeyFlags == 0 && !remoteSecureInputBlocked && !secureInputBlocked
+            pressedKeys.isEmpty && receivedKeyFlags & 0x1E0000 == 0 && !remoteSecureInputBlocked && !secureInputBlocked
     }
     var onFileEdge: ((CGPoint, ScreenSide) -> Void)?
     var onFileDragAccepted: ((UUID) -> Void)?
@@ -352,6 +352,7 @@ final class MouseSharing {
             position = ScreenGeometry.clamp(CGPoint(x: origin.x, y: originRect.minY + originRect.height * fraction), to: originRect)
             if let id = hiddenOn { CGDisplayShowCursor(id); hiddenOn = nil }
             if native { CGWarpMouseCursorPosition(position) }
+            if native { logger.notice("return_drag_controller_accepted") }
             emit(MousePacket(kind: .returnAccepted, token: token))
             onChange?()
         case .returnAccepted:
@@ -443,6 +444,7 @@ final class MouseSharing {
            let token, let rect = ScreenGeometry.exit(at: point, deltaX: entrySide == .left ? -1 : 1, side: entrySide, displays: displays()),
            rect == entryRect {
             returningFile = true; draggedFileName = name; position = point
+            if native { logger.notice("return_drag_source_captured") }
             emit(MousePacket(kind: .returnFile, token: token, fraction: ScreenGeometry.fraction(point.y, in: rect), draggedFileName: name))
             return returningFile
         }
@@ -546,6 +548,10 @@ final class MouseSharing {
         guard enabled, (0...127).contains(keyCode) else { return false }
         if mode == .local, edgeSince != nil { edgeSince = nil; onEdgeProgress?(nil, side, 0) }
         if action == .down, keyCode == 53, flags & 0xC0000 == 0xC0000 { emergencyStop(); return true }
+        if mode == .receiving, (canPickUpRemoteDrag || returningFile), action == .modifiers,
+           !localHeldKeys.contains(keyCode), flags & (KeyboardPacket.modifierMasks[keyCode] ?? 0) == 0 {
+            return false // A modifier release without a local press does not take over a Finder drag.
+        }
         if draggedFileName != nil { endSession(reason: .localKeyboard); return false }
         if observeSecureInput() { endSession(reason: .secureInput); return false }
         switch action {

@@ -193,7 +193,10 @@ final class AppDropSmoke: NSView {
         if CommandLine.arguments.contains("--edge-target") {
             let edge = FileEdgePanel()
             edge.setFrameOrigin(NSPoint(x: point.x - edge.frame.width / 2, y: point.y - edge.frame.height / 2))
-            edge.target.enter = { $0.url.lastPathComponent == id.uuidString }
+            edge.target.enter = { source, location in
+                guard let cursor = CGEvent(source: nil)?.location else { return false }
+                return source.url.lastPathComponent == id.uuidString && hypot(location.x - cursor.x, location.y - cursor.y) < 8
+            }
             edge.target.drop = { url in
                 guard (try? Data(contentsOf: url)) == Data(id.uuidString.utf8) else { return false }
                 print("PASS: the unlabelled edge accepts a native file drag"); fflush(stdout)

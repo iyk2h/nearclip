@@ -376,6 +376,8 @@ func mouseSharingTests() throws {
     try Check.that(!b.startFileDrag(named: "photo.png", at: returnEdge, now: now), "remote pickup requires a held left button")
     _ = a.localButton(action: .down, button: 0); pump()
     try Check.that(!b.startFileDrag(named: "photo.png", at: CGPoint(x: 500, y: 400), now: now), "remote pickup requires the return edge")
+    _ = b.localKey(action: .modifiers, keyCode: 56, flags: 0); pump()
+    try Check.that(b.canPickUpRemoteDrag, "an unmatched modifier release preserves the remote Finder pickup")
     var returnID: UUID?, returnPoint: CGPoint?, offers = 0
     b.onFileDragAccepted = { returnID = $0 }
     a.onFileDropPosition = { _, point in returnPoint = point; return false }
@@ -383,6 +385,8 @@ func mouseSharingTests() throws {
     try Check.that(b.startFileDrag(named: "photo.png", at: returnEdge, now: now), "pick up a file on the controlled Mac")
     pump()
     try Check.that(a.returningFile && a.indicatorPoint.y == 450 && returnID.map(a.isReceivingDrop) == true, "return cursor preserves the relative height and prepares the file")
+    _ = b.localKey(action: .modifiers, keyCode: 0); pump()
+    try Check.that(a.returningFile && b.returningFile, "an unrecognized flags update cannot discard an accepted return drag")
     let folderPoint = CGPoint(x: 220, y: 170)
     _ = a.localMove(point: folderPoint, dx: -9, dy: 1, buttonsDown: true, now: now)
     try Check.that(offers == 0 && returnPoint == nil, "hover cannot commit a returned file")
