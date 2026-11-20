@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.4 build 44 — 2026-11-20
+
+- Image drags show the thumbnail alone. The filename appears while a preview is unavailable.
+- On a receiving Mac with build 44, apps can recognize a prepared image as a local file while you hover and show their own copy feedback. The sending Mac needs build 43 or later for early transfer.
+
 ## 0.4.4 build 43 — 2026-11-20
 
 - Drag an image across the shared edge to start transferring it while the mouse button is held. A small thumbnail travels ahead of the file and follows the pointer. Release over an app to attach it.

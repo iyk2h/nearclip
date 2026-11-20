@@ -76,6 +76,7 @@ final class MouseSharing {
     private var supportsFileDrag = false
     var onFileEdge: ((CGPoint, ScreenSide) -> Void)?
     var onFileDragAccepted: ((UUID) -> Void)?
+    var onFileDragMove: ((CGPoint) -> Bool)?
     var onFileDropPosition: ((UUID, CGPoint) -> Bool)?
     var onFileDropReady: ((UUID, Bool) -> Void)?
     private var entrySide: ScreenSide = .left
@@ -602,7 +603,10 @@ final class MouseSharing {
         case .scroll: break
         }
         onInput?(packet, position)
-        if native { post(packet, at: position) }
+        if native {
+            if action == .move, draggedFileName != nil, onFileDragMove?(position) == true { return }
+            post(packet, at: position)
+        }
     }
     func endSession(notify: Bool = true, fraction: Double? = nil, reason: MouseEndReason = .stopped, byPeer: Bool = false) {
         let old = mode, oldToken = token

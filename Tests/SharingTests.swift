@@ -123,6 +123,13 @@ func fileTransferTests() throws {
         try Check.that(PreparedDragImage.thumbnail(preview, isPreview: true)?.width == 1, "sender thumbnail decodes within receiver preview limits")
     } else { try Check.that(false, "generate thumbnail for a valid PNG") }
     try Check.that(PreparedDragImage.thumbnail(Data(repeating: 0, count: FilePacket.maxPreviewBytes + 1), isPreview: true) == nil, "reject oversized drag preview")
+    let badge = DraggedFileBadge()
+    let label = badge.contentView?.subviews.compactMap { $0 as? NSTextField }.first
+    badge.setThumbnail(NSImage(size: NSSize(width: 64, height: 32)))
+    try Check.that(label?.isHidden == true && badge.backgroundColor == .clear && badge.contentView?.bounds.size == NSSize(width: 52, height: 26),
+                   "image preview shows only the proportional thumbnail on a transparent panel")
+    badge.setThumbnail(nil)
+    try Check.that(label?.isHidden == false && badge.contentView?.bounds.height == 24, "filename returns when the drag has no thumbnail")
     board.setData(png, forType: .png)
     var imageSource = DragSourceFile(from: board)
     let temporary = imageSource?.url

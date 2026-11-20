@@ -171,17 +171,30 @@ func finderFolder(at point: CGPoint) -> URL? {
 final class DraggedFileBadge: NSPanel {
     private let label = NSTextField(labelWithString: "")
     private let thumbnail = NSImageView()
+    var preview: NSImage? { thumbnail.image }
     func setThumbnail(_ image: NSImage?) {
+        let topLeft = NSPoint(x: frame.minX, y: frame.maxY)
         thumbnail.image = image
-        if isVisible { layoutBadge() }
+        layoutBadge()
+        if isVisible { setFrameTopLeftPoint(topLeft) }
     }
     private func layoutBadge() {
-        let imageWidth: CGFloat = thumbnail.image == nil ? 0 : 38
-        let height: CGFloat = imageWidth == 0 ? 24 : 42
-        let width = min(240, max(64, label.intrinsicContentSize.width + 16 + imageWidth))
-        setContentSize(NSSize(width: width, height: height))
-        thumbnail.frame = NSRect(x: 5, y: 5, width: 32, height: 32)
-        label.frame = NSRect(x: 8 + imageWidth, y: (height - 18) / 2, width: width - 16 - imageWidth, height: 18)
+        label.isHidden = preview != nil
+        if let image = preview {
+            backgroundColor = .clear
+            let size = Self.previewSize(image)
+            setContentSize(size)
+            thumbnail.frame = NSRect(origin: .zero, size: size)
+        } else {
+            backgroundColor = .windowBackgroundColor
+            let width = min(240, max(64, label.intrinsicContentSize.width + 16))
+            setContentSize(NSSize(width: width, height: 24))
+            label.frame = NSRect(x: 8, y: 3, width: width - 16, height: 18)
+        }
+    }
+    static func previewSize(_ image: NSImage) -> NSSize {
+        let scale = 52 / max(1, max(image.size.width, image.size.height))
+        return NSSize(width: max(1, image.size.width * scale), height: max(1, image.size.height * scale))
     }
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
@@ -190,6 +203,7 @@ final class DraggedFileBadge: NSPanel {
         super.init(contentRect: NSRect(x: 0, y: 0, width: 150, height: 24), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         ignoresMouseEvents = true; hidesOnDeactivate = false; level = .statusBar
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+        isOpaque = false; hasShadow = false; thumbnail.imageScaling = .scaleProportionallyUpOrDown
         label.lineBreakMode = .byTruncatingMiddle; label.maximumNumberOfLines = 1
         contentView?.addSubview(thumbnail); contentView?.addSubview(label)
     }
@@ -225,6 +239,10 @@ final class AppFileDrop: NSObject, NSDraggingSource {
     private let windowNumber: Int
     private var panel: NSPanel?
     private var session: NSDraggingSession?
+    private var heldPoint: CGPoint?
+    private var postedDown = false
+    var didBegin: (() -> Void)?
+    var isDragging: Bool { session != nil }
     private var authorized: (() -> Bool)?
     private var completion: ((Bool) -> Void)?
     private(set) var destination: URL?
@@ -279,7 +297,7 @@ final class AppFileDrop: NSObject, NSDraggingSource {
         guard let current = Self.hit(cursor), CFEqual(target, current) else { return nil }
         return cursor
     }
-    func deliver(file: URL? = nil, authorized: @escaping () -> Bool, completion: @escaping (Bool) -> Void) {
+    func deliver(file: URL? = nil, preview: NSImage? = nil, authorized: @escaping () -> Bool, completion: @escaping (Bool) -> Void) {
         self.authorized = authorized
         guard let destination = file ?? destination, destination.lastPathComponent == name, authorized(), CGPreflightPostEventAccess(), NSEvent.pressedMouseButtons == 0 else {
             logger.notice("file_drop_unavailable"); completion(false); return
@@ -288,6 +306,7 @@ final class AppFileDrop: NSObject, NSDraggingSource {
             logger.notice("file_drop_target_changed"); completion(false); return
         }
         point = cursor
+        heldPoint = preview == nil ? nil : cursor
         let origin = appKitPoint(cursor)
         let frame = NSRect(x: origin.x - 5, y: origin.y - 5, width: 10, height: 10)
         let panel = NSPanel(contentRect: frame, styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: false)
@@ -298,26 +317,60 @@ final class AppFileDrop: NSObject, NSDraggingSource {
         view.begin = { [weak self, weak view] event in
             guard let self, let view else { return }
             let item = NSDraggingItem(pasteboardWriter: destination as NSURL)
-            item.setDraggingFrame(view.bounds, contents: NSImage(size: view.bounds.size))
+            if let preview {
+                let size = DraggedFileBadge.previewSize(preview)
+                item.setDraggingFrame(NSRect(x: 13, y: -size.height, width: size.width, height: size.height), contents: preview)
+            } else {
+                item.setDraggingFrame(view.bounds, contents: NSImage(size: view.bounds.size))
+            }
             self.session = view.beginDraggingSession(with: [item], event: event, source: self)
             self.session?.animatesToStartingPositionsOnCancelOrFail = false
         }
         panel.contentView = view; panel.orderFrontRegardless()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [self] in
+            guard view.begin != nil else { return }
             guard authorized(), NSEvent.pressedMouseButtons == 0, let cursor = CGEvent(source: nil)?.location, hypot(cursor.x - point.x, cursor.y - point.y) < 5,
                   NSWindow.windowNumber(at: appKitPoint(point), belowWindowWithWindowNumber: 0) == panel.windowNumber,
                   NSWindow.windowNumber(at: appKitPoint(point), belowWindowWithWindowNumber: panel.windowNumber) == windowNumber else {
                 logger.notice("file_drop_source_changed")
-                view.begin = nil; panel.orderOut(nil); completion(false); return
+                self.abort(); return
             }
+            postedDown = true
             MouseSharing.makeEvent(MousePacket(kind: .input, token: id, action: .down, button: 0), at: point, pressed: [])?.post(tap: .cghidEventTap)
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [self] in
             guard view.begin != nil else { return }
-            view.begin = nil
-            MouseSharing.makeEvent(MousePacket(kind: .input, token: id, action: .up, button: 0), at: point, pressed: [])?.post(tap: .cghidEventTap)
-            panel.orderOut(nil); completion(false)
+            self.abort()
         }
+    }
+    func moveHeld(to location: CGPoint) {
+        heldPoint = location
+        if isDragging {
+            MouseSharing.makeEvent(MousePacket(kind: .input, token: id, action: .move), at: location, pressed: [0])?.post(tap: .cghidEventTap)
+        }
+    }
+    func releaseHeld(at location: CGPoint) {
+        guard isDragging, heldPoint != nil else { return }
+        moveHeld(to: location)
+        postUp(at: location)
+    }
+    private func postUp(at location: CGPoint) {
+        guard postedDown else { return }
+        postedDown = false
+        MouseSharing.makeEvent(MousePacket(kind: .input, token: id, action: .up, button: 0), at: location, pressed: [])?.post(tap: .cghidEventTap)
+    }
+    func abort() {
+        (panel?.contentView as? FileDragSourceView)?.begin = nil
+        if isDragging && postedDown {
+            authorized = nil
+            for action in [KeyboardPacket.Action.down, .up] {
+                MouseSharing.makeKeyboardEvent(KeyboardPacket(token: id, action: action, keyCode: 53))?.post(tap: .cghidEventTap)
+            }
+        }
+        postUp(at: CGEvent(source: nil)?.location ?? point)
+        panel?.orderOut(nil)
+        let finished = completion; completion = nil
+        finished?(false)
     }
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
         authorized?() == true ? .copy : []
@@ -327,16 +380,23 @@ final class AppFileDrop: NSObject, NSDraggingSource {
         return hypot(cursor.x - point.x, cursor.y - point.y) <= 8 && originalWindow(at: cursor) && originalWindow(at: point)
     }
     func draggingSession(_ session: NSDraggingSession, willBeginAt screenPoint: NSPoint) {
+        self.session = session
         panel?.orderOut(nil)
-        MouseSharing.makeEvent(MousePacket(kind: .input, token: id, action: .move), at: point, pressed: [0])?.post(tap: .cghidEventTap)
+        if let heldPoint {
+            didBegin?()
+            moveHeld(to: heldPoint)
+        } else {
+            MouseSharing.makeEvent(MousePacket(kind: .input, token: id, action: .move), at: point, pressed: [0])?.post(tap: .cghidEventTap)
+        }
         // Web drop zones negotiate acceptance on dragover, after their first dragenter.
         for (delay, offset) in [(0.035, 2.0), (0.085, 0.0)] {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [self] in
                 let hover = CGPoint(x: point.x + offset, y: point.y)
-                guard self.session === session, stillOverTarget(), originalWindow(at: hover) else { return }
+                guard self.session === session, postedDown, heldPoint == nil || heldPoint == point, stillOverTarget(), originalWindow(at: hover) else { return }
                 MouseSharing.makeEvent(MousePacket(kind: .input, token: id, action: .move), at: hover, pressed: [0])?.post(tap: .cghidEventTap)
             }
         }
+        guard heldPoint == nil else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [self] in
             guard self.session === session else { return }
             // Apps may replace the hovered element with a drop zone on draggingEntered.
@@ -352,7 +412,7 @@ final class AppFileDrop: NSObject, NSDraggingSource {
         }
     }
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
-        self.session = nil; panel?.orderOut(nil); panel = nil
+        postedDown = false; self.session = nil; panel?.orderOut(nil); panel = nil
         let finished = completion; completion = nil; authorized = nil
         if !operation.contains(.copy) { logger.notice("file_drop_not_accepted") }
         finished?(operation.contains(.copy))
@@ -363,6 +423,7 @@ final class AppFileDrop: NSObject, NSDraggingSource {
 final class PreparedDragImage {
     let id: UUID
     let url: URL
+    var nextHoverCheck: TimeInterval = 0
     var verified = false
     var released = false
     private var retained = false

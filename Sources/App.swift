@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
     private let files = FileTransfer()
     private let dragImages = FileTransfer()
     private var preparingImageID: UUID?
+    private var heldDrop: AppFileDrop?
     private var preparedImage: PreparedDragImage?
     private var mouse: MouseSharing!
     private let edgeIndicator = ControlEdgeIndicator()
@@ -137,7 +138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(headlessDiagnostics ? .accessory : .regular)
-        if CommandLine.arguments.contains("--app-drop-smoke") || CommandLine.arguments.contains("--web-drop-smoke") { AppDropSmoke.start(); return }
+        if CommandLine.arguments.contains("--app-drop-smoke") || CommandLine.arguments.contains("--web-drop-smoke") || CommandLine.arguments.contains("--held-drop-smoke") { AppDropSmoke.start(); return }
         if let i = CommandLine.arguments.firstIndex(of: "--app-drop-test-window"),
            i + 1 < CommandLine.arguments.count, let id = UUID(uuidString: CommandLine.arguments[i + 1]) {
             AppDropSmoke.openTarget(id); return
@@ -240,7 +241,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
         NSWorkspace.shared.notificationCenter.removeObserver(self)
         DistributedNotificationCenter.default().removeObserver(self)
         NotificationCenter.default.removeObserver(self)
-        mouse?.stop(); dragImages.stop(); preparedImage = nil; files.stop()
+        heldDrop?.abort(); mouse?.stop(); dragImages.stop(); preparedImage = nil; files.stop()
         discoveryDeadline?.invalidate(); sync?.stop(); transport?.stop(); pairing?.stop()
         if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
         if CommandLine.arguments.contains("--lifecycle-smoke") { print("PASS: app termination callback completed"); fflush(stdout) }
@@ -1203,6 +1204,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
         }
         mouse.onFileDropPosition = { [weak self] id, point in
             guard let self else { return false }
+            if let pending = self.heldDrop, !pending.isDragging { pending.abort() }
             self.fileBadge.orderOut(nil)
             self.fileBadge.setThumbnail(nil)
             self.appDrop = AppFileDrop(id: id, name: self.mouse.draggedFileName ?? "", point: point)
@@ -1212,7 +1214,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
                 return false
             }
             image.released = true
-            self.deliverPreparedImage()
+            if let held = self.heldDrop, held.id == id, held.isDragging, image.take() != nil {
+                held.releaseHeld(at: point)
+            } else { self.deliverPreparedImage() }
             return true
         }
         mouse.onFileDropReady = { [weak self] id, prepared in
@@ -1227,9 +1231,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
             do { try self.files.offer(url: drag.source.url, to: peer.device, id: id, keeping: drag.source) }
             catch { self.directDrop = false; self.alert(error.localizedDescription) }
         }
-        mouse.onInput = { [weak self] _, point in
-            guard let self, self.mouse.mode == .receiving, let name = self.mouse.draggedFileName else { return }
+        mouse.onFileDragMove = { [weak self] point in
+            guard let self, let name = self.mouse.draggedFileName else { return false }
+            self.startHeldDropIfReady()
+            if let held = self.heldDrop {
+                held.moveHeld(to: point)
+                return true
+            }
             self.fileBadge.show(name, at: point)
+            return false
         }
         mouse.onEdgeProgress = { [weak self] point, side, progress in
             guard let self, !self.headlessDiagnostics else { return }
@@ -1247,7 +1257,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
                     self.draggingFile = nil
                     self.fileEdge.orderOut(nil); self.fileBadge.orderOut(nil)
                 }
-                if self.mouse.mode == .receiving, let name = self.mouse.draggedFileName {
+                if self.mouse.mode == .receiving, self.heldDrop?.isDragging != true, let name = self.mouse.draggedFileName {
                     self.fileBadge.show(name, at: self.mouse.indicatorPoint)
                 }
                 if self.mouse.active && self.mouse.draggedFileName == nil {
@@ -1289,7 +1299,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
         dragImages.onComplete = { [weak self] url in
             guard let self, let image = self.preparedImage, image.url == url else { return }
             image.verified = true
-            if image.released { self.deliverPreparedImage() }
+            if image.released { self.deliverPreparedImage() } else { self.startHeldDropIfReady() }
         }
         files.send = { [weak self] peer, packet, reply in
             guard let transport = self?.transport else { reply(false); return }
@@ -1309,7 +1319,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
             self.showReceivedFile(direct ? nil : url)
         }
     }
+    private func startHeldDropIfReady() {
+        guard heldDrop == nil, let image = preparedImage, image.verified, !image.released,
+              let preview = fileBadge.preview, enabled, mouse.draggedFileName == image.url.lastPathComponent else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now >= image.nextHoverCheck else { return }
+        image.nextHoverCheck = now + 0.2
+        guard mouse.isReceivingDrop(image.id), let point = CGEvent(source: nil)?.location,
+              let drop = AppFileDrop(id: image.id, name: image.url.lastPathComponent, point: point) else { return }
+        heldDrop = drop
+        drop.didBegin = { [weak self] in self?.fileBadge.orderOut(nil) }
+        drop.deliver(file: image.url, preview: preview, authorized: { [weak self, weak drop] in
+            guard let self, let drop else { return false }
+            return self.heldDrop === drop && self.enabled && self.mouse.isReceivingDrop(drop.id)
+        }) { [weak self, weak drop] accepted in
+            guard let self, let drop, self.heldDrop === drop else { return }
+            self.heldDrop = nil
+            if image.released {
+                self.preparedImage = nil
+                self.appDrop = nil
+                self.finishAppDrop(accepted: accepted, url: image.url)
+            }
+        }
+    }
     private func discardPreparedImage() {
+        heldDrop?.abort(); heldDrop = nil
         guard let image = preparedImage else { return }
         preparedImage = nil
         dragImages.decline(id: image.id)

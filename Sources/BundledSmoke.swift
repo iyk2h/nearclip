@@ -105,13 +105,23 @@ private final class WebDropFixture: NSObject, WKScriptMessageHandler {
         view.loadHTMLString("""
             <style>body,textarea{position:absolute;inset:0;margin:0}</style><textarea></textarea>
             <script>
+            let fileHover;
             document.ondragenter = event => {
                 event.preventDefault();
                 document.querySelector('textarea')?.replaceWith('Attach here');
             };
-            document.ondragover = event => { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; };
+            document.ondragover = event => { event.preventDefault(); event.dataTransfer.dropEffect = 'copy';
+                if (event.dataTransfer.types.includes('Files')) fileHover ??= performance.now(); };
+            if (\(CommandLine.arguments.contains("--cancel-target"))) {
+                document.ondragleave = () => { if (fileHover !== undefined)
+                    setTimeout(() => window.webkit.messageHandlers.result.postMessage('cancelled'), 400); };
+            }
             document.ondrop = async event => {
+                if (\(CommandLine.arguments.contains("--cancel-target"))) {
+                    window.webkit.messageHandlers.result.postMessage('unexpected drop'); return;
+                }
                 event.preventDefault();
+                if (\(CommandLine.arguments.contains("--held-target")) && !(performance.now() - fileHover >= 300)) return;
                 const file = event.dataTransfer.files[0];
                 if (file?.name !== '\(id.uuidString).png' || file.type !== 'image/png') return;
                 const image = await createImageBitmap(file);
@@ -124,6 +134,10 @@ private final class WebDropFixture: NSObject, WKScriptMessageHandler {
         return view
     }
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        if CommandLine.arguments.contains("--cancel-target") {
+            guard message.body as? String == "cancelled" else { exit(1) }
+            print("PASS: hover ended without delivering the file"); fflush(stdout); exit(0)
+        }
         guard message.body as? String == Self.png else { exit(1) }
         print("PASS: web composer attached the original PNG after replacing its drop zone"); fflush(stdout)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { exit(0) }
@@ -168,7 +182,11 @@ final class AppDropSmoke: NSView {
         guard let executable = Bundle.main.executableURL else { exit(1) }
         let id = UUID(), child = Process()
         child.executableURL = executable; child.arguments = ["--app-drop-test-window", id.uuidString]
-        let web = CommandLine.arguments.contains("--web-drop-smoke")
+        let cancel = CommandLine.arguments.contains("--cancel-drag")
+        let held = CommandLine.arguments.contains("--held-drop-smoke")
+        if cancel { child.arguments?.append("--cancel-target") }
+        let web = held || CommandLine.arguments.contains("--web-drop-smoke")
+        if held { child.arguments?.append("--held-target") }
         if web { child.arguments?.append("--web-target") }
         do { try child.run() } catch { exit(1) }
         DispatchQueue.main.asyncAfter(deadline: .now() + (web ? 1.7 : 1)) {
@@ -181,7 +199,16 @@ final class AppDropSmoke: NSView {
                 let bytes = web ? Data(base64Encoded: WebDropFixture.png)! : Data(id.uuidString.utf8)
                 try bytes.write(to: file)
                 var completed = false
-                drop.deliver(authorized: { child.isRunning }) { completed = $0 }
+                drop.deliver(preview: held ? NSImage(data: bytes) : nil, authorized: { child.isRunning }) { completed = ($0 != cancel) }
+                if held {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.85) {
+                        guard drop.isDragging,
+                              AppFileDrop(id: id, name: file.lastPathComponent, point: point, expectedPID: child.processIdentifier) != nil else {
+                            print("FAIL: target changed while hovering"); exit(1)
+                        }
+                        if cancel { drop.abort() } else { drop.releaseHeld(at: point) }
+                    }
+                }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
                     try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
                     let received = !child.isRunning && child.terminationStatus == 0
