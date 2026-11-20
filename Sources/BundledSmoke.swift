@@ -172,6 +172,20 @@ final class AppDropSmoke: NSView {
     static func openTarget(_ id: UUID) {
         NSApp.setActivationPolicy(.regular)
         let point = NSEvent.mouseLocation
+        if CommandLine.arguments.contains("--edge-target") {
+            let edge = FileEdgePanel()
+            edge.setFrameOrigin(NSPoint(x: point.x - edge.frame.width / 2, y: point.y - edge.frame.height / 2))
+            edge.target.enter = { $0.url.lastPathComponent == id.uuidString }
+            edge.target.drop = { url in
+                guard (try? Data(contentsOf: url)) == Data(id.uuidString.utf8) else { return false }
+                print("PASS: the unlabelled edge accepts a native file drag"); fflush(stdout)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { exit(0) }
+                return true
+            }
+            edge.orderFrontRegardless()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) { edge.orderOut(nil); exit(1) }
+            return
+        }
         let window = NSPanel(contentRect: NSRect(x: point.x-50, y: point.y-50, width: 100, height: 100),
                              styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: false)
         window.contentView = CommandLine.arguments.contains("--web-target") ? WebDropFixture.composer(id: id) : AppDropSmoke(id)
@@ -184,6 +198,7 @@ final class AppDropSmoke: NSView {
         child.executableURL = executable; child.arguments = ["--app-drop-test-window", id.uuidString]
         let cancel = CommandLine.arguments.contains("--cancel-drag")
         let held = CommandLine.arguments.contains("--held-drop-smoke")
+        if CommandLine.arguments.contains("--edge-target") { child.arguments?.append("--edge-target") }
         if cancel { child.arguments?.append("--cancel-target") }
         let web = held || CommandLine.arguments.contains("--web-drop-smoke")
         if held { child.arguments?.append("--held-target") }

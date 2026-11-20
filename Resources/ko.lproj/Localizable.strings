@@ -37,7 +37,6 @@
 "Choose a different device to connect." = "같은 기기에는 연결하지 않아요.";
 "Send a file, or drag it across the shared screen edge in Finder." = "파일을 선택하거나 Finder에서 두 화면이 맞닿는 가장자리로 끌어보세요.";
 "Allow drops into this folder until disconnect" = "연결이 끊길 때까지 이 폴더에 드롭 허용";
-"Copy to Mac" = "다른 Mac에 복사";
 "Choose a valid filename." = "저장할 파일 이름을 확인해 주세요.";
 "Choose what happens each time you close the window." = "창을 닫을 때 실행 여부를 물어봐요.";
 "Clipboard" = "클립보드";

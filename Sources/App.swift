@@ -1256,7 +1256,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
             if !self.headlessDiagnostics {
                 if self.mouse.mode == .local || (self.draggingFile != nil && self.mouse.draggedFileName == nil) {
                     self.draggingFile = nil
-                    self.fileEdge.orderOut(nil); self.fileBadge.orderOut(nil)
+                    self.fileEdge.orderOut(nil); self.fileBadge.dismiss()
                 }
                 if self.mouse.mode == .receiving, self.heldDrop?.isDragging != true, let name = self.mouse.draggedFileName {
                     self.fileBadge.show(name, at: self.mouse.indicatorPoint)
@@ -1323,8 +1323,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
     private func releaseFileDrop(id: UUID, name: String, at point: CGPoint) -> Bool {
         lastFileDropID = id
         if let pending = heldDrop, !pending.isDragging { pending.abort() }
-        fileBadge.orderOut(nil)
-        fileBadge.setThumbnail(nil)
+        fileBadge.dismiss()
         appDrop = nil
         fileDestination = nil
         let image = preparedImage
@@ -1363,7 +1362,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
         guard mouse.isReceivingDrop(image.id), let point = CGEvent(source: nil)?.location,
               let drop = AppFileDrop(id: image.id, name: image.url.lastPathComponent, point: point) else { return }
         heldDrop = drop
-        drop.didBegin = { [weak self] in self?.fileBadge.orderOut(nil) }
+        drop.didBegin = { [weak self] in self?.fileBadge.hide() }
         drop.deliver(file: image.url, preview: preview, authorized: { [weak self, weak drop] in
             guard let self, let drop else { return false }
             return self.heldDrop === drop && self.enabled && self.mouse.isReceivingDrop(drop.id)

@@ -1,6 +1,7 @@
 import AppKit
 import OSLog
 import ImageIO
+import UniformTypeIdentifiers
 
 // A source app may advertise image bytes without a file URL. Keep that copy
 // alive until the transfer worker opens it, including after Finder ends the drag.
@@ -77,7 +78,7 @@ final class FinderFileDrop: NSView {
 }
 
 final class FileEdgePanel: NSPanel {
-    let target = FinderFileDrop(frame: NSRect(x: 0, y: 0, width: 108, height: 64))
+    let target = FinderFileDrop(frame: NSRect(x: 0, y: 0, width: 16, height: 64))
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
@@ -86,12 +87,8 @@ final class FileEdgePanel: NSPanel {
         isOpaque = false; backgroundColor = .clear; hasShadow = false
         hidesOnDeactivate = false; level = .statusBar
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
-        target.wantsLayer = true
-        target.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
-        target.layer?.cornerRadius = 10
-        let label = NSTextField(labelWithString: ui("Copy to Mac"))
-        label.alignment = .center; label.frame = target.bounds.insetBy(dx: 2, dy: 22)
-        target.addSubview(label)
+        // WindowServer needs a nonzero surface at the edge to route Finder's native drag.
+        backgroundColor = NSColor.black.withAlphaComponent(1.0 / 255.0)
         contentView = target
     }
 
@@ -173,16 +170,31 @@ func finderFolder(at point: CGPoint, isFinder: inout Bool) -> URL? {
 final class DraggedFileBadge: NSPanel {
     private let label = NSTextField(labelWithString: "")
     private let thumbnail = NSImageView()
-    var preview: NSImage? { thumbnail.image }
+    private(set) var preview: NSImage?
+    private var pointer: CGPoint?
+    private var fallback: DispatchWorkItem?
+
     func setThumbnail(_ image: NSImage?) {
-        let topLeft = NSPoint(x: frame.minX, y: frame.maxY)
+        preview = image
         thumbnail.image = image
+        fallback?.cancel(); fallback = nil
         layoutBadge()
-        if isVisible { setFrameTopLeftPoint(topLeft) }
+        if let point = pointer {
+            if image == nil { pointer = nil; orderOut(nil) }
+            show(label.stringValue, at: point)
+        }
+    }
+    func hide() {
+        fallback?.cancel(); fallback = nil; pointer = nil
+        orderOut(nil)
+    }
+    func dismiss() {
+        hide()
+        preview = nil; thumbnail.image = nil; label.stringValue = ""
     }
     private func layoutBadge() {
-        label.isHidden = preview != nil
-        if let image = preview {
+        label.isHidden = thumbnail.image != nil
+        if let image = thumbnail.image {
             backgroundColor = .clear
             let size = Self.previewSize(image)
             setContentSize(size)
@@ -211,10 +223,23 @@ final class DraggedFileBadge: NSPanel {
     }
     func show(_ name: String, at point: CGPoint) {
         guard let primary = NSScreen.screens.first else { return }
-        if !isVisible || label.stringValue != name {
-            label.stringValue = name
-            layoutBadge()
+        let changed = label.stringValue != name
+        let first = pointer == nil || changed
+        pointer = point
+        if changed { label.stringValue = name }
+        if first, thumbnail.image == nil, let type = UTType(filenameExtension: (name as NSString).pathExtension), type.conforms(to: .image) {
+            // Show pixels as soon as they arrive. Older peers and large files still get a file icon.
+            let item = DispatchWorkItem { [weak self] in
+                guard let self, let point = self.pointer, self.label.stringValue == name, self.preview == nil else { return }
+                self.fallback = nil
+                self.thumbnail.image = NSWorkspace.shared.icon(for: type)
+                self.show(name, at: point)
+            }
+            fallback = item
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: item)
         }
+        if fallback != nil { return }
+        if !isVisible || changed { layoutBadge() }
         setFrameOrigin(NSPoint(x: point.x + 12, y: primary.frame.maxY - point.y - frame.height - 8))
         if !isVisible { orderFrontRegardless() }
     }

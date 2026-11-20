@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.4 build 47
+
+Drag a file across the shared screen edge in one motion. The sending Mac no longer shows a Copy to Mac panel. On the receiving Mac, images show their preview without flashing the filename. An image icon appears if the preview takes longer or is unavailable.
+
 ## 0.4.4 build 46
 
 Drop a file on the other Mac’s Desktop, Documents, Downloads, or an ordinary folder inside one of them to save it there immediately. NearClip gives a second copy a numbered name. Send File and other Finder destinations still let the recipient choose where to save. Update the receiving Mac for this change.

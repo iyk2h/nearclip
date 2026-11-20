@@ -58,7 +58,7 @@ Windows needs an equivalent exclusive commit, reserved-name checks, and attachme
 
 Both peers must advertise `finder-drag-v1`, `mouse-v1`, and `files-v1` and enable input sharing. The capability name is a wire identifier. A Windows Explorer adapter can use the same messages.
 
-1. When one regular file crosses the shared edge, the sender includes its basename in `mouse.enter.draggedFileName`. The receiver accepts the input session and displays the name beside the pointer.
+1. When one regular file crosses the shared edge, the sender includes its basename in `mouse.enter.draggedFileName`. The receiver accepts the input session and tracks the dragged item. Build 47 shows a thumbnail or an image icon for images.
 2. On release, the sender flushes pending motion and sends `dropFile` with the active input token. The receiver resolves the drop position locally and replies with `dropReady` for that token. Escape before release cancels the handoff.
 3. After the matching acknowledgement, the sender issues a normal file offer on the bulk channel, using the input token as the transfer ID. A build 46 receiver can use the pinned Finder destination in Desktop, Documents, or Downloads, including ordinary subfolders. Other locations require local approval, which can be reused for that folder on this connection. If the destination cannot be identified, the recipient chooses it in the save dialog.
 
