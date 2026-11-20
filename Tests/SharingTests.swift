@@ -155,6 +155,32 @@ func fileTransferTests() throws {
     try Check.rejects("drop approval cannot address a different folder") {
         _ = try ReceivedFile(destination: alternate.appendingPathComponent("wrong.txt"), directory: pinned)
     }
+    let root = appFolder.resolvingSymlinksInPath()
+    let nested = root.appendingPathComponent("Photos", isDirectory: true)
+    try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: false)
+    guard let dropDirectory = ReceiveDirectory.finderDrop(at: nested, named: "photo.png", roots: [root]) else {
+        throw ClipError.invalid("Finder drop did not pin the selected folder")
+    }
+    try Check.that(dropDirectory.matches(nested), "Finder drop pins a folder below a personal destination")
+    try Check.that(ReceiveDirectory.finderDrop(at: root, named: "photo.png", roots: [root]) != nil, "Finder drop accepts the desktop itself")
+    try Check.that(ReceiveDirectory.finderDrop(at: root, named: ".profile", roots: [root]) == nil, "hidden incoming names require local approval")
+    let folderLink = root.appendingPathComponent("Shortcut")
+    try FileManager.default.createSymbolicLink(at: folderLink, withDestinationURL: alternate)
+    try Check.that(ReceiveDirectory.finderDrop(at: folderLink, named: "photo.png", roots: [root]) == nil, "symlinks cannot redirect automatic drops outside personal folders")
+    for special in [".private", "Example.app"] {
+        let subfolder = root.appendingPathComponent(special).appendingPathComponent("Content")
+        try FileManager.default.createDirectory(at: subfolder, withIntermediateDirectories: true)
+        try Check.that(ReceiveDirectory.finderDrop(at: subfolder, named: "photo.png", roots: [root]) == nil,
+                       "automatic Finder drops exclude hidden and package ancestors")
+    }
+    let photo = nested.appendingPathComponent("photo.png")
+    let copy = try ReceivedFile(destination: photo, directory: dropDirectory, keepBoth: true)
+    try Data([1]).write(to: photo)
+    try Data([2]).write(to: nested.appendingPathComponent("photo 2.png"))
+    try copy.append(Data([3]), offset: 0, size: 1)
+    try copy.finish(size: 1, digest: Data(SHA256.hash(data: Data([3]))))
+    try Check.that(copy.destination.lastPathComponent == "photo 3.png" && (try Data(contentsOf: copy.destination)) == Data([3]) &&
+                   (try Data(contentsOf: photo)) == Data([1]), "a Finder filename collision at commit keeps both files")
     let a = FileTransferWorker(), b = FileTransferWorker()
     defer { a.stop(); b.stop(); a.send = nil; b.send = nil }
     var queue: [(Bool, FilePacket)] = []

@@ -9,6 +9,28 @@ final class ReceiveDirectory {
         fd = open(url.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
         guard fd >= 0 else { throw ClipError.invalid(ui("Couldn’t save to this folder.")) }
     }
+    static let finderRoots: [URL] = {
+        let fm = FileManager.default
+        let cloud = fm.homeDirectoryForCurrentUser.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs")
+        return [.desktopDirectory, .documentDirectory, .downloadsDirectory].compactMap {
+            fm.urls(for: $0, in: .userDomainMask).first
+        } + ["Desktop", "Documents"].map { cloud.appendingPathComponent($0) }
+    }()
+    static func finderDrop(at folder: URL, named name: String, roots: [URL] = finderRoots) -> ReceiveDirectory? {
+        guard FilePacket.safeName(name), !name.hasPrefix("."), let directory = try? ReceiveDirectory(folder) else { return nil }
+        // Check the opened directory itself, including when Finder supplies an iCloud alias.
+        var path = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        guard fcntl(directory.fd, F_GETPATH, &path) == 0 else { return nil }
+        var current = URL(fileURLWithPath: String(cString: path), isDirectory: true).standardizedFileURL
+        let parts = current.pathComponents
+        guard let root = roots.first(where: { parts.starts(with: $0.standardizedFileURL.pathComponents) }) else { return nil }
+        while current.pathComponents.count > root.standardizedFileURL.pathComponents.count {
+            guard let flags = try? current.resourceValues(forKeys: [.isHiddenKey, .isPackageKey]),
+                  flags.isHidden == false, flags.isPackage == false else { return nil }
+            current.deleteLastPathComponent()
+        }
+        return directory
+    }
     deinit { close(fd) }
     func matches(_ url: URL) -> Bool {
         var chosen = stat(), current = stat()
@@ -19,20 +41,22 @@ final class ReceiveDirectory {
 
 // Created only after the recipient chooses a path. No sender path is ever used.
 final class ReceivedFile {
-    let destination: URL
+    private(set) var destination: URL
+    private let keepBoth: Bool
     private let directory: ReceiveDirectory
     private let temporary: String
     private let handle: FileHandle
     private var committed = false
     private(set) var count: Int64 = 0
     private var hash = SHA256()
-    init(destination: URL, directory approved: ReceiveDirectory? = nil) throws {
+    init(destination: URL, directory approved: ReceiveDirectory? = nil, keepBoth: Bool = false) throws {
+        self.keepBoth = keepBoth
         guard destination.isFileURL, FilePacket.safeName(destination.lastPathComponent) else { throw ClipError.invalid(ui("Choose a valid filename.")) }
         let parent = destination.deletingLastPathComponent()
         directory = try approved ?? ReceiveDirectory(parent)
         guard directory.matches(parent) else { throw ClipError.invalid(ui("Couldn’t save to this folder.")) }
         var existing = stat()
-        guard fstatat(directory.fd, destination.lastPathComponent, &existing, AT_SYMLINK_NOFOLLOW) != 0 && errno == ENOENT else {
+        guard keepBoth || (fstatat(directory.fd, destination.lastPathComponent, &existing, AT_SYMLINK_NOFOLLOW) != 0 && errno == ENOENT) else {
             throw ClipError.invalid(ui("The name is taken or the folder is unavailable. Choose another name or location."))
         }
         self.destination = destination
@@ -54,7 +78,19 @@ final class ReceivedFile {
         guard marked == 0, fchmod(handle.fileDescriptor, S_IRUSR | S_IWUSR) == 0 else { throw ClipError.invalid(ui("Couldn’t apply the file’s security attributes.")) }
         try handle.synchronize()
         // A hard link creates the final name atomically and fails if any item already exists.
-        guard linkat(directory.fd, temporary, directory.fd, destination.lastPathComponent, 0) == 0 else { throw ClipError.invalid(errno == EEXIST ? ui("A file with this name already exists. Choose another name.") : ui("Couldn’t save the file safely here. Choose another folder.")) }
+        let original = destination
+        var index = 1
+        while linkat(directory.fd, temporary, directory.fd, destination.lastPathComponent, 0) != 0 {
+            guard errno == EEXIST else { throw ClipError.invalid(ui("Couldn’t save the file safely here. Choose another folder.")) }
+            guard keepBoth, index < 10000 else { throw ClipError.invalid(ui("A file with this name already exists. Choose another name.")) }
+            index += 1
+            let ext = original.pathExtension
+            let suffix = " \(index)" + (ext.isEmpty ? "" : "." + ext)
+            var stem = original.deletingPathExtension().lastPathComponent
+            while !stem.isEmpty && (stem + suffix).utf8.count > 255 { stem.removeLast() }
+            guard !stem.isEmpty else { throw ClipError.invalid(ui("Choose a valid filename.")) }
+            destination = original.deletingLastPathComponent().appendingPathComponent(stem + suffix)
+        }
         try? handle.close(); _ = unlinkat(directory.fd, temporary, 0); committed = true
     }
 }
@@ -116,10 +152,10 @@ final class FileTransferWorker {
         }
         emit(offer, to: peer)
     }
-    func accept(id: UUID, destination: URL, directory: ReceiveDirectory? = nil) {
+    func accept(id: UUID, destination: URL, directory: ReceiveDirectory? = nil, keepBoth: Bool = false) {
         guard let job = incoming, job.offer.id == id, job.writer == nil else { return }
         do {
-            job.writer = try ReceivedFile(destination: destination, directory: directory); updated = Date()
+            job.writer = try ReceivedFile(destination: destination, directory: directory, keepBoth: keepBoth); updated = Date()
             status(ui("Receiving · ") + (job.offer.name ?? ui("File")), progress: 0)
             emit(FilePacket(kind: .accept, id: id, chunkWindow: FilePacket.maxChunkWindow), to: job.peer)
         } catch { fail(error.localizedDescription) }
@@ -260,7 +296,7 @@ final class FileTransfer {
             DispatchQueue.main.async { [weak self] in self?.pendingPackets -= 1 }
         }
     }
-    func accept(id: UUID, destination: URL, directory: ReceiveDirectory? = nil) { queue.async { [self] in worker.accept(id: id, destination: destination, directory: directory) } }
+    func accept(id: UUID, destination: URL, directory: ReceiveDirectory? = nil, keepBoth: Bool = false) { queue.async { [self] in worker.accept(id: id, destination: destination, directory: directory, keepBoth: keepBoth) } }
     func decline(id: UUID) { queue.async { [self] in worker.decline(id: id) } }
     func cancel() { queue.async { [self] in worker.cancel() } }
     func disconnected() { queue.async { [self] in worker.disconnected() } }

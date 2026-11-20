@@ -19,7 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
     private lazy var fileBadge = DraggedFileBadge()
     private var draggingFile: (source: DragSourceFile, connection: UUID)?
     private var showingFileEdge = false
-    private var fileDestination: (id: UUID, name: String, folder: URL?, date: Date)?
+    private var fileDestination: (id: UUID, name: String, folder: URL?, directory: ReceiveDirectory?, date: Date)?
     private var approvedDropDirectory: ReceiveDirectory?
     private var lastFileDropID: UUID?
     private var appDrop: AppFileDrop?
@@ -1342,7 +1342,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
             var isFinder = false
             let folder = finderFolder(at: point, isFinder: &isFinder)
             if isFinder {
-                fileDestination = (id, name, folder, Date())
+                let directory = folder.flatMap { ReceiveDirectory.finderDrop(at: $0, named: name) }
+                fileDestination = (id, name, folder, directory, Date())
                 discardPreparedImage()
                 return false
             }
@@ -1683,9 +1684,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
             return
         }
         let folder = finder?.folder
-        if let folder, let name = offer.name, let approved = approvedDropDirectory, approved.matches(folder) {
+        if let folder, let name = offer.name, let approved = finder?.directory ?? approvedDropDirectory, approved.matches(folder) {
             directDrop = true
-            files.accept(id: offer.id, destination: folder.appendingPathComponent(name), directory: approved)
+            files.accept(id: offer.id, destination: folder.appendingPathComponent(name), directory: approved, keepBoth: true)
             return
         }
         let connection = featurePeer?.connection

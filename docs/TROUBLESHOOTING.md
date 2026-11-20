@@ -68,7 +68,7 @@ The immediate-return report still requires a physical two-Mac retest. A passing 
 
 Use build 37 or later on both Macs. Turn on **Mouse & Keyboard** on both and check that **Screen Layout** matches your desk. Drag one regular file to the shared edge. Keep the button down until the filename appears beside the pointer on the other screen, then release it over a Finder folder or the desktop. Escape cancels the drag.
 
-If Finder does not expose a folder at the drop point, NearClip opens the normal save dialog. You can choose another destination there. The optional folder approval lasts until you pause sharing or disconnect. **Send File** also works with older versions.
+A receiving Mac running build 46 saves ordinary drops directly in Desktop, Documents, Downloads, and their subfolders. If Finder does not expose a folder at the drop point, or the location requires approval, NearClip opens the normal save dialog. You can choose another destination there. The optional folder approval lasts until you pause sharing or disconnect. **Send File** also works with older versions.
 
 ## File transfer fails
 

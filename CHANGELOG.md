@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.4 build 46
+
+Drop a file on the other Mac’s Desktop, Documents, Downloads, or an ordinary folder inside one of them to save it there immediately. NearClip gives a second copy a numbered name. Send File and other Finder destinations still let the recipient choose where to save. Update the receiving Mac for this change.
+
 ## 0.4.4 build 45 — 2026-11-20
 
 - If an image drop misses its app, drag the received file from NearClip to retry. Mouse sharing stays available.
