@@ -14,6 +14,7 @@ struct ConnectedPeer {
 
 enum SharingFeature {
     static let files = "files-v1"
+    static let dragImage = "drag-image-v1"
     static let fileDrag = "finder-drag-v1"
     static let mouse = "mouse-v1"
     static let keyboard = "keyboard-v1"
@@ -22,7 +23,7 @@ enum SharingFeature {
     static let inputRecovery = "input-recovery-v1"
     static let inputMetrics = "input-metrics-v1"
     static let inputDiagnostics = "input-diagnostics-v1"
-    static let supported = [files, mouse, keyboard, inputChannel, inputRecovery, inputMetrics, inputDiagnostics] + (DockSwipeAdapter.available ? [gestures] : []) + [fileDrag]
+    static let supported = [files, mouse, keyboard, inputChannel, inputRecovery, inputMetrics, inputDiagnostics] + (DockSwipeAdapter.available ? [gestures] : []) + [fileDrag, dragImage]
     static let maxPacket = 128 * 1024
 }
 
@@ -31,9 +32,18 @@ struct FeaturePacket: Codable {
     var mouse: MousePacket? = nil
     var keyboard: KeyboardPacket? = nil
     var gesture: DockSwipePacket? = nil
-    var feature: String { gesture != nil ? SharingFeature.gestures : file != nil ? SharingFeature.files : keyboard != nil ? SharingFeature.keyboard : SharingFeature.mouse }
+    var dragImage: FilePacket? = nil
+    var usesInputChannel: Bool { file == nil && dragImage == nil }
+    var feature: String { dragImage != nil ? SharingFeature.dragImage : gesture != nil ? SharingFeature.gestures : file != nil ? SharingFeature.files : keyboard != nil ? SharingFeature.keyboard : SharingFeature.mouse }
     func validate() throws {
-        guard [file != nil, mouse != nil, keyboard != nil, gesture != nil].filter({ $0 }).count == 1 else { throw ClipError.invalid(ui("Invalid sharing message.")) }
+        guard [dragImage != nil, file != nil, mouse != nil, keyboard != nil, gesture != nil].filter({ $0 }).count == 1 else { throw ClipError.invalid(ui("Invalid sharing message.")) }
+        if let dragImage {
+            try dragImage.validate()
+            if dragImage.kind == .offer, !FilePacket.canPrepareImage(name: dragImage.name, size: dragImage.size) {
+                throw ClipError.invalid(ui("Invalid file message."))
+            }
+        }
+        if file?.previewPNG != nil { throw ClipError.invalid(ui("Invalid file message.")) }
         try file?.validate(); try mouse?.validate(); try keyboard?.validate(); try gesture?.validate()
     }
     func encoded() throws -> Data {
@@ -62,7 +72,10 @@ struct FilePacket: Codable {
     var bytes: Data? = nil
     var digest: Data? = nil
     var chunkWindow: Int? = nil
+    var previewPNG: Data? = nil
+    static let maxPreviewBytes = 24 * 1024
     func validate() throws {
+        if let previewPNG, kind != .offer || previewPNG.count > Self.maxPreviewBytes { throw ClipError.invalid(ui("Invalid file message.")) }
         if let chunkWindow, kind != .accept || !(1...Self.maxChunkWindow).contains(chunkWindow) {
             throw ClipError.invalid(ui("Invalid file message."))
         }
@@ -77,6 +90,10 @@ struct FilePacket: Codable {
         case .finish: guard digest?.count == 32 else { throw ClipError.invalid(ui("Missing file checksum.")) }
         default: guard bytes == nil else { throw ClipError.invalid(ui("Invalid file message.")) }
         }
+    }
+    static func canPrepareImage(name: String?, size: Int64?) -> Bool {
+        guard let name, safeName(name), let size, size > 0, size <= ClipPayload.maxBytes else { return false }
+        return ["png", "jpg", "jpeg", "heic", "heif", "gif", "webp", "tif", "tiff"].contains((name as NSString).pathExtension.lowercased())
     }
     static func safeName(_ name: String) -> Bool {
         !name.isEmpty && name.utf8.count <= 255 && name != "." && name != ".." &&
@@ -150,9 +167,11 @@ struct MousePacket: Codable {
     var scrollPhase: Int? = nil
     var momentumPhase: Int? = nil
     var secureInputActive: Bool? = nil
+    var preparedImage: Bool? = nil
     var draggedFileName: String? = nil
     var motionSentAt: Double? = nil
     func validate() throws {
+        if preparedImage != nil && kind != .dropReady { throw ClipError.invalid(ui("Invalid file message.")) }
         if let draggedFileName, kind != .enter || !FilePacket.safeName(draggedFileName) { throw ClipError.invalid(ui("Invalid file message.")) }
         if let motionSentAt {
             guard kind == .input, action == .move, motionSentAt.isFinite, motionSentAt >= 0 else { throw ClipError.invalid(ui("Invalid movement timestamp.")) }

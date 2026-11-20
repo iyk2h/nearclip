@@ -1,16 +1,41 @@
 import AppKit
 import OSLog
+import ImageIO
 
-// Finder owns the drag pasteboard. Accept exactly one local file URL and copy only.
+// A source app may advertise image bytes without a file URL. Keep that copy
+// alive until the transfer worker opens it, including after Finder ends the drag.
+final class DragSourceFile {
+    let url: URL
+    private let temporary: Bool
+    init?(from board: NSPasteboard) {
+        guard board.pasteboardItems?.count == 1 else { return nil }
+        if let file = FinderFileDrop.fileURL(from: board) { url = file; temporary = false; return }
+        guard Self.hasImage(on: board), let type = board.availableType(from: [.png, .tiff]),
+              let data = board.data(forType: type), !data.isEmpty, data.count <= ClipPayload.maxBytes else { return nil }
+        let name = type == .png ? "Image.png" : "Image.tiff"
+        guard let path = try? AppFileDrop.stage(name, in: FileManager.default.temporaryDirectory) else { return nil }
+        do { try data.write(to: path, options: .withoutOverwriting) }
+        catch { try? FileManager.default.removeItem(at: path.deletingLastPathComponent()); return nil }
+        url = path; temporary = true
+    }
+    static func hasImage(on board: NSPasteboard) -> Bool {
+        guard let types = board.types, !types.contains(.fileURL),
+              !types.contains(where: { ClipboardCodec.ignored.contains($0.rawValue) }) else { return false }
+        return types.contains(.png) || types.contains(.tiff)
+    }
+    deinit { if temporary { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) } }
+}
+
 final class FinderFileDrop: NSView {
-    var enter: ((URL) -> Bool)?
+    var enter: ((DragSourceFile) -> Bool)?
     var drop: ((URL) -> Bool)?
     var exit: ((_ ended: Bool) -> Void)?
-    private var accepted: (sequence: Int, url: URL)?
+    private var candidate: (sequence: Int, revision: Int, source: DragSourceFile?)?
+    private var accepted = false
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        registerForDraggedTypes([.fileURL])
+        registerForDraggedTypes([.fileURL, .png, .tiff])
     }
     required init?(coder: NSCoder) { nil }
 
@@ -22,29 +47,33 @@ final class FinderFileDrop: NSView {
         return url
     }
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        accepted = nil
+        candidate = nil; accepted = false
         return draggingUpdated(sender)
     }
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        if let accepted {
-            return accepted.sequence == sender.draggingSequenceNumber && sender.draggingSourceOperationMask.contains(.copy) ? .copy : []
+        guard sender.draggingSourceOperationMask.contains(.copy) else { return [] }
+        let board = sender.draggingPasteboard
+        if candidate?.sequence != sender.draggingSequenceNumber || candidate?.revision != board.changeCount {
+            guard !accepted else { return [] }
+            let source = DragSourceFile(from: board)
+            candidate = (sender.draggingSequenceNumber, board.changeCount, source)
         }
-        guard sender.draggingSourceOperationMask.contains(.copy),
-              let url = Self.fileURL(from: sender.draggingPasteboard), enter?(url) == true else { return [] }
-        accepted = (sender.draggingSequenceNumber, url)
-        return .copy
+        if !accepted, let source = candidate?.source { accepted = enter?(source) == true }
+        return accepted ? .copy : []
     }
     override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        accepted?.sequence == sender.draggingSequenceNumber && sender.draggingSourceOperationMask.contains(.copy)
+        accepted && candidate?.sequence == sender.draggingSequenceNumber &&
+        candidate?.revision == sender.draggingPasteboard.changeCount && sender.draggingSourceOperationMask.contains(.copy)
     }
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        guard let accepted, draggingUpdated(sender) == .copy,
-              Self.fileURL(from: sender.draggingPasteboard) == accepted.url else { return false }
-        self.accepted = nil
-        return drop?(accepted.url) == true
+        guard prepareForDragOperation(sender), let source = candidate?.source else { return false }
+        if sender.draggingPasteboard.types?.contains(.fileURL) == true,
+           Self.fileURL(from: sender.draggingPasteboard) != source.url { return false }
+        candidate = nil; accepted = false
+        return drop?(source.url) == true
     }
-    override func draggingExited(_ sender: NSDraggingInfo?) { accepted = nil; exit?(false) }
-    override func draggingEnded(_ sender: NSDraggingInfo) { accepted = nil; exit?(true) }
+    override func draggingExited(_ sender: NSDraggingInfo?) { candidate = nil; accepted = false; exit?(false) }
+    override func draggingEnded(_ sender: NSDraggingInfo) { candidate = nil; accepted = false; exit?(true) }
 }
 
 final class FileEdgePanel: NSPanel {
@@ -141,6 +170,19 @@ func finderFolder(at point: CGPoint) -> URL? {
 
 final class DraggedFileBadge: NSPanel {
     private let label = NSTextField(labelWithString: "")
+    private let thumbnail = NSImageView()
+    func setThumbnail(_ image: NSImage?) {
+        thumbnail.image = image
+        if isVisible { layoutBadge() }
+    }
+    private func layoutBadge() {
+        let imageWidth: CGFloat = thumbnail.image == nil ? 0 : 38
+        let height: CGFloat = imageWidth == 0 ? 24 : 42
+        let width = min(240, max(64, label.intrinsicContentSize.width + 16 + imageWidth))
+        setContentSize(NSSize(width: width, height: height))
+        thumbnail.frame = NSRect(x: 5, y: 5, width: 32, height: 32)
+        label.frame = NSRect(x: 8 + imageWidth, y: (height - 18) / 2, width: width - 16 - imageWidth, height: 18)
+    }
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
@@ -149,17 +191,15 @@ final class DraggedFileBadge: NSPanel {
         ignoresMouseEvents = true; hidesOnDeactivate = false; level = .statusBar
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         label.lineBreakMode = .byTruncatingMiddle; label.maximumNumberOfLines = 1
-        contentView?.addSubview(label)
+        contentView?.addSubview(thumbnail); contentView?.addSubview(label)
     }
     func show(_ name: String, at point: CGPoint) {
         guard let primary = NSScreen.screens.first else { return }
         if !isVisible || label.stringValue != name {
             label.stringValue = name
-            let width = min(240, max(64, label.intrinsicContentSize.width + 16))
-            setContentSize(NSSize(width: width, height: 24))
-            label.frame = NSRect(x: 8, y: 3, width: width - 16, height: 18)
+            layoutBadge()
         }
-        setFrameOrigin(NSPoint(x: point.x + 12, y: primary.frame.maxY - point.y - 32))
+        setFrameOrigin(NSPoint(x: point.x + 12, y: primary.frame.maxY - point.y - frame.height - 8))
         if !isVisible { orderFrontRegardless() }
     }
 }
@@ -218,9 +258,12 @@ final class AppFileDrop: NSObject, NSDraggingSource {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         return folder.appendingPathComponent(name)
     }
-    func stage() throws -> URL {
+    static func cacheURL(for name: String) throws -> URL {
         let base = try FileManager.default.url(for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-        let url = try Self.stage(name, in: base.appendingPathComponent("dev.nearclip.mac/Drops", isDirectory: true))
+        return try stage(name, in: base.appendingPathComponent("dev.nearclip.mac/Drops", isDirectory: true))
+    }
+    func stage() throws -> URL {
+        let url = try Self.cacheURL(for: name)
         destination = url
         return url
     }
@@ -236,9 +279,9 @@ final class AppFileDrop: NSObject, NSDraggingSource {
         guard let current = Self.hit(cursor), CFEqual(target, current) else { return nil }
         return cursor
     }
-    func deliver(authorized: @escaping () -> Bool, completion: @escaping (Bool) -> Void) {
+    func deliver(file: URL? = nil, authorized: @escaping () -> Bool, completion: @escaping (Bool) -> Void) {
         self.authorized = authorized
-        guard let destination, authorized(), CGPreflightPostEventAccess(), NSEvent.pressedMouseButtons == 0 else {
+        guard let destination = file ?? destination, destination.lastPathComponent == name, authorized(), CGPreflightPostEventAccess(), NSEvent.pressedMouseButtons == 0 else {
             logger.notice("file_drop_unavailable"); completion(false); return
         }
         guard let cursor = deliveryPoint() else {
@@ -313,5 +356,44 @@ final class AppFileDrop: NSObject, NSDraggingSource {
         let finished = completion; completion = nil; authorized = nil
         if !operation.contains(.copy) { logger.notice("file_drop_not_accepted") }
         finished?(operation.contains(.copy))
+    }
+}
+
+// The private copy is disposable until the user releases the drag over an app.
+final class PreparedDragImage {
+    let id: UUID
+    let url: URL
+    var verified = false
+    var released = false
+    private var retained = false
+
+    init(offer: FilePacket) throws {
+        guard offer.kind == .offer, let name = offer.name, FilePacket.canPrepareImage(name: name, size: offer.size) else {
+            throw ClipError.invalid(ui("Invalid file message."))
+        }
+        id = offer.id; url = try AppFileDrop.cacheURL(for: name)
+    }
+    func take() -> URL? {
+        guard released, verified, !retained else { return nil }
+        retained = true; return url
+    }
+    deinit {
+        if !retained { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+    }
+    static func encodePreview(_ image: CGImage) -> Data? {
+        guard let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]),
+              png.count <= FilePacket.maxPreviewBytes else { return nil }
+        return png
+    }
+    static func thumbnail(_ data: Data, isPreview: Bool = false) -> CGImage? {
+        if isPreview, data.count > FilePacket.maxPreviewBytes || !ClipboardCodec.completePNG(data) { return nil }
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any],
+              let w = props[kCGImagePropertyPixelWidth as String] as? Int,
+              let h = props[kCGImagePropertyPixelHeight as String] as? Int,
+              (1...16000).contains(w), (1...16000).contains(h), w * h <= 40_000_000,
+              !isPreview || (w <= 64 && h <= 64 && CGImageSourceGetCount(source) == 1) else { return nil }
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: 64] as CFDictionary)
     }
 }

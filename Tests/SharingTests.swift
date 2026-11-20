@@ -17,6 +17,26 @@ func sharingProtocolTests() throws {
         try Check.that(!FilePacket.safeName(name), "reject unsafe incoming file name")
     }
     try Check.that(FilePacket.safeName("사진 한글 🙂.png"), "allow Unicode file names")
+    let imageOffer = FilePacket(kind: .offer, id: UUID(), name: "drag.PNG", size: 250_000)
+    let imagePacket = try FeaturePacket.decode(FeaturePacket(dragImage: imageOffer).encoded())
+    try Check.that(imagePacket.dragImage?.id == imageOffer.id && !imagePacket.usesInputChannel, "image preparation travels on the bulk connection")
+    for (name, size) in [("program.app", Int64(1)), ("big.png", Int64(ClipPayload.maxBytes + 1))] {
+        try Check.rejects("reject speculative transfer outside image limits") {
+            try FeaturePacket(dragImage: FilePacket(kind: .offer, id: UUID(), name: name, size: size)).validate()
+        }
+    }
+    var staged: PreparedDragImage? = try PreparedDragImage(offer: imageOffer)
+    let discarded = staged!.url.deletingLastPathComponent()
+    staged!.verified = true
+    try Check.that(staged!.take() == nil, "finishing before release cannot deliver an image")
+    staged = nil
+    try Check.that(!FileManager.default.fileExists(atPath: discarded.path), "cancelling a prepared drag removes its private directory")
+    let earlyRelease = try PreparedDragImage(offer: imageOffer)
+    earlyRelease.released = true
+    try Check.that(earlyRelease.take() == nil, "release waits for verified bytes")
+    earlyRelease.verified = true
+    try Check.that(earlyRelease.take() == earlyRelease.url && earlyRelease.take() == nil, "verified release can deliver only once")
+    try FileManager.default.removeItem(at: earlyRelease.url.deletingLastPathComponent())
     try Check.rejects("reject oversized file offers") { try FilePacket(kind: .offer, id: UUID(), name: "a", size: FilePacket.maxSize + 1).validate() }
     try Check.rejects("reject oversized chunks") { try FilePacket(kind: .chunk, id: UUID(), offset: 0, bytes: Data(repeating: 0, count: FilePacket.chunkSize + 1)).validate() }
     try Check.rejects("reject non-finite mouse input") { try MousePacket(kind: .input, token: UUID(), action: .move, dx: .nan).validate() }
@@ -97,6 +117,27 @@ func fileTransferTests() throws {
     try Check.that(FinderFileDrop.fileURL(from: board) == nil, "reject multiple files without sending a partial selection")
     board.clearContents(); board.setString(source.path, forType: .string)
     try Check.that(FinderFileDrop.fileURL(from: board) == nil, "plain text paths are not Finder drags")
+    board.clearContents()
+    let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgqWr8DwADhAH/SDByBQAAAABJRU5ErkJggg==")!
+    if let thumbnail = PreparedDragImage.thumbnail(png), let preview = PreparedDragImage.encodePreview(thumbnail) {
+        try Check.that(PreparedDragImage.thumbnail(preview, isPreview: true)?.width == 1, "sender thumbnail decodes within receiver preview limits")
+    } else { try Check.that(false, "generate thumbnail for a valid PNG") }
+    try Check.that(PreparedDragImage.thumbnail(Data(repeating: 0, count: FilePacket.maxPreviewBytes + 1), isPreview: true) == nil, "reject oversized drag preview")
+    board.setData(png, forType: .png)
+    var imageSource = DragSourceFile(from: board)
+    let temporary = imageSource?.url
+    try Check.that(temporary?.lastPathComponent == "Image.png" && (try temporary.map { try Data(contentsOf: $0) }) == png, "raw image drag preserves bytes in a private file")
+    imageSource = nil
+    try Check.that(temporary.map { !FileManager.default.fileExists(atPath: $0.path) } == true, "raw drag source is removed when the transfer releases it")
+    board.setString("private", forType: .init("org.nspasteboard.ConcealedType"))
+    try Check.that(DragSourceFile(from: board) == nil, "concealed raw images are not staged")
+    board.clearContents()
+    let tiff = NSBitmapImageRep(data: png)!.tiffRepresentation!
+    board.setData(tiff, forType: .tiff)
+    let tiffSource = DragSourceFile(from: board)
+    try Check.that(tiffSource?.url.lastPathComponent == "Image.tiff" && (try tiffSource.map { try Data(contentsOf: $0.url) }) == tiff, "TIFF-only app drags preserve image data")
+
+
     let appFolder = try testFolder(); defer { try? FileManager.default.removeItem(at: appFolder) }
     let firstDrop = try AppFileDrop.stage("photo.png", in: appFolder)
     let secondDrop = try AppFileDrop.stage("photo.png", in: appFolder)
@@ -246,8 +287,8 @@ func mouseSharingTests() throws {
     b.setPeer("A", savedLayout: original, supportsFileDrag: true)
     try a.setEnabled(true); try b.setEnabled(true); pump()
     var droppedAt: CGPoint?, acknowledged: UUID?
-    b.onFileDropPosition = { _, point in droppedAt = point }
-    a.onFileDropReady = { acknowledged = $0 }
+    b.onFileDropPosition = { _, point in droppedAt = point; return true }
+    a.onFileDropReady = { id, prepared in if prepared { acknowledged = id } }
     try Check.that(a.startFileDrag(named: "photo.png", at: edge, now: now), "Finder drag starts only at the shared edge")
     try Check.that(!a.releaseFileDrag(), "early release cannot send a file before acceptance")
     pump()
@@ -564,8 +605,8 @@ func featureNetworkTests() throws {
     let dropped = folder.appendingPathComponent("drop.dat")
     let approved = try ReceiveDirectory(folder)
     var dropID: UUID?
-    receiverMouse.onFileDropPosition = { id, _ in dropID = id }
-    sourceMouse.onFileDropReady = { id in try? fa.offer(url: source, to: idB, id: id) }
+    receiverMouse.onFileDropPosition = { id, _ in dropID = id; return false }
+    sourceMouse.onFileDropReady = { id, _ in try? fa.offer(url: source, to: idB, id: id) }
     fb.onOffer = { _, offer in
         guard offer.id == dropID, receiverMouse.isReceivingDrop(offer.id) else { fb.decline(id: offer.id); return }
         fb.accept(id: offer.id, destination: dropped, directory: approved)
@@ -582,7 +623,51 @@ func featureNetworkTests() throws {
                    "the real event-tap release path starts the network drop before Finder responds")
     waitFor({ done }, seconds: 12)
     try Check.that(done && (try Data(contentsOf: dropped)) == data, "acknowledged input-channel drop delivers the intact file through the separate file channel")
-
+    sourceMouse.endSession()
+    waitFor { receiverMouse.mode == .local }
+    let photo = folder.appendingPathComponent("photo.png")
+    let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 384, pixelsHigh: 320, bitsPerSample: 8,
+        samplesPerPixel: 3, hasAlpha: false, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 384 * 3, bitsPerPixel: 24)!
+    var noise: UInt32 = 43
+    for pixel in 0..<(bitmap.bytesPerRow * bitmap.pixelsHigh) {
+        noise = noise &* 1664525 &+ 1013904223
+        bitmap.bitmapData![pixel] = UInt8(truncatingIfNeeded: noise >> 24)
+    }
+    let pngBytes = bitmap.representation(using: .png, properties: [:])!
+    try Check.that(pngBytes.count > 3 * FilePacket.chunkSize, "image fixture spans multiple transfer windows")
+    try pngBytes.write(to: photo)
+    let preparedURL = folder.appendingPathComponent("prepared.png")
+    let earlySender = FileTransfer(), earlyReceiver = FileTransfer()
+    defer { earlySender.stop(); earlyReceiver.stop() }
+    var beforeRelease = false, skippedSecondOffer = false
+    earlySender.send = { peer, chunk, reply in a.sendFeature(FeaturePacket(dragImage: chunk), to: peer, completion: reply) }
+    earlyReceiver.send = { peer, chunk, reply in b.sendFeature(FeaturePacket(dragImage: chunk), to: peer, completion: reply) }
+    sourceMouse.onFileDragAccepted = { id in try? earlySender.offer(url: photo, to: idB, id: id, preparePreview: true) }
+    a.onFeature = { peer, packet in
+        if let image = packet.dragImage { earlySender.receive(image, from: peer) }
+        if let mouse = packet.mouse { sourceMouse.receive(mouse, from: peer) }
+    }
+    b.onFeature = { peer, packet in
+        if let image = packet.dragImage { earlyReceiver.receive(image, from: peer) }
+        if let mouse = packet.mouse { receiverMouse.receive(mouse, from: peer) }
+    }
+    earlyReceiver.onOffer = { _, offer in
+        guard receiverMouse.isReceivingDrop(offer.id), offer.name == receiverMouse.draggedFileName,
+              let preview = offer.previewPNG, PreparedDragImage.thumbnail(preview, isPreview: true)?.width == 64,
+              !FileManager.default.fileExists(atPath: preparedURL.path) else { earlyReceiver.decline(id: offer.id); return }
+        earlyReceiver.accept(id: offer.id, destination: preparedURL)
+    }
+    earlyReceiver.onComplete = { _ in beforeRelease = receiverMouse.draggedFileName == "photo.png" }
+    receiverMouse.onFileDropPosition = { _, _ in beforeRelease }
+    sourceMouse.onFileDropReady = { _, prepared in skippedSecondOffer = prepared }
+    let canReenter = Date().addingTimeInterval(0.8)
+    waitFor { Date() >= canReenter }
+    try Check.that(sourceMouse.startFileDrag(named: "photo.png", at: sourceEdge), "image drag starts at the shared edge")
+    waitFor({ beforeRelease }, seconds: 12)
+    try Check.that(beforeRelease && (try Data(contentsOf: preparedURL)) == pngBytes, "authenticated receiver has verified bytes while the button is still held")
+    try Check.that(sourceMouse.releaseFileDrag(), "release the prepared image")
+    waitFor { skippedSecondOffer }
+    try Check.that(skippedSecondOffer, "release acknowledges the staged image without sending the file again")
 }
 
 func legacyCapabilityTests() throws {

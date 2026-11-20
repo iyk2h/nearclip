@@ -75,8 +75,9 @@ final class MouseSharing {
     private var dropDeadline: Date?
     private var supportsFileDrag = false
     var onFileEdge: ((CGPoint, ScreenSide) -> Void)?
-    var onFileDropPosition: ((UUID, CGPoint) -> Void)?
-    var onFileDropReady: ((UUID) -> Void)?
+    var onFileDragAccepted: ((UUID) -> Void)?
+    var onFileDropPosition: ((UUID, CGPoint) -> Bool)?
+    var onFileDropReady: ((UUID, Bool) -> Void)?
     private var entrySide: ScreenSide = .left
     private var entryRect = CGRect.zero
     private var position = CGPoint.zero
@@ -327,18 +328,19 @@ final class MouseSharing {
                 if CGDisplayHideCursor(id) == .success { hiddenOn = id }
                 if draggedFileName == nil { CGWarpMouseCursorPosition(CGPoint(x: originRect.midX, y: origin.y)) }
             }
+            if draggedFileName != nil { onFileDragAccepted?(token) }
             onChange?()
         case .dropFile:
             guard mode == .receiving, draggedFileName != nil, !fileDropReleased else { return }
             fileDropReleased = true
             if native { logger.notice("file_drop_received") }
-            onFileDropPosition?(token, position)
+            let prepared = onFileDropPosition?(token, position) == true
             draggedFileName = nil; fileDropReleased = false
-            emit(MousePacket(kind: .dropReady, token: token))
+            emit(MousePacket(kind: .dropReady, token: token, preparedImage: prepared ? true : nil))
         case .dropReady:
             guard mode == .controlling, draggedFileName != nil, fileDropReleased else { return }
             if native { logger.notice("file_drop_acknowledged") }
-            onFileDropReady?(token)
+            onFileDropReady?(token, packet.preparedImage == true)
             fileDragAnchor = nil
             draggedFileName = nil; fileDropReleased = false; dropDeadline = nil
             if native { CGWarpMouseCursorPosition(CGPoint(x: originRect.midX, y: origin.y)) }

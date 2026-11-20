@@ -517,7 +517,7 @@ final class PeerLink {
             guard let data = message.data else { throw ClipError.invalid(ui("Missing shared data.")) }
             let packet = try FeaturePacket.decode(data)
             guard features.contains(packet.feature),
-                  !(features.contains(SharingFeature.inputChannel) && packet.file == nil) else { throw ClipError.invalid(ui("Unsupported sharing feature.")) }
+                  !(features.contains(SharingFeature.inputChannel) && packet.usesInputChannel) else { throw ClipError.invalid(ui("Unsupported sharing feature.")) }
             onFeature?(self, packet)
         case "probe", "probe-reply":
             guard inputOnly, features.contains(SharingFeature.inputMetrics), let data = message.data,
@@ -551,7 +551,7 @@ final class PeerLink {
         flush()
     }
     func sendFeature(_ packet: FeaturePacket, completion: @escaping (Bool) -> Void) {
-        if features.contains(SharingFeature.inputChannel), packet.file == nil {
+        if features.contains(SharingFeature.inputChannel), packet.usesInputChannel {
             guard ready, features.contains(packet.feature), let inputLink, inputLink.ready else { completion(false); return }
             inputLink.sendFeature(packet, completion: completion); return
         }

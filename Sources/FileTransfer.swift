@@ -101,11 +101,20 @@ final class FileTransferWorker {
     var activeID: UUID? { outgoing?.offer.id ?? incoming?.offer.id }
     private var peer: String? { outgoing?.peer ?? incoming?.peer }
     func stop() { cancel() }
-    func offer(url: URL, to peer: String, id: UUID = UUID()) throws {
+    func offer(url: URL, to peer: String, id: UUID = UUID(), preparePreview: Bool = false) throws {
         guard !busy else { throw ClipError.invalid(ui("Finish or cancel the current file transfer first.")) }
         let job = try Outgoing(url: url, peer: peer, id: id); outgoing = job; updated = Date()
         status(ui("Waiting for the recipient · ") + (job.offer.name ?? ui("File")))
-        emit(job.offer, to: peer)
+        var offer = job.offer
+        if preparePreview, FilePacket.canPrepareImage(name: offer.name, size: offer.size), let size = offer.size {
+            do {
+                if let bytes = try job.handle.read(upToCount: Int(size)), let thumb = PreparedDragImage.thumbnail(bytes) {
+                    offer.previewPNG = PreparedDragImage.encodePreview(thumb)
+                }
+                try job.handle.seek(toOffset: 0)
+            } catch { fail(error.localizedDescription); return }
+        }
+        emit(offer, to: peer)
     }
     func accept(id: UUID, destination: URL, directory: ReceiveDirectory? = nil) {
         guard let job = incoming, job.offer.id == id, job.writer == nil else { return }
@@ -234,11 +243,11 @@ final class FileTransfer {
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.checkTimeout() }
         self.timer = timer; RunLoop.main.add(timer, forMode: .common)
     }
-    func offer(url: URL, to peer: String, id: UUID = UUID()) throws {
+    func offer(url: URL, to peer: String, id: UUID = UUID(), keeping source: DragSourceFile? = nil, preparePreview: Bool = false) throws {
         guard !busy else { throw ClipError.invalid(ui("Finish the current file transfer first.")) }
         busy = true; onStatus?(ui("Preparing file…"), nil, true)
         queue.async { [self] in
-            do { try worker.offer(url: url, to: peer, id: id) }
+            do { try withExtendedLifetime(source) { try worker.offer(url: url, to: peer, id: id, preparePreview: preparePreview) } }
             catch { worker.onStatus?(error.localizedDescription, nil, worker.busy) }
         }
     }

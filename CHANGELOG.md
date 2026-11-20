@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.4 build 43 — 2026-11-20
+
+- Drag an image across the shared edge to start transferring it while the mouse button is held. A small thumbnail travels ahead of the file and follows the pointer. Release over an app to attach it.
+- PNG and TIFF drags from apps can now use the same path as image files from Finder. Both Macs need build 43 for early transfers. The regular file transfer remains available for older peers and files over 20 MiB.
+
 ## 0.4.4 build 42 — 2026-11-19
 
 - Drop files into apps that show a new drop zone when you hover. Small pointer movements over the same control during transfer are OK.
