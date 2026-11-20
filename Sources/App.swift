@@ -19,8 +19,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
     private lazy var fileBadge = DraggedFileBadge()
     private var draggingFile: (source: DragSourceFile, connection: UUID)?
     private var showingFileEdge = false
-    private var fileDestination: (id: UUID, name: String, folder: URL, date: Date)?
+    private var fileDestination: (id: UUID, name: String, folder: URL?, date: Date)?
     private var approvedDropDirectory: ReceiveDirectory?
+    private var lastFileDropID: UUID?
     private var appDrop: AppFileDrop?
     private var featurePeer: ConnectedPeer?
     private let peerVersionLabel = NSTextField(wrappingLabelWithString: "")
@@ -901,6 +902,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
         require(fileProgress.isHidden && fileActions.isHidden, "short drop stays quiet")
         fileStatus("Sent", progress: 1, busy: false)
         require(progressDelay == nil && fileProgress.isHidden && fileLabel.stringValue == Self.fileHint, "completed drop never flashes a progress bar")
+        let offer = FilePacket(kind: .offer, id: UUID(), name: "preview.png", size: 1)
+        do {
+            let image = try PreparedDragImage(offer: offer)
+            try Data([0]).write(to: image.url)
+            defer { try? FileManager.default.removeItem(at: image.url.deletingLastPathComponent()) }
+            preparedImage = image
+            let outside = CGPoint(x: -100000, y: -100000)
+            require(releaseFileDrop(id: offer.id, name: "preview.png", at: outside),
+                    "an unresolved image drop keeps its pending transfer")
+            dragImages.onComplete?(image.url)
+            require(receivedFile == image.url && !retryFile.isHidden && receivePanel == nil && !files.busy,
+                    "an unresolved image can be retried locally without opening a save sheet")
+        } catch { require(false, "prepare synthetic drop") }
         let testURL = URL(fileURLWithPath: "/synthetic/drop.png")
         files.onComplete?(testURL)
         require(receivedFile == nil && revealButton.isHidden, "direct folder drops finish quietly")
@@ -1203,21 +1217,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
             } catch { /* The release can still use the regular file transfer. */ }
         }
         mouse.onFileDropPosition = { [weak self] id, point in
-            guard let self else { return false }
-            if let pending = self.heldDrop, !pending.isDragging { pending.abort() }
-            self.fileBadge.orderOut(nil)
-            self.fileBadge.setThumbnail(nil)
-            self.appDrop = AppFileDrop(id: id, name: self.mouse.draggedFileName ?? "", point: point)
-            self.fileDestination = self.appDrop == nil ? finderFolder(at: point).map { (id, self.mouse.draggedFileName ?? "", $0, Date()) } : nil
-            guard let image = self.preparedImage, image.id == id, let drop = self.appDrop, drop.name == image.url.lastPathComponent else {
-                if self.preparedImage?.released != true { self.discardPreparedImage() }
-                return false
-            }
-            image.released = true
-            if let held = self.heldDrop, held.id == id, held.isDragging, image.take() != nil {
-                held.releaseHeld(at: point)
-            } else { self.deliverPreparedImage() }
-            return true
+            guard let self, let name = self.mouse.draggedFileName else { return false }
+            return self.releaseFileDrop(id: id, name: name, at: point)
         }
         mouse.onFileDropReady = { [weak self] id, prepared in
             guard let self, self.mouse.fileDropReleased, let drag = self.draggingFile, self.enabled,
@@ -1318,6 +1319,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
             }
             self.showReceivedFile(direct ? nil : url)
         }
+    }
+    private func releaseFileDrop(id: UUID, name: String, at point: CGPoint) -> Bool {
+        lastFileDropID = id
+        if let pending = heldDrop, !pending.isDragging { pending.abort() }
+        fileBadge.orderOut(nil)
+        fileBadge.setThumbnail(nil)
+        appDrop = nil
+        fileDestination = nil
+        let image = preparedImage
+        let matchesImage = image?.id == id && image?.url.lastPathComponent == name
+        if matchesImage, let image, let held = heldDrop, held.id == id, held.canReleaseHeld(at: point) {
+            image.released = true
+            if image.take() != nil {
+                held.releaseHeld(at: point)
+                return true
+            }
+        }
+        heldDrop?.abort()
+        appDrop = AppFileDrop(id: id, name: name, point: point)
+        if appDrop == nil {
+            var isFinder = false
+            let folder = finderFolder(at: point, isFinder: &isFinder)
+            if isFinder {
+                fileDestination = (id, name, folder, Date())
+                discardPreparedImage()
+                return false
+            }
+        }
+        guard matchesImage, let image else { discardPreparedImage(); return false }
+        // An unresolved app drop keeps the verified file available for a local retry.
+        image.released = true
+        deliverPreparedImage()
+        return true
     }
     private func startHeldDropIfReady() {
         guard heldDrop == nil, let image = preparedImage, image.verified, !image.released,
@@ -1420,7 +1454,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
         let parentChanged = previous?.connection != next?.connection
         let inputChanged = parentChanged || previous?.inputReady != next?.inputReady || previous?.inputSession != next?.inputSession
         featurePeer = next
-        if inputChanged { discardPreparedImage(); preparingImageID = nil; dragImages.disconnected(); appDrop = nil; fileDestination = nil; approvedDropDirectory = nil }
+        if inputChanged { lastFileDropID = nil; discardPreparedImage(); preparingImageID = nil; dragImages.disconnected(); appDrop = nil; fileDestination = nil; approvedDropDirectory = nil }
         if parentChanged { files.disconnected() }
         if inputChanged {
             inputHealth = nil
@@ -1642,7 +1676,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
             return
         }
         appDrop = nil
-        let folder = target.flatMap { mouse.isReceivingDrop(offer.id) && $0.id == offer.id && $0.name == offer.name && Date().timeIntervalSince($0.date) < 5 ? $0.folder : nil }
+        let finder = target.flatMap { mouse.isReceivingDrop(offer.id) && $0.id == offer.id && $0.name == offer.name && Date().timeIntervalSince($0.date) < 5 ? $0 : nil }
+        if lastFileDropID == offer.id, finder == nil {
+            files.decline(id: offer.id)
+            fileLabel.stringValue = ui("Drop over a file attachment field or a Finder folder.")
+            return
+        }
+        let folder = finder?.folder
         if let folder, let name = offer.name, let approved = approvedDropDirectory, approved.matches(folder) {
             directDrop = true
             files.accept(id: offer.id, destination: folder.appendingPathComponent(name), directory: approved)

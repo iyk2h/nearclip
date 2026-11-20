@@ -202,7 +202,7 @@ final class AppDropSmoke: NSView {
                 drop.deliver(preview: held ? NSImage(data: bytes) : nil, authorized: { child.isRunning }) { completed = ($0 != cancel) }
                 if held {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.85) {
-                        guard drop.isDragging,
+                        guard drop.canReleaseHeld(at: point),
                               AppFileDrop(id: id, name: file.lastPathComponent, point: point, expectedPID: child.processIdentifier) != nil else {
                             print("FAIL: target changed while hovering"); exit(1)
                         }

@@ -389,3 +389,5 @@
 "File dropped." = "앱에 파일을 놓았어요.";
 "Drag the file below into your app." = "아래 파일을 앱으로 끌어 놓으세요.";
 "Drag this file into your app, or double-click to show it in Finder." = "파일을 앱으로 끌어 놓으세요. 이중 클릭하면 Finder에서 볼 수 있어요.";
+
+"Drop over a file attachment field or a Finder folder." = "파일을 첨부할 입력창이나 Finder 폴더에 놓으세요.";

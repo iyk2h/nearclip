@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.4 build 45 — 2026-11-20
+
+- If an image drop misses its app, drag the received file from NearClip to retry. Mouse sharing stays available.
+- Releasing an active image drag checks the app under the pointer. Finder drops and manual transfers keep their local save approval.
+
 ## 0.4.4 build 44 — 2026-11-20
 
 - Image drags show the thumbnail alone. The filename appears while a preview is unavailable.

@@ -125,7 +125,8 @@ final class FileEdgePanel: NSPanel {
 
 // Finder exposes ordinary folder icons through AXURL and folder windows through AXDocument.
 // A virtual Finder location (for example Recents) falls back to the normal save panel.
-func finderFolder(at point: CGPoint) -> URL? {
+func finderFolder(at point: CGPoint, isFinder: inout Bool) -> URL? {
+    isFinder = false
     var element: AXUIElement?
     let system = AXUIElementCreateSystemWide()
     AXUIElementSetMessagingTimeout(system, 0.15)
@@ -134,6 +135,7 @@ func finderFolder(at point: CGPoint) -> URL? {
     var pid: pid_t = 0
     guard AXUIElementGetPid(element, &pid) == .success,
           NSRunningApplication(processIdentifier: pid)?.bundleIdentifier == "com.apple.finder" else { return nil }
+    isFinder = true
     func attribute(_ element: AXUIElement, _ key: String) -> CFTypeRef? {
         var result: CFTypeRef?
         return AXUIElementCopyAttributeValue(element, key as CFString, &result) == .success ? result : nil
@@ -259,14 +261,30 @@ final class AppFileDrop: NSObject, NSDraggingSource {
     private func originalWindow(at location: CGPoint) -> Bool {
         NSWindow.windowNumber(at: appKitPoint(location), belowWindowWithWindowNumber: 0) == windowNumber
     }
+    private static func owner(of element: AXUIElement?) -> pid_t? {
+        var pid: pid_t = 0
+        guard let element, AXUIElementGetPid(element, &pid) == .success else { return nil }
+        return pid
+    }
+    private static func acceptsAppDrop(_ pid: pid_t) -> Bool {
+        guard pid != getpid(), let app = NSRunningApplication(processIdentifier: pid) else { return false }
+        return app.activationPolicy == .regular && app.bundleIdentifier != "com.apple.finder"
+    }
+    func canReleaseHeld(at location: CGPoint) -> Bool {
+        guard isDragging, let cursor = CGEvent(source: nil)?.location,
+              hypot(cursor.x - location.x, cursor.y - location.y) <= 8 else { return false }
+        // The system drag image can cover the window being hit-tested during an active drag.
+        if let pid = Self.owner(of: Self.hit(location)) { return Self.acceptsAppDrop(pid) }
+        return originalWindow(at: location)
+    }
     init?(id: UUID, name: String, point: CGPoint, expectedPID: pid_t? = nil) {
         guard FilePacket.safeName(name), let primary = NSScreen.screens.first else { return nil }
         let number = NSWindow.windowNumber(at: CGPoint(x: point.x, y: primary.frame.maxY - point.y), belowWindowWithWindowNumber: 0)
-        guard number > 0, let info = (CGWindowListCopyWindowInfo(.optionIncludingWindow, CGWindowID(number)) as? [[String: Any]])?.first,
-              let pid = info[kCGWindowOwnerPID as String] as? pid_t, pid != getpid(), expectedPID == nil || expectedPID == pid,
-              let app = NSRunningApplication(processIdentifier: pid), app.activationPolicy == .regular,
-              app.bundleIdentifier != "com.apple.finder" else { return nil }
+        guard number > 0 else { return nil }
         let target = Self.hit(point)
+        let info = (CGWindowListCopyWindowInfo(.optionIncludingWindow, CGWindowID(number)) as? [[String: Any]])?.first
+        guard let pid = (info?[kCGWindowOwnerPID as String] as? pid_t) ?? Self.owner(of: target),
+              expectedPID == nil || expectedPID == pid, Self.acceptsAppDrop(pid) else { return nil }
         self.id = id; self.name = name; self.point = point; self.target = target; windowNumber = number
     }
 

@@ -2,7 +2,7 @@
 
 Copy on one Mac. Paste on the other. NearClip is a free, ad-free app that connects two Macs on the same local network, even if they use different Apple accounts. Move the pointer across the screen edge to keep typing on the other Mac, or send a file and choose where to save it.
 
-[**Download NearClip for Mac**](https://github.com/iyk2h/nearclip/releases/download/v0.4.4-build44/NearClip-0.4.4-build44-macOS.dmg) · [Release notes](https://github.com/iyk2h/nearclip/releases) · macOS 13 or later · Apple silicon and Intel
+[**Download NearClip for Mac**](https://github.com/iyk2h/nearclip/releases/download/v0.4.4-build45/NearClip-0.4.4-build45-macOS.dmg) · [Release notes](https://github.com/iyk2h/nearclip/releases) · macOS 13 or later · Apple silicon and Intel
 
 ![NearClip demo showing text copied between Macs, a pointer crossing the screen edge, and file selection](docs/media/nearclip-connected.gif)
 
