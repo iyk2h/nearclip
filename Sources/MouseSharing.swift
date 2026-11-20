@@ -74,6 +74,14 @@ final class MouseSharing {
     private var fileDragAnchor: CGPoint?
     private var dropDeadline: Date?
     private var supportsFileDrag = false
+    private var supportsReturnFile = false
+    private(set) var returningFile = false
+    private var controllerButtons: Set<Int> = []
+    private var releasedReturn: UUID?
+    var canPickUpRemoteDrag: Bool {
+        supportsReturnFile && mode == .receiving && pressed == [0] && draggedFileName == nil &&
+            pressedKeys.isEmpty && receivedKeyFlags == 0 && !remoteSecureInputBlocked && !secureInputBlocked
+    }
     var onFileEdge: ((CGPoint, ScreenSide) -> Void)?
     var onFileDragAccepted: ((UUID) -> Void)?
     var onFileDragMove: ((CGPoint) -> Bool)?
@@ -132,19 +140,20 @@ final class MouseSharing {
     var onKeyboardInput: ((KeyboardPacket) -> Void)?
     var onKeysReleased: ((Set<Int>) -> Void)?
     var secureInputEnabled: () -> Bool = { false }
-    var indicatorPoint: CGPoint { mode == .receiving ? position : origin }
+    var indicatorPoint: CGPoint { mode == .receiving || returningFile ? position : origin }
     var side: ScreenSide { layout?.peerSide(for: local) ?? .right }
     var active: Bool { mode != .local }
     init(local: String, native: Bool = true) {
         self.local = local; self.native = native
         if native { secureInputEnabled = { IsSecureEventInputEnabled() } }
     }
-    func setPeer(_ peer: String?, savedLayout: ScreenLayout? = nil, supportsKeyboard: Bool = false, supportsGestures: Bool = false, supportsFileDrag: Bool = false) {
+    func setPeer(_ peer: String?, savedLayout: ScreenLayout? = nil, supportsKeyboard: Bool = false, supportsGestures: Bool = false, supportsFileDrag: Bool = false, supportsReturnFile: Bool = false) {
         if self.peer != peer && enabled { try? applyEnabled(false) }
         if let peer, requestedPeer != nil, requestedPeer != peer { requestedPeer = nil; onConsentChange?(nil) }
         endSession(notify: false, reason: .connectionChanged); self.peer = peer; remoteEnabled = false; remoteSecureInputBlocked = false
         motionCadence = MotionCadence()
         self.supportsFileDrag = supportsFileDrag
+        self.supportsReturnFile = supportsFileDrag && supportsReturnFile
         keyboardSupported = supportsKeyboard; remoteKeyboardEnabled = false
         gesturesSupported = supportsGestures && DockSwipeAdapter.available
         if native { logger.notice("gesture_capability peer_present=\(peer != nil, privacy: .public) negotiated=\(supportsGestures, privacy: .public) enabled=\(self.gesturesSupported, privacy: .public)") }
@@ -264,6 +273,7 @@ final class MouseSharing {
     private func observeSecureInput() -> Bool {
         let blocked = enabled && secureInputEnabled()
         guard blocked != secureInputBlocked else { return blocked }
+        if blocked { releasedReturn = nil }
         secureInputBlocked = blocked
         edgeSince = nil
         onEdgeProgress?(nil, side, 0)
@@ -307,6 +317,7 @@ final class MouseSharing {
                   let (point, rect) = ScreenGeometry.entry(side: side, fraction: fraction, displays: displays()) else {
                 emit(MousePacket(kind: .deny, token: packet.token)); return
             }
+            releasedReturn = nil
             draggedFileName = packet.draggedFileName
             token = packet.token; mode = .receiving; position = point; entryRect = rect; entrySide = side
             beganControl()
@@ -331,14 +342,38 @@ final class MouseSharing {
             }
             if draggedFileName != nil { onFileDragAccepted?(token) }
             onChange?()
+        case .returnFile:
+            guard mode == .controlling, supportsReturnFile, !returningFile, draggedFileName == nil else { return }
+            guard controllerButtons == [0], localHeldKeys.isEmpty, remoteEnabled, !remoteSecureInputBlocked,
+                  let fraction = packet.fraction else { endSession(reason: .handoffCancelled); return }
+            returningFile = true
+            draggedFileName = packet.draggedFileName
+            pendingX = 0; pendingY = 0
+            position = ScreenGeometry.clamp(CGPoint(x: origin.x, y: originRect.minY + originRect.height * fraction), to: originRect)
+            if let id = hiddenOn { CGDisplayShowCursor(id); hiddenOn = nil }
+            if native { CGWarpMouseCursorPosition(position) }
+            emit(MousePacket(kind: .returnAccepted, token: token))
+            onChange?()
+        case .returnAccepted:
+            guard mode == .receiving, returningFile, pressed == [0] else { return }
+            // Finish Finder's copy onto the edge panel while the hardware button stays down on the other Mac.
+            pressed.remove(0)
+            if native { post(MousePacket(kind: .input, token: token, action: .up), at: position) }
+            onFileDragAccepted?(token)
         case .dropFile:
-            guard mode == .receiving, draggedFileName != nil, !fileDropReleased else { return }
+            guard mode == .receiving, !returningFile, draggedFileName != nil, !fileDropReleased else { return }
             fileDropReleased = true
             if native { logger.notice("file_drop_received") }
             let prepared = onFileDropPosition?(token, position) == true
             draggedFileName = nil; fileDropReleased = false
             emit(MousePacket(kind: .dropReady, token: token, preparedImage: prepared ? true : nil))
         case .dropReady:
+            if returningFile, mode == .receiving, pressed.isEmpty {
+                fileDropReleased = true
+                onFileDropReady?(token, packet.preparedImage == true)
+                endSession(notify: false, reason: .returnEdge)
+                return
+            }
             guard mode == .controlling, draggedFileName != nil, fileDropReleased else { return }
             if native { logger.notice("file_drop_acknowledged") }
             onFileDropReady?(token, packet.preparedImage == true)
@@ -347,7 +382,7 @@ final class MouseSharing {
             if native { CGWarpMouseCursorPosition(CGPoint(x: originRect.midX, y: origin.y)) }
             onChange?()
         case .input:
-            guard mode == .receiving, draggedFileName == nil || (packet.action == .move && !fileDropReleased) else { return }
+            guard mode == .receiving, !returningFile, draggedFileName == nil || (packet.action == .move && !fileDropReleased) else { return }
             apply(packet, now: now)
         case .leave: endSession(notify: false, fraction: packet.fraction, reason: packet.endReason.flatMap(MouseEndReason.init(rawValue:)) ?? .peerEnded, byPeer: true)
         case .deny: if mode == .requesting { endSession(notify: false, reason: .notReady, byPeer: true) }
@@ -366,6 +401,11 @@ final class MouseSharing {
             return false
         }
         if mode == .controlling {
+            if returningFile {
+                position = point
+                _ = onFileDragMove?(point)
+                return true
+            }
             if fileDropReleased { return true }
             if pendingFlags != flags & 0x1E0000 { flushMove(force: true) }
             let idle = now.timeIntervalSince(lastMoveObserved)
@@ -392,9 +432,20 @@ final class MouseSharing {
         requestHandoff(at: point, rect: rect, now: now)
         return false
     }
-    func isReceivingDrop(_ id: UUID) -> Bool { mode == .receiving && token == id && enabled && remoteEnabled && !observeSecureInput() }
+    func isReceivingDrop(_ id: UUID) -> Bool {
+        guard enabled, remoteEnabled, !remoteSecureInputBlocked, !observeSecureInput() else { return false }
+        if releasedReturn == id { return true }
+        return token == id && (returningFile ? mode == .controlling : mode == .receiving)
+    }
 
     func startFileDrag(named name: String, at point: CGPoint, now: Date = Date()) -> Bool {
+        if canPickUpRemoteDrag, enabled, remoteEnabled, !observeSecureInput(), FilePacket.safeName(name),
+           let token, let rect = ScreenGeometry.exit(at: point, deltaX: entrySide == .left ? -1 : 1, side: entrySide, displays: displays()),
+           rect == entryRect {
+            returningFile = true; draggedFileName = name; position = point
+            emit(MousePacket(kind: .returnFile, token: token, fraction: ScreenGeometry.fraction(point.y, in: rect), draggedFileName: name))
+            return returningFile
+        }
         guard supportsFileDrag, enabled, remoteEnabled, mode == .local, now >= cooldown, !observeSecureInput(),
               !remoteSecureInputBlocked, localHeldKeys.isEmpty, FilePacket.safeName(name),
               let rect = ScreenGeometry.exit(at: point, deltaX: side == .left ? -1 : 1, side: side, displays: displays()) else { return false }
@@ -414,13 +465,26 @@ final class MouseSharing {
     }
     private func requestHandoff(at point: CGPoint, rect: CGRect, now: Date) {
         origin = ScreenGeometry.clamp(point, to: rect, inset: 24); originRect = rect
+        releasedReturn = nil
         token = UUID(); mode = .requesting; edgeSince = nil; lastHeard = now; lastEndReason = nil
         updateTimer()
         if native { logger.notice("control_request") }
         emit(MousePacket(kind: .enter, token: token, side: side.opposite, fraction: ScreenGeometry.fraction(point.y, in: rect), draggedFileName: draggedFileName))
         onChange?()
     }
-    func localButton(action: MousePacket.Action, button: Int, clicks: Int = 1, flags: UInt64 = 0) -> Bool {
+    func localButton(action: MousePacket.Action, button: Int, clicks: Int = 1, flags: UInt64 = 0, at point: CGPoint? = nil) -> Bool {
+        if returningFile, mode == .controlling, let token {
+            guard action == .up, button == 0, controllerButtons == [0], !observeSecureInput() else {
+                endSession(reason: .handoffCancelled); return true
+            }
+            let prepared = onFileDropPosition?(token, point ?? position) == true
+            emit(MousePacket(kind: .dropReady, token: token, preparedImage: prepared ? true : nil))
+            if self.token == token {
+                endSession(notify: false, reason: .returnEdge)
+                releasedReturn = token
+            }
+            return true
+        }
         if draggedFileName != nil, mode == .requesting || mode == .controlling {
             if action == .up && button == 0 && mode == .controlling {
                 if !fileDropReleased && !releaseFileDrag() { endSession(reason: .handoffCancelled) }
@@ -430,6 +494,7 @@ final class MouseSharing {
         if mode == .receiving || mode == .requesting { endSession(reason: .localButton); return false }
         guard enabled, mode == .controlling else { return false }
         flushMove(force: true)
+        if action == .down { controllerButtons.insert(button) } else { controllerButtons.remove(button) }
         emit(MousePacket(kind: .input, token: token, action: action, button: button, clicks: max(1, min(3, clicks)), flags: flags & 0x1E0000))
         return true
     }
@@ -594,6 +659,10 @@ final class MouseSharing {
                 returnEdgeSince = nil; lastReturnPush = nil
             }
             position = ScreenGeometry.project(next, displays: displays())
+            if canPickUpRemoteDrag, packet.flags == 0,
+               ScreenGeometry.exit(at: position, deltaX: packet.dx, side: entrySide, displays: displays(), distance: 120) == entryRect {
+                onFileEdge?(position, entrySide)
+            }
             let depth = entrySide == .left ? position.x - entryRect.minX : entryRect.maxX - position.x
             if depth >= min(24, entryRect.width / 4) { returnArmed = true }
         case .down:
@@ -610,6 +679,8 @@ final class MouseSharing {
     }
     func endSession(notify: Bool = true, fraction: Double? = nil, reason: MouseEndReason = .stopped, byPeer: Bool = false) {
         let old = mode, oldToken = token
+        let cursorReturned = returningFile && old == .controlling
+        returningFile = false; controllerButtons.removeAll(); releasedReturn = nil
         if let gesture = receivedGesture {
             let cancelled = gesture.cancelled
             onGesture?(cancelled)
@@ -647,7 +718,7 @@ final class MouseSharing {
             pressed = []
         }
         if let id = hiddenOn { CGDisplayShowCursor(id); hiddenOn = nil }
-        if native, old == .controlling {
+        if native, old == .controlling, !cursorReturned {
             var point = origin
             if let fraction { point.y = originRect.minY + originRect.height * fraction }
             CGWarpMouseCursorPosition(ScreenGeometry.clamp(point, to: originRect, inset: 24))
@@ -726,6 +797,10 @@ final class MouseSharing {
             }
             let blocked = localMove(point: event.location, dx: Double(event.getIntegerValueField(.mouseEventDeltaX)), dy: Double(event.getIntegerValueField(.mouseEventDeltaY)), flags: flags, buttonsDown: down)
             if blocked {
+                if returningFile && mode == .controlling {
+                    event.type = .mouseMoved
+                    return Unmanaged.passUnretained(event)
+                }
                 if let anchor = fileDragAnchor, type == .leftMouseDragged {
                     // Move the remote pointer while keeping Finder over the source drop target.
                     event.location = anchor
@@ -739,8 +814,9 @@ final class MouseSharing {
             guard (0...2).contains(button) else { if active { endSession(reason: .localButton) }; return Unmanaged.passUnretained(event) }
             if type == .leftMouseUp, mode == .controlling, let anchor = fileDragAnchor { event.location = anchor }
             let down = [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(type)
-            if localButton(action: down ? .down : .up, button: button, clicks: Int(event.getIntegerValueField(.mouseEventClickState)), flags: flags) { return nil }
+            if localButton(action: down ? .down : .up, button: button, clicks: Int(event.getIntegerValueField(.mouseEventClickState)), flags: flags, at: event.location) { return nil }
         case .scrollWheel:
+            if returningFile { endSession(reason: .localScroll); return nil }
             if mode == .receiving { endSession(reason: .localScroll) }
             if mode == .controlling {
                 flushMove(force: true)

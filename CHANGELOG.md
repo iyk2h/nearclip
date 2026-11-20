@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.4 build 48
+
+Use one mouse to pick up a file on the other Mac and drag it back to a folder or an app on your own screen. Both Macs need build 48.
+
 ## 0.4.4 build 47
 
 Drag a file across the shared screen edge in one motion. The sending Mac no longer shows a Copy to Mac panel. On the receiving Mac, images show their preview without flashing the filename. An image icon appears if the preview takes longer or is unavailable.

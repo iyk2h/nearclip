@@ -15,6 +15,7 @@ struct ConnectedPeer {
 enum SharingFeature {
     static let files = "files-v1"
     static let dragImage = "drag-image-v1"
+    static let returnFileDrag = "return-file-drag-v1"
     static let fileDrag = "finder-drag-v1"
     static let mouse = "mouse-v1"
     static let keyboard = "keyboard-v1"
@@ -23,7 +24,7 @@ enum SharingFeature {
     static let inputRecovery = "input-recovery-v1"
     static let inputMetrics = "input-metrics-v1"
     static let inputDiagnostics = "input-diagnostics-v1"
-    static let supported = [files, mouse, keyboard, inputChannel, inputRecovery, inputMetrics, inputDiagnostics] + (DockSwipeAdapter.available ? [gestures] : []) + [fileDrag, dragImage]
+    static let supported = [files, mouse, keyboard, inputChannel, inputRecovery, inputMetrics, inputDiagnostics] + (DockSwipeAdapter.available ? [gestures] : []) + [fileDrag, dragImage, returnFileDrag]
     static let maxPacket = 128 * 1024
 }
 
@@ -147,7 +148,7 @@ enum MouseEndReason: String {
 }
 
 struct MousePacket: Codable {
-    enum Kind: String, Codable { case availability, layout, enter, accepted, input, leave, heartbeat, deny, dropFile, dropReady }
+    enum Kind: String, Codable { case availability, layout, enter, accepted, input, leave, heartbeat, deny, dropFile, dropReady, returnFile, returnAccepted }
     enum Action: String, Codable { case move, down, up, scroll }
     let kind: Kind
     var token: UUID? = nil
@@ -172,7 +173,7 @@ struct MousePacket: Codable {
     var motionSentAt: Double? = nil
     func validate() throws {
         if preparedImage != nil && kind != .dropReady { throw ClipError.invalid(ui("Invalid file message.")) }
-        if let draggedFileName, kind != .enter || !FilePacket.safeName(draggedFileName) { throw ClipError.invalid(ui("Invalid file message.")) }
+        if let draggedFileName, (kind != .enter && kind != .returnFile) || !FilePacket.safeName(draggedFileName) { throw ClipError.invalid(ui("Invalid file message.")) }
         if let motionSentAt {
             guard kind == .input, action == .move, motionSentAt.isFinite, motionSentAt >= 0 else { throw ClipError.invalid(ui("Invalid movement timestamp.")) }
         }
@@ -191,6 +192,7 @@ struct MousePacket: Codable {
         switch kind {
         case .availability: guard enabled != nil else { throw ClipError.invalid(ui("Missing input-sharing state.")) }
         case .layout: guard layout != nil else { throw ClipError.invalid(ui("Missing screen layout.")) }
+        case .returnFile: guard token != nil, fraction != nil, draggedFileName != nil else { throw ClipError.invalid(ui("Invalid file message.")) }
         case .enter: guard token != nil, side != nil, fraction != nil else { throw ClipError.invalid(ui("Missing entry position.")) }
         case .input: guard token != nil, action != nil else { throw ClipError.invalid(ui("Missing input session.")) }
         default: guard token != nil else { throw ClipError.invalid(ui("Missing input session.")) }

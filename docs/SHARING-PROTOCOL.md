@@ -134,3 +134,7 @@ These key codes are macOS-specific. A Windows adapter needs an explicit key-code
 
 
 Build 26 ready envelopes may include `osMajor` (integer 10–99). It is diagnostic metadata inside the authenticated message; older peers may omit or ignore it. It does not grant input permission or override negotiated capabilities. Capability logs distinguish the local advertisement, peer advertisement, and negotiated result.
+
+### Drag a file back to the controller (build 48)
+
+Both peers must negotiate `return-file-drag-v1` and Finder drag support. When an actual AppKit drag reaches the return edge with the remote left button held, the controlled Mac sends `returnFile` with the current input token, display height fraction, and filename. The controller accepts only while it still holds that button. Its `returnAccepted` lets the source finish the Finder copy and prepare an image preview. The controller resolves the destination on physical release and sends `dropReady`. Only that released drop can complete after pointer control returns home. File bytes use the existing authenticated transfer channel. No source path travels over the input channel.

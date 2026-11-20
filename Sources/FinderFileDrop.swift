@@ -93,12 +93,12 @@ final class FileEdgePanel: NSPanel {
     }
 
     private var dismissTimer: Timer?
-    func dismissWhenDragEnds() {
+    func dismissWhenDragEnds(remoteButtonDown: @escaping () -> Bool = { false }) {
         guard dismissTimer == nil else { return }
         var releasedOnPreviousTick = false
         let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] timer in
             guard let self else { timer.invalidate(); return }
-            let released = NSEvent.pressedMouseButtons & 1 == 0
+            let released = NSEvent.pressedMouseButtons & 1 == 0 && !remoteButtonDown()
             if !self.isVisible || (released && releasedOnPreviousTick) {
                 if self.isVisible { self.target.exit?(true); self.orderOut(nil) }
                 timer.invalidate(); self.dismissTimer = nil

@@ -1184,11 +1184,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
         fileEdge.target.drop = { [weak self] url in
             guard let self, let drag = self.draggingFile, drag.source.url == url,
                   drag.connection == self.featurePeer?.connection else { return false }
-            return self.mouse.fileDropReleased || self.mouse.releaseFileDrag()
+            return (self.mouse.returningFile && self.mouse.mode == .receiving) || self.mouse.fileDropReleased || self.mouse.releaseFileDrag()
         }
         fileEdge.target.exit = { [weak self] ended in
             guard let self, !self.mouse.fileDropReleased else { return }
             if self.draggingFile != nil {
+                if self.mouse.returningFile && self.mouse.mode == .receiving { return }
                 if !ended && self.mouse.mode == .controlling { return }
                 self.mouse.endSession(reason: .handoffCancelled)
             }
@@ -1200,10 +1201,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
             DispatchQueue.main.async {
                 defer { self.showingFileEdge = false }
                 guard self.enabled, !self.files.busy, self.mouse.enabled, self.mouse.remoteEnabled,
-                      self.mouse.mode == .local, self.mouse.side == side, NSEvent.pressedMouseButtons & 1 == 1,
+                      self.mouse.side == side, self.mouse.canPickUpRemoteDrag || (self.mouse.mode == .local && NSEvent.pressedMouseButtons & 1 == 1),
                       (NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.finder" || FinderFileDrop.fileURL(from: NSPasteboard(name: .drag)) != nil || DragSourceFile.hasImage(on: NSPasteboard(name: .drag))) else { return }
                 self.fileEdge.present(at: point, side: side)
-                self.fileEdge.dismissWhenDragEnds()
+                self.fileEdge.dismissWhenDragEnds { [weak self] in self?.mouse.canPickUpRemoteDrag == true }
             }
         }
         mouse.onFileDragAccepted = { [weak self] id in
@@ -1258,7 +1259,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
                     self.draggingFile = nil
                     self.fileEdge.orderOut(nil); self.fileBadge.dismiss()
                 }
-                if self.mouse.mode == .receiving, self.heldDrop?.isDragging != true, let name = self.mouse.draggedFileName {
+                if (self.mouse.returningFile ? self.mouse.mode == .controlling : self.mouse.mode == .receiving), self.heldDrop?.isDragging != true, let name = self.mouse.draggedFileName {
                     self.fileBadge.show(name, at: self.mouse.indicatorPoint)
                 }
                 if self.mouse.active && self.mouse.draggedFileName == nil {
@@ -1350,11 +1351,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
         guard matchesImage, let image else { discardPreparedImage(); return false }
         // An unresolved app drop keeps the verified file available for a local retry.
         image.released = true
-        deliverPreparedImage()
+        if mouse.returningFile {
+            // AppKit can start the local drop once the physical mouse-up has cleared the event tap.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.preparedImage === image else { return }
+                self.deliverPreparedImage()
+            }
+        } else { deliverPreparedImage() }
         return true
     }
     private func startHeldDropIfReady() {
-        guard heldDrop == nil, let image = preparedImage, image.verified, !image.released,
+        guard !mouse.returningFile, heldDrop == nil, let image = preparedImage, image.verified, !image.released,
               let preview = fileBadge.preview, enabled, mouse.draggedFileName == image.url.lastPathComponent else { return }
         let now = ProcessInfo.processInfo.systemUptime
         guard now >= image.nextHoverCheck else { return }
@@ -1466,7 +1473,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
                 mouse.setPeer(next?.features.contains(SharingFeature.mouse) == true ? next?.device : nil, savedLayout: saved,
                               supportsKeyboard: next?.features.contains(SharingFeature.keyboard) == true,
                               supportsGestures: next?.features.contains(SharingFeature.gestures) == true,
-                              supportsFileDrag: next?.features.isSuperset(of: [SharingFeature.files, SharingFeature.fileDrag]) == true)
+                              supportsFileDrag: next?.features.isSuperset(of: [SharingFeature.files, SharingFeature.fileDrag]) == true,
+                              supportsReturnFile: next?.features.contains(SharingFeature.returnFileDrag) == true)
             }
         }
         updateSharingUI()

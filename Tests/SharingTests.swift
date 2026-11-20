@@ -364,6 +364,44 @@ func mouseSharingTests() throws {
         _ = a.localMove(point: CGPoint(x: x, y: 300), dx: dx, dy: 0, now: now); pump()
         try Check.that(a.mode == .controlling && b.mode == .receiving, "each mouse scenario starts with an accepted handoff")
     }
+    let returnEdge = CGPoint(x: 1, y: 900)
+    try enter()
+    _ = a.localButton(action: .down, button: 0); pump()
+    try Check.that(!b.startFileDrag(named: "photo.png", at: returnEdge, now: now), "an older controller cannot start a return drag")
+    a.endSession(); pump()
+    a.setPeer("B", savedLayout: original, supportsFileDrag: true, supportsReturnFile: true)
+    b.setPeer("A", savedLayout: original, supportsFileDrag: true, supportsReturnFile: true)
+    try a.setEnabled(true); try b.setEnabled(true); pump()
+    try enter()
+    try Check.that(!b.startFileDrag(named: "photo.png", at: returnEdge, now: now), "remote pickup requires a held left button")
+    _ = a.localButton(action: .down, button: 0); pump()
+    try Check.that(!b.startFileDrag(named: "photo.png", at: CGPoint(x: 500, y: 400), now: now), "remote pickup requires the return edge")
+    var returnID: UUID?, returnPoint: CGPoint?, offers = 0
+    b.onFileDragAccepted = { returnID = $0 }
+    a.onFileDropPosition = { _, point in returnPoint = point; return false }
+    b.onFileDropReady = { _, _ in offers += 1 }
+    try Check.that(b.startFileDrag(named: "photo.png", at: returnEdge, now: now), "pick up a file on the controlled Mac")
+    pump()
+    try Check.that(a.returningFile && a.indicatorPoint.y == 450 && returnID.map(a.isReceivingDrop) == true, "return cursor preserves the relative height and prepares the file")
+    let folderPoint = CGPoint(x: 220, y: 170)
+    _ = a.localMove(point: folderPoint, dx: -9, dy: 1, buttonsDown: true, now: now)
+    try Check.that(offers == 0 && returnPoint == nil, "hover cannot commit a returned file")
+    _ = a.localButton(action: .up, button: 0, at: folderPoint); pump()
+    try Check.that(offers == 1 && returnPoint == folderPoint && a.mode == .local && b.mode == .local &&
+                   returnID.map(a.isReceivingDrop) == true, "physical release commits one copy at the local target and returns control")
+    try enter()
+    try Check.that(returnID.map(a.isReceivingDrop) == false, "new session invalidates previous drop authorization")
+    _ = a.localButton(action: .down, button: 0); pump()
+    _ = b.startFileDrag(named: "photo.png", at: returnEdge, now: now)
+    _ = a.localButton(action: .up, button: 0); pump()
+    try Check.that(offers == 1 && a.mode == .local && b.mode == .local, "early release cancels a pending return without transferring")
+    try enter()
+    _ = a.localButton(action: .down, button: 0); pump()
+    _ = b.startFileDrag(named: "photo.png", at: returnEdge, now: now); pump()
+    _ = a.localKey(action: .down, keyCode: 53); pump()
+    try Check.that(offers == 1 && a.mode == .local && b.mode == .local && returnID.map(a.isReceivingDrop) == false,
+                   "Escape discards the held return drag before committing a file")
+    a.onFileDropPosition = nil; b.onFileDragAccepted = nil; b.onFileDropReady = nil
     try enter()
     try Check.that(a.mode == .controlling && b.mode == .receiving, "edge dwell and handshake transfer control")
     try Check.that(a.maintenanceInterval! < 0.01 && b.maintenanceInterval == 0.1, "high-frequency maintenance runs only on the controlling sender")
@@ -647,8 +685,8 @@ func featureNetworkTests() throws {
         if let file = packet.file { fb.receive(file, from: peer) }
     }
     let layout = ScreenLayout(revision: 1, author: idA, left: idA, right: idB)
-    sourceMouse.setPeer(idB, savedLayout: layout, supportsFileDrag: true)
-    receiverMouse.setPeer(idA, savedLayout: layout, supportsFileDrag: true)
+    sourceMouse.setPeer(idB, savedLayout: layout, supportsFileDrag: true, supportsReturnFile: features.contains(SharingFeature.returnFileDrag))
+    receiverMouse.setPeer(idA, savedLayout: layout, supportsFileDrag: true, supportsReturnFile: features.contains(SharingFeature.returnFileDrag))
     try sourceMouse.setEnabled(true); try receiverMouse.setEnabled(true)
     let afterActivationCooldown = Date().addingTimeInterval(0.8)
     waitFor { sourceMouse.remoteEnabled && receiverMouse.remoteEnabled && Date() >= afterActivationCooldown }
@@ -674,6 +712,28 @@ func featureNetworkTests() throws {
                    "the real event-tap release path starts the network drop before Finder responds")
     waitFor({ done }, seconds: 12)
     try Check.that(done && (try Data(contentsOf: dropped)) == data, "acknowledged input-channel drop delivers the intact file through the separate file channel")
+    let broughtBack = folder.appendingPathComponent("brought-back.dat")
+    var returnedID: UUID?, returned = false
+    sourceMouse.onFileDropPosition = { id, _ in returnedID = id; return false }
+    receiverMouse.onFileDropReady = { id, _ in try? fb.offer(url: dropped, to: idA, id: id) }
+    fa.onOffer = { _, offer in
+        guard offer.id == returnedID, sourceMouse.isReceivingDrop(offer.id) else { fa.decline(id: offer.id); return }
+        fa.accept(id: offer.id, destination: broughtBack, directory: approved)
+    }
+    fa.onComplete = { url in returned = url == broughtBack }
+    _ = sourceMouse.localButton(action: .down, button: 0)
+    waitFor { receiverMouse.canPickUpRemoteDrag }
+    try Check.that(receiverMouse.startFileDrag(named: dropped.lastPathComponent, at: CGPoint(x: 1, y: 320)), "pick up the remote file without switching mice")
+    waitFor { sourceMouse.returningFile }
+    var clipboardMessages = 0
+    a.onClip = { _ in clipboardMessages += 1 }; b.onClip = { _ in clipboardMessages += 1 }
+    let backMove = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDragged, mouseCursorPosition: drift, mouseButton: .left)!
+    try Check.that(sourceMouse.handle(.leftMouseDragged, event: backMove) != nil && backMove.type == .mouseMoved && backMove.location == drift, "held return drag tracks the real local cursor")
+    try Check.that(sourceMouse.handle(.leftMouseUp, event: release) == nil, "return drop consumes the hardware release")
+    waitFor({ returned }, seconds: 12)
+    try Check.that(returned && (try Data(contentsOf: broughtBack)) == data && (try Data(contentsOf: dropped)) == data &&
+                   sourceMouse.mode == .local && receiverMouse.mode == .local, "encrypted reverse transfer copies the original and leaves the hardware mouse at home")
+    try Check.that(clipboardMessages == 0, "return drag does not send a clipboard update")
     sourceMouse.endSession()
     waitFor { receiverMouse.mode == .local }
     let photo = folder.appendingPathComponent("photo.png")
