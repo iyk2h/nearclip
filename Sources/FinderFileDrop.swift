@@ -264,6 +264,8 @@ final class AppFileDrop: NSObject, NSDraggingSource {
     private let logger = Logger(subsystem: "dev.nearclip.mac", category: "input")
     private let target: AXUIElement?
     private let windowNumber: Int
+    private let targetPID: pid_t
+    private let capturedAt = ProcessInfo.processInfo.systemUptime
     private var panel: NSPanel?
     private var session: NSDraggingSession?
     private var heldPoint: CGPoint?
@@ -310,7 +312,7 @@ final class AppFileDrop: NSObject, NSDraggingSource {
         let info = (CGWindowListCopyWindowInfo(.optionIncludingWindow, CGWindowID(number)) as? [[String: Any]])?.first
         guard let pid = (info?[kCGWindowOwnerPID as String] as? pid_t) ?? Self.owner(of: target),
               expectedPID == nil || expectedPID == pid, Self.acceptsAppDrop(pid) else { return nil }
-        self.id = id; self.name = name; self.point = point; self.target = target; windowNumber = number
+        self.id = id; self.name = name; self.point = point; self.target = target; windowNumber = number; targetPID = pid
     }
 
     static func stage(_ name: String, in base: URL) throws -> URL {
@@ -333,12 +335,19 @@ final class AppFileDrop: NSObject, NSDraggingSource {
         if let destination { _ = rmdir(destination.deletingLastPathComponent().path) }
     }
     private func deliveryPoint() -> CGPoint? {
-        guard let cursor = CGEvent(source: nil)?.location, originalWindow(at: point), originalWindow(at: cursor) else { return nil }
+        guard let cursor = CGEvent(source: nil)?.location, originalWindow(at: point), originalWindow(at: cursor) else {
+            logger.notice("file_drop_window_changed"); return nil
+        }
         let distance = hypot(cursor.x - point.x, cursor.y - point.y)
-        guard distance <= 32 else { return nil }
-        guard let target else { return distance < 5 ? point : nil }
-        guard let current = Self.hit(cursor), CFEqual(target, current) else { return nil }
-        return cursor
+        guard distance <= 32 else { logger.notice("file_drop_cursor_moved"); return nil }
+        let current = Self.hit(cursor)
+        if let target, let current, CFEqual(target, current) { return cursor }
+        if target == nil && distance < 5 { return point }
+        // A composer may rebuild under the button-up. Honor that release only at its original spot.
+        if distance < 4, ProcessInfo.processInfo.systemUptime - capturedAt <= 0.5,
+           Self.owner(of: current) == targetPID { return point }
+        logger.notice("file_drop_element_changed")
+        return nil
     }
     func deliver(file: URL? = nil, preview: NSImage? = nil, authorized: @escaping () -> Bool, completion: @escaping (Bool) -> Void) {
         self.authorized = authorized

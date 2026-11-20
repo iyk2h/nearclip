@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.4 build 49
+
+Chat apps can redraw their attachment field as you release a file. NearClip now completes the drop when the field refreshes under the pointer in the same window. Update the receiving Mac.
+
 ## 0.4.4 build 48
 
 Use one mouse to pick up a file on the other Mac and drag it back to a folder or an app on your own screen. Both Macs need build 48.

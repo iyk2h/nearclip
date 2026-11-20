@@ -105,6 +105,13 @@ private final class WebDropFixture: NSObject, WKScriptMessageHandler {
         view.loadHTMLString("""
             <style>body,textarea{position:absolute;inset:0;margin:0}</style><textarea></textarea>
             <script>
+            if (\(CommandLine.arguments.contains("--refresh-target"))) {
+                const button = document.createElement('button');
+                button.textContent = 'Refresh composer';
+                button.style.cssText = 'position:absolute;inset:0';
+                button.onclick = () => button.replaceWith(document.createElement('textarea'));
+                document.querySelector('textarea').replaceWith(button);
+            }
             let fileHover;
             document.ondragenter = event => {
                 event.preventDefault();
@@ -149,12 +156,23 @@ final class AppDropSmoke: NSView {
     init(_ id: UUID) {
         self.id = id
         super.init(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        if CommandLine.arguments.contains("--refresh-target") {
+            let button = NSButton(title: "Refresh composer", target: self, action: #selector(refreshComposer))
+            button.frame = bounds
+            addSubview(button)
+        } else { addComposer() }
+        registerForDraggedTypes([.fileURL])
+    }
+    @objc private func refreshComposer() {
+        subviews.forEach { $0.removeFromSuperview() }
+        addComposer()
+    }
+    private func addComposer() {
         let composer = NSTextField(labelWithString: "Message")
         composer.frame = bounds
         composer.unregisterDraggedTypes()
         composer.setAccessibilityLabel("Test message field")
         addSubview(composer)
-        registerForDraggedTypes([.fileURL])
     }
     required init?(coder: NSCoder) { nil }
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
@@ -199,6 +217,8 @@ final class AppDropSmoke: NSView {
         let cancel = CommandLine.arguments.contains("--cancel-drag")
         let held = CommandLine.arguments.contains("--held-drop-smoke")
         if CommandLine.arguments.contains("--edge-target") { child.arguments?.append("--edge-target") }
+        let refresh = CommandLine.arguments.contains("--refresh-target")
+        if refresh { child.arguments?.append("--refresh-target") }
         if cancel { child.arguments?.append("--cancel-target") }
         let web = held || CommandLine.arguments.contains("--web-drop-smoke")
         if held { child.arguments?.append("--held-target") }
@@ -213,6 +233,32 @@ final class AppDropSmoke: NSView {
                 let file = try drop.stage()
                 let bytes = web ? Data(base64Encoded: WebDropFixture.png)! : Data(id.uuidString.utf8)
                 try bytes.write(to: file)
+                if refresh {
+                    let fixture = AXUIElementCreateApplication(child.processIdentifier)
+                    var before: AXUIElement?, after: AXUIElement?
+                    guard AXUIElementCopyElementAtPosition(fixture, Float(point.x), Float(point.y), &before) == .success,
+                          let before, AXUIElementPerformAction(before, kAXPressAction as CFString) == .success,
+                          AXUIElementCopyElementAtPosition(fixture, Float(point.x), Float(point.y), &after) == .success,
+                          let after, !CFEqual(before, after) else {
+                        print("FAIL: test composer did not refresh at the release point"); exit(1)
+                    }
+                    print("PASS: composer replaced its accessibility element before delivery")
+                }
+                if CommandLine.arguments.contains("--covered-target") {
+                    let cover = NSPanel(contentRect: NSRect(x: NSEvent.mouseLocation.x - 25, y: NSEvent.mouseLocation.y - 25, width: 50, height: 50),
+                                        styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: false)
+                    cover.level = .popUpMenu; cover.orderFrontRegardless()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                        let covered = NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0) == cover.windowNumber
+                        var declined = false
+                        if covered { drop.deliver(authorized: { true }) { declined = !$0 } }
+                        cover.orderOut(nil); child.terminate()
+                        try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
+                        print(declined ? "PASS: a covering window blocks delivery" : "FAIL: covering window check failed (covered=\(covered))")
+                        exit(declined ? 0 : 1)
+                    }
+                    return
+                }
                 var completed = false
                 drop.deliver(preview: held ? NSImage(data: bytes) : nil, authorized: { child.isRunning }) { completed = ($0 != cancel) }
                 if held {
