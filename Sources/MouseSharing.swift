@@ -72,6 +72,8 @@ final class MouseSharing {
     private(set) var draggedFileName: String?
     private(set) var fileDropReleased = false
     private var fileDragAnchor: CGPoint?
+    var finishedLocalPickup: Bool { mode == .controlling && !returningFile && draggedFileName != nil && fileDragAnchor == nil }
+    var finishLocalPickup: ((UUID) -> Bool)?
     private var dropDeadline: Date?
     private var supportsFileDrag = false
     private var supportsReturnFile = false
@@ -340,7 +342,10 @@ final class MouseSharing {
                 if CGDisplayHideCursor(id) == .success { hiddenOn = id }
                 if draggedFileName == nil { CGWarpMouseCursorPosition(CGPoint(x: originRect.midX, y: origin.y)) }
             }
-            if draggedFileName != nil { onFileDragAccepted?(token) }
+            if draggedFileName != nil {
+                if fileDragAnchor != nil, finishLocalPickup?(token) == true { fileDragAnchor = nil }
+                onFileDragAccepted?(token)
+            }
             onChange?()
         case .returnFile:
             guard mode == .controlling, supportsReturnFile, !returningFile, draggedFileName == nil else { return }
@@ -487,10 +492,11 @@ final class MouseSharing {
             return true
         }
         if draggedFileName != nil, mode == .requesting || mode == .controlling {
+            let consumed = finishedLocalPickup
             if action == .up && button == 0 && mode == .controlling {
                 if !fileDropReleased && !releaseFileDrag() { endSession(reason: .handoffCancelled) }
             } else { endSession(reason: .localButton) }
-            return false // Finder must receive the button-up to finish its native drag.
+            return consumed // A still-active Finder drag needs the hardware release.
         }
         if mode == .receiving || mode == .requesting { endSession(reason: .localButton); return false }
         guard enabled, mode == .controlling else { return false }

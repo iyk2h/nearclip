@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.4 build 52
+
+Drag a file across the shared edge without bringing the NearClip window in front of your chat. Update the Mac where you pick up the file.
+
 ## 0.4.4 build 51
 
 When you drag a Finder image back to your Mac, a chat or another app that accepts files can highlight its drop target while you still hold the mouse button. Release to attach the image, or press Escape to cancel. Update the Mac you drag the image onto.

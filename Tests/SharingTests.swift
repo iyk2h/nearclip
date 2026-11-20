@@ -760,6 +760,7 @@ func featureNetworkTests() throws {
     var beforeRelease = false, skippedSecondOffer = false
     earlySender.send = { peer, chunk, reply in a.sendFeature(FeaturePacket(dragImage: chunk), to: peer, completion: reply) }
     earlyReceiver.send = { peer, chunk, reply in b.sendFeature(FeaturePacket(dragImage: chunk), to: peer, completion: reply) }
+    sourceMouse.finishLocalPickup = { _ in true }
     sourceMouse.onFileDragAccepted = { id in try? earlySender.offer(url: photo, to: idB, id: id, preparePreview: true) }
     a.onFeature = { peer, packet in
         if let image = packet.dragImage { earlySender.receive(image, from: peer) }
@@ -783,7 +784,10 @@ func featureNetworkTests() throws {
     try Check.that(sourceMouse.startFileDrag(named: "photo.png", at: sourceEdge), "image drag starts at the shared edge")
     waitFor({ beforeRelease }, seconds: 12)
     try Check.that(beforeRelease && (try Data(contentsOf: preparedURL)) == pngBytes, "authenticated receiver has verified bytes while the button is still held")
-    try Check.that(sourceMouse.releaseFileDrag(), "release the prepared image")
+    try Check.that(sourceMouse.finishedLocalPickup && !sourceMouse.fileDropReleased && !skippedSecondOffer,
+                   "finishing the local Finder pickup does not drop the remote file")
+    try Check.that(sourceMouse.handle(.leftMouseUp, event: release) == nil && sourceMouse.fileDropReleased,
+                   "only the physical release commits the detached image and consumes the extra button-up")
     waitFor { skippedSecondOffer }
     try Check.that(skippedSecondOffer, "release acknowledges the staged image without sending the file again")
 }

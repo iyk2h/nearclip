@@ -191,16 +191,34 @@ final class AppDropSmoke: NSView {
         NSApp.setActivationPolicy(.regular)
         let point = NSEvent.mouseLocation
         if CommandLine.arguments.contains("--edge-target") {
+            let checkFocus = CommandLine.arguments.contains("--held-target")
+            let name = checkFocus ? id.uuidString + ".png" : id.uuidString
+            let expectedBytes = checkFocus ? Data(base64Encoded: WebDropFixture.png)! : Data(id.uuidString.utf8)
             let edge = FileEdgePanel()
             edge.setFrameOrigin(NSPoint(x: point.x - edge.frame.width / 2, y: point.y - edge.frame.height / 2))
+            var stoleFocus = false
             edge.target.enter = { source, location in
                 guard let cursor = CGEvent(source: nil)?.location else { return false }
-                return source.url.lastPathComponent == id.uuidString && hypot(location.x - cursor.x, location.y - cursor.y) < 8
+                guard source.url.lastPathComponent == name, hypot(location.x - cursor.x, location.y - cursor.y) < 8 else { return false }
+                if checkFocus {
+                    guard !NSApp.isActive else { print("FAIL: edge was already frontmost"); exit(1) }
+                    _ = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: NSApp, queue: .main) { _ in
+                        stoleFocus = true
+                    }
+                    DispatchQueue.main.async {
+                        guard edge.target.finishPickup(id: id, url: source.url) else { print("FAIL: could not finish local pickup"); exit(1) }
+                    }
+                }
+                return true
             }
             edge.target.drop = { url in
-                guard (try? Data(contentsOf: url)) == Data(id.uuidString.utf8) else { return false }
+                guard (try? Data(contentsOf: url)) == expectedBytes else { return false }
                 print("PASS: the unlabelled edge accepts a native file drag"); fflush(stdout)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { exit(0) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + (checkFocus ? 2.5 : 0.5)) {
+                    if stoleFocus { print("FAIL: hovering over the drag edge activated NearClip"); exit(1) }
+                    if checkFocus { print("PASS: a held drop left the edge app in the background") }
+                    exit(0)
+                }
                 return true
             }
             edge.orderFrontRegardless()
@@ -275,10 +293,11 @@ final class AppDropSmoke: NSView {
                 }
                 var completed = false
                 drop.deliver(preview: held ? NSImage(data: bytes) : nil, returningDrag: returning, authorized: { child.isRunning }) { completed = ($0 != cancel) }
-                if held {
+                if held && !CommandLine.arguments.contains("--edge-target") {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.85) {
                         guard drop.canReleaseHeld(at: point),
                               AppFileDrop(id: id, name: file.lastPathComponent, point: point, expectedPID: child.processIdentifier) != nil else {
+                            drop.abort()
                             if returning {
                                 MouseSharing.makeEvent(MousePacket(kind: .input, token: id, action: .up), at: point, pressed: [])?.post(tap: .cghidEventTap)
                             }
@@ -290,6 +309,7 @@ final class AppDropSmoke: NSView {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
                     try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
                     let received = !child.isRunning && child.terminationStatus == 0
+                    if !received { drop.abort() }
                     if child.isRunning { child.terminate() }
                     withExtendedLifetime(drop) { print(completed && received ? "PASS: native drop completed" : "FAIL: native drop did not complete"); exit(completed && received ? 0 : 1) }
                 }

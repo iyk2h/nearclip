@@ -1190,14 +1190,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
             self.draggingFile = nil
             return false
         }
+        mouse.finishLocalPickup = { [weak self] id in
+            guard let self, let drag = self.draggingFile, drag.connection == self.featurePeer?.connection else { return false }
+            return self.fileEdge.target.finishPickup(id: id, url: drag.source.url)
+        }
         fileEdge.target.drop = { [weak self] url in
             guard let self, let drag = self.draggingFile, drag.source.url == url,
                   drag.connection == self.featurePeer?.connection else { return false }
-            return (self.mouse.returningFile && self.mouse.mode == .receiving) || self.mouse.fileDropReleased || self.mouse.releaseFileDrag()
+            return self.mouse.finishedLocalPickup || (self.mouse.returningFile && self.mouse.mode == .receiving) || self.mouse.fileDropReleased || self.mouse.releaseFileDrag()
         }
         fileEdge.target.exit = { [weak self] ended in
             guard let self, !self.mouse.fileDropReleased else { return }
             if self.draggingFile != nil {
+                if self.mouse.finishedLocalPickup { self.fileEdge.orderOut(nil); return }
                 if self.mouse.returningFile && self.mouse.mode == .receiving { return }
                 if !ended && self.mouse.mode == .controlling { return }
                 self.mouse.endSession(reason: .handoffCancelled)

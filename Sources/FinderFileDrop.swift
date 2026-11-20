@@ -52,6 +52,8 @@ final class FinderFileDrop: NSView {
         return draggingUpdated(sender)
     }
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        // Finder parks the drag here while the pointer moves on the other Mac.
+        sender.resetSpringLoading()
         guard sender.draggingSourceOperationMask.contains(.copy) else { return [] }
         let board = sender.draggingPasteboard
         if candidate?.sequence != sender.draggingSequenceNumber || candidate?.revision != board.changeCount {
@@ -68,6 +70,15 @@ final class FinderFileDrop: NSView {
             accepted = enter?(source, point) == true
         }
         return accepted ? .copy : []
+    }
+    func finishPickup(id: UUID, url: URL) -> Bool {
+        guard accepted, candidate?.source?.url == url, CGPreflightPostEventAccess(),
+              CGEventSource.buttonState(.combinedSessionState, button: .left), let window, window.isVisible,
+              NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0) == window.windowNumber,
+              let point = CGEvent(source: nil)?.location,
+              let up = MouseSharing.makeEvent(MousePacket(kind: .input, token: id, action: .up), at: point, pressed: []) else { return false }
+        up.post(tap: .cghidEventTap)
+        return true
     }
     override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
         accepted && candidate?.sequence == sender.draggingSequenceNumber &&
