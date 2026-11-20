@@ -1247,7 +1247,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
             self.startHeldDropIfReady()
             if let held = self.heldDrop {
                 held.moveHeld(to: point)
-                return true
+                return !self.mouse.returningFile || held.isDragging
             }
             self.fileBadge.show(name, at: point)
             return false
@@ -1369,17 +1369,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
         } else { deliverPreparedImage() }
         return true
     }
-    private func startHeldDropIfReady() {
-        guard !mouse.returningFile, heldDrop == nil, let image = preparedImage, image.verified, !image.released,
+    private func startHeldDropIfReady(recheck: Bool = false) {
+        guard heldDrop?.isDragging != true, let image = preparedImage, image.verified, !image.released,
               let preview = fileBadge.preview, enabled, mouse.draggedFileName == image.url.lastPathComponent else { return }
-        let now = ProcessInfo.processInfo.systemUptime
-        guard now >= image.nextHoverCheck else { return }
-        image.nextHoverCheck = now + 0.2
-        guard mouse.isReceivingDrop(image.id), let point = CGEvent(source: nil)?.location,
+        if !recheck {
+            let now = ProcessInfo.processInfo.systemUptime
+            guard now >= image.nextHoverCheck else { return }
+            let next = now + 0.2
+            image.nextHoverCheck = next
+            if mouse.returningFile {
+                // The pointer can stop over the chat while a moving source panel is rejected.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) { [weak self, weak image] in
+                    guard let self, let image, self.preparedImage === image, image.nextHoverCheck == next else { return }
+                    self.startHeldDropIfReady(recheck: true)
+                }
+            }
+        }
+        guard heldDrop == nil, mouse.isReceivingDrop(image.id), let point = CGEvent(source: nil)?.location,
               let drop = AppFileDrop(id: image.id, name: image.url.lastPathComponent, point: point) else { return }
         heldDrop = drop
         drop.didBegin = { [weak self] in self?.fileBadge.hide() }
-        drop.deliver(file: image.url, preview: preview, authorized: { [weak self, weak drop] in
+        drop.deliver(file: image.url, preview: preview, returningDrag: mouse.returningFile, authorized: { [weak self, weak drop] in
             guard let self, let drop else { return false }
             return self.heldDrop === drop && self.enabled && self.mouse.isReceivingDrop(drop.id)
         }) { [weak self, weak drop] accepted in

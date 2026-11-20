@@ -733,6 +733,9 @@ func featureNetworkTests() throws {
     a.onClip = { _ in clipboardMessages += 1 }; b.onClip = { _ in clipboardMessages += 1 }
     let backMove = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDragged, mouseCursorPosition: drift, mouseButton: .left)!
     try Check.that(sourceMouse.handle(.leftMouseDragged, event: backMove) != nil && backMove.type == .mouseMoved && backMove.location == drift, "held return drag tracks the real local cursor")
+    sourceMouse.onFileDragMove = { $0 == drift }
+    let hoverMove = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDragged, mouseCursorPosition: drift, mouseButton: .left)!
+    try Check.that(sourceMouse.handle(.leftMouseDragged, event: hoverMove) == nil, "the native return drag handles motion without a second cursor event")
     try Check.that(sourceMouse.handle(.leftMouseUp, event: release) == nil, "return drop consumes the hardware release")
     waitFor({ returned }, seconds: 12)
     try Check.that(returned && (try Data(contentsOf: broughtBack)) == data && (try Data(contentsOf: dropped)) == data &&

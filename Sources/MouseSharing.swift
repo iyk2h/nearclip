@@ -404,7 +404,6 @@ final class MouseSharing {
         if mode == .controlling {
             if returningFile {
                 position = point
-                _ = onFileDragMove?(point)
                 return true
             }
             if fileDropReleased { return true }
@@ -804,6 +803,7 @@ final class MouseSharing {
             let blocked = localMove(point: event.location, dx: Double(event.getIntegerValueField(.mouseEventDeltaX)), dy: Double(event.getIntegerValueField(.mouseEventDeltaY)), flags: flags, buttonsDown: down)
             if blocked {
                 if returningFile && mode == .controlling {
+                    if onFileDragMove?(event.location) == true { return nil }
                     event.type = .mouseMoved
                     return Unmanaged.passUnretained(event)
                 }

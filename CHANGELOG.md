@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.4 build 51
+
+When you drag a Finder image back to your Mac, a chat or another app that accepts files can highlight its drop target while you still hold the mouse button. Release to attach the image, or press Escape to cancel. Update the Mac you drag the image onto.
+
 ## 0.4.4 build 50
 
 Drag a Finder file back with the mouse on your own Mac, even when you approach the shared edge diagonally. NearClip uses the native drag location and ignores stray modifier releases during pickup. Update the Mac that holds the original file.

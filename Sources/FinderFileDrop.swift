@@ -354,9 +354,13 @@ final class AppFileDrop: NSObject, NSDraggingSource {
         logger.notice("file_drop_element_changed")
         return nil
     }
-    func deliver(file: URL? = nil, preview: NSImage? = nil, authorized: @escaping () -> Bool, completion: @escaping (Bool) -> Void) {
+    func deliver(file: URL? = nil, preview: NSImage? = nil, returningDrag: Bool = false, authorized: @escaping () -> Bool, completion: @escaping (Bool) -> Void) {
         self.authorized = authorized
-        guard let destination = file ?? destination, destination.lastPathComponent == name, authorized(), CGPreflightPostEventAccess(), NSEvent.pressedMouseButtons == 0 else {
+        func buttonsReady() -> Bool {
+            let buttons = NSEvent.pressedMouseButtons
+            return buttons == 0 || (returningDrag && preview != nil && buttons == 1)
+        }
+        guard let destination = file ?? destination, destination.lastPathComponent == name, authorized(), CGPreflightPostEventAccess(), buttonsReady() else {
             logger.notice("file_drop_unavailable"); completion(false); return
         }
         guard let cursor = deliveryPoint() else {
@@ -386,7 +390,7 @@ final class AppFileDrop: NSObject, NSDraggingSource {
         panel.contentView = view; panel.orderFrontRegardless()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [self] in
             guard view.begin != nil else { return }
-            guard authorized(), NSEvent.pressedMouseButtons == 0, let cursor = CGEvent(source: nil)?.location, hypot(cursor.x - point.x, cursor.y - point.y) < 5,
+            guard authorized(), buttonsReady(), let cursor = CGEvent(source: nil)?.location, hypot(cursor.x - point.x, cursor.y - point.y) < 5,
                   NSWindow.windowNumber(at: appKitPoint(point), belowWindowWithWindowNumber: 0) == panel.windowNumber,
                   NSWindow.windowNumber(at: appKitPoint(point), belowWindowWithWindowNumber: panel.windowNumber) == windowNumber else {
                 logger.notice("file_drop_source_changed")

@@ -262,12 +262,26 @@ final class AppDropSmoke: NSView {
                     }
                     return
                 }
+                let returning = held && CommandLine.arguments.contains("--return-hover")
+                if returning {
+                    guard NSEvent.pressedMouseButtons == 0,
+                          AppFileDrop(id: id, name: file.lastPathComponent, point: point, expectedPID: child.processIdentifier) != nil else { exit(1) }
+                    MouseSharing.makeEvent(MousePacket(kind: .input, token: id, action: .down), at: point, pressed: [])?.post(tap: .cghidEventTap)
+                    RunLoop.main.run(until: Date().addingTimeInterval(0.08))
+                    guard NSEvent.pressedMouseButtons == 1 else {
+                        MouseSharing.makeEvent(MousePacket(kind: .input, token: id, action: .up), at: point, pressed: [])?.post(tap: .cghidEventTap)
+                        print("FAIL: return hover fixture needs a held left button"); exit(1)
+                    }
+                }
                 var completed = false
-                drop.deliver(preview: held ? NSImage(data: bytes) : nil, authorized: { child.isRunning }) { completed = ($0 != cancel) }
+                drop.deliver(preview: held ? NSImage(data: bytes) : nil, returningDrag: returning, authorized: { child.isRunning }) { completed = ($0 != cancel) }
                 if held {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.85) {
                         guard drop.canReleaseHeld(at: point),
                               AppFileDrop(id: id, name: file.lastPathComponent, point: point, expectedPID: child.processIdentifier) != nil else {
+                            if returning {
+                                MouseSharing.makeEvent(MousePacket(kind: .input, token: id, action: .up), at: point, pressed: [])?.post(tap: .cghidEventTap)
+                            }
                             print("FAIL: target changed while hovering"); exit(1)
                         }
                         if cancel { drop.abort() } else { drop.releaseHeld(at: point) }
