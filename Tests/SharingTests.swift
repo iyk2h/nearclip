@@ -109,6 +109,15 @@ func fileTransferTests() throws {
     let folder = try testFolder(); defer { try? FileManager.default.removeItem(at: folder) }
     let source = folder.appendingPathComponent("source.bin"), destination = folder.appendingPathComponent("received.bin")
     let data = Data((0..<300_123).map { UInt8($0 % 251) }); try data.write(to: source)
+    let staged = FileTransferWorker(), dragID = UUID()
+    var wire: [FilePacket.Kind] = []
+    staged.send = { _, packet, reply in wire.append(packet.kind); reply(true) }
+    try staged.offer(url: source, to: "peer", id: dragID, preparePreview: true)
+    staged.receive(FilePacket(kind: .accept, id: dragID), from: "peer")
+    staged.releaseImage(id: UUID())
+    staged.cancel()
+    staged.releaseImage(id: dragID)
+    try Check.that(wire == [.offer, .cancel], "cancelling a preview discards the accepted original even if a late release arrives")
     let board = NSPasteboard.withUniqueName()
     defer { board.releaseGlobally() }
     board.writeObjects([source as NSURL])
@@ -553,7 +562,7 @@ func mousePacingTests() throws {
     let beforeSecureCompletion = sent.count
     pendingReplies.removeFirst()(true)
     pendingReplies.removeFirst()(true)
-    try Check.that(mouse.mode == .local && sent.dropFirst(beforeSecureCompletion).allSatisfy { $0.action != .move },
+    try Check.that(mouse.pointerOnly && sent.dropFirst(beforeSecureCompletion).allSatisfy { $0.action != .move },
                    "send completion cannot drain motion after secure input activates")
     mouse.secureInputEnabled = { false }; mouse.tick(now: now)
     mouse.endSession(); now = now.addingTimeInterval(2); try enter()
@@ -561,9 +570,9 @@ func mousePacingTests() throws {
     try Check.that(mouse.mode == .controlling, "late failed movement completion cannot end a newer control session")
     let count = sent.count
     mouse.secureInputEnabled = { true }
-    _ = mouse.localMove(point: .zero, dx: 20, dy: 0, now: now)
-    try Check.that(mouse.mode == .local && sent.dropFirst(count).allSatisfy { $0.action != .move },
-                   "immediate movement dispatch still honors Secure Event Input")
+    _ = mouse.localMove(point: .zero, dx: 20, dy: 0, flags: 0x20000, now: now)
+    try Check.that(mouse.pointerOnly && sent.dropFirst(count).contains { $0.action == .move && $0.dx == 20 && $0.flags == 0 },
+                   "new movement during Secure Input carries plain pointer deltas")
 }
 
 func mouseResumeTests() throws {
@@ -757,13 +766,17 @@ func featureNetworkTests() throws {
     let preparedURL = folder.appendingPathComponent("prepared.png")
     let earlySender = FileTransfer(), earlyReceiver = FileTransfer()
     defer { earlySender.stop(); earlyReceiver.stop() }
-    var beforeRelease = false, skippedSecondOffer = false
-    earlySender.send = { peer, chunk, reply in a.sendFeature(FeaturePacket(dragImage: chunk), to: peer, completion: reply) }
+    var previewReceived = false, completed = false, skippedSecondOffer = false
+    var bodyPackets = 0, acceptedEarly = false
+    earlySender.send = { peer, chunk, reply in
+        if chunk.kind == .chunk || chunk.kind == .finish { bodyPackets += 1 }
+        a.sendFeature(FeaturePacket(dragImage: chunk), to: peer, completion: reply)
+    }
     earlyReceiver.send = { peer, chunk, reply in b.sendFeature(FeaturePacket(dragImage: chunk), to: peer, completion: reply) }
     sourceMouse.finishLocalPickup = { _ in true }
     sourceMouse.onFileDragAccepted = { id in try? earlySender.offer(url: photo, to: idB, id: id, preparePreview: true) }
     a.onFeature = { peer, packet in
-        if let image = packet.dragImage { earlySender.receive(image, from: peer) }
+        if let image = packet.dragImage { earlySender.receive(image, from: peer); if image.kind == .accept { acceptedEarly = true } }
         if let mouse = packet.mouse { sourceMouse.receive(mouse, from: peer) }
     }
     b.onFeature = { peer, packet in
@@ -774,21 +787,23 @@ func featureNetworkTests() throws {
         guard receiverMouse.isReceivingDrop(offer.id), offer.name == receiverMouse.draggedFileName,
               let preview = offer.previewPNG, PreparedDragImage.thumbnail(preview, isPreview: true)?.width == 64,
               !FileManager.default.fileExists(atPath: preparedURL.path) else { earlyReceiver.decline(id: offer.id); return }
+        previewReceived = true
         earlyReceiver.accept(id: offer.id, destination: preparedURL)
     }
-    earlyReceiver.onComplete = { _ in beforeRelease = receiverMouse.draggedFileName == "photo.png" }
-    receiverMouse.onFileDropPosition = { _, _ in beforeRelease }
-    sourceMouse.onFileDropReady = { _, prepared in skippedSecondOffer = prepared }
+    earlyReceiver.onComplete = { _ in completed = true }
+    receiverMouse.onFileDropPosition = { _, _ in previewReceived }
+    sourceMouse.onFileDropReady = { id, prepared in skippedSecondOffer = prepared; if prepared { earlySender.releaseImage(id: id) } }
     let canReenter = Date().addingTimeInterval(0.8)
     waitFor { Date() >= canReenter }
     try Check.that(sourceMouse.startFileDrag(named: "photo.png", at: sourceEdge), "image drag starts at the shared edge")
-    waitFor({ beforeRelease }, seconds: 12)
-    try Check.that(beforeRelease && (try Data(contentsOf: preparedURL)) == pngBytes, "authenticated receiver has verified bytes while the button is still held")
+    waitFor({ acceptedEarly }, seconds: 12)
+    try Check.that(acceptedEarly && previewReceived && bodyPackets == 0 && !FileManager.default.fileExists(atPath: preparedURL.path), "early acceptance exposes only a thumbnail before release")
     try Check.that(sourceMouse.finishedLocalPickup && !sourceMouse.fileDropReleased && !skippedSecondOffer,
                    "finishing the local Finder pickup does not drop the remote file")
     try Check.that(sourceMouse.handle(.leftMouseUp, event: release) == nil && sourceMouse.fileDropReleased,
                    "only the physical release commits the detached image and consumes the extra button-up")
-    waitFor { skippedSecondOffer }
+    waitFor({ completed }, seconds: 12)
+    try Check.that(completed && (try Data(contentsOf: preparedURL)) == pngBytes, "release delivers the verified original")
     try Check.that(skippedSecondOffer, "release acknowledges the staged image without sending the file again")
 }
 
@@ -815,6 +830,18 @@ func legacyCapabilityTests() throws {
     try Check.that(rejected, "do not send keyboard packets to peers without keyboard capability")
     old?.send(ClipMessage(id: UUID(), stamp: ClipStamp(counter: 1, device: legacyID), payload: ClipPayload(type: "public.utf8-plain-text", data: Data("legacy".utf8))))
     waitFor({ gotClip }); try Check.that(gotClip, "clipboard transfer remains available to an older peer")
+    var received: [Data] = []
+    server.onClip = { received.append($0.payload.data) }
+    func sendText(_ text: String, _ counter: UInt64) {
+        old?.send(ClipMessage(id: UUID(), stamp: ClipStamp(counter: counter, device: legacyID),
+                             payload: ClipPayload(type: "public.utf8-plain-text", data: Data(text.utf8))))
+    }
+    sendText("encoding", 2); sendText("queued", 3)
+    old?.cancelClipboard()
+    sendText("resumed", 4)
+    waitFor { !received.isEmpty }
+    try Check.that(received == [Data("resumed".utf8)] && old?.ready == true, "pause cancels encoding and queued items while preserving the authenticated sequence on resume")
+    server.onClip = { gotClip = $0.payload.data == Data("legacy".utf8) }
     old?.close(); server.stop()
     var legacyInput = false
     server.onListening = { port in

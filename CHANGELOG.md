@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.4 build 53
+
+Pause discards unsent clipboard items. During Secure Input, an active handoff can keep the pointer while keyboard sharing waits for a fresh handoff. Image drags send a thumbnail while you hover and the original when you release. Update both Macs for all three changes.
+
 ## 0.4.4 build 52
 
 Drag a file across the shared edge without bringing the NearClip window in front of your chat. Update the Mac where you pick up the file.

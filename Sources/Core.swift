@@ -168,8 +168,18 @@ final class SessionCipher {
             info: Data(("NearClip sender:" + remote.device).utf8), outputByteCount: 32)
     }
     func seal(kind: String, clip: ClipMessage? = nil, clock: UInt64? = nil, features: [String]? = nil, data: Data? = nil, app: AppVersion? = nil) throws -> Data {
+        let envelope = Envelope(sequence: sendSequence + 1, kind: kind, clip: clip, clock: clock, features: features, osMajor: kind == "ready" ? DockSwipeAdapter.systemMajor : nil, app: app, data: data)
+        let data = try encrypt(envelope)
         sendSequence += 1
-        let plain = try JSONEncoder().encode(Envelope(sequence: sendSequence, kind: kind, clip: clip, clock: clock, features: features, osMajor: kind == "ready" ? DockSwipeAdapter.systemMajor : nil, app: app, data: data))
+        return data
+    }
+    // PeerLink serializes outbound frames. Consume this sequence only at socket submission.
+    func prepareClipboard(_ clip: ClipMessage) throws -> Data {
+        try encrypt(Envelope(sequence: sendSequence + 1, kind: "clip", clip: clip, clock: nil))
+    }
+    func commitClipboard() { sendSequence += 1 }
+    private func encrypt(_ envelope: Envelope) throws -> Data {
+        let plain = try JSONEncoder().encode(envelope)
         guard let sealed = try AES.GCM.seal(plain, using: outgoing).combined else { throw ClipError.invalid(ui("Encryption failed.")) }
         return sealed
     }

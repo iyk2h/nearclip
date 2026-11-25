@@ -129,6 +129,7 @@ final class PeerLink {
     private(set) var features: Set<String> = []
     private(set) var peerOSMajor: Int?
     var onFeature: ((PeerLink, FeaturePacket) -> Void)?
+    private var preparingClipboard = false
     private var pendingClip: ClipMessage?
     private var lastReceived = Date()
     private let created = Date()
@@ -545,6 +546,10 @@ final class PeerLink {
         default: throw ClipError.invalid(ui("Unsupported message."))
         }
     }
+    func cancelClipboard() {
+        pendingClip = nil
+        preparingClipboard = false
+    }
     func send(_ message: ClipMessage) {
         guard ready, !inputOnly, !closed else { return }
         pendingClip = message
@@ -588,18 +593,21 @@ final class PeerLink {
             return
         }
         guard let clip = pendingClip else { return }
-        pendingClip = nil; sending = true
+        pendingClip = nil; sending = true; preparingClipboard = true
         // 'sending' remains true until delivery completes. No other outbound
         // cipher operation can run during preparation, preserving sequence order.
         clipboardEncodingQueue.async { [weak self] in
             let start = ProcessInfo.processInfo.systemUptime
-            let result = Result { try Framing.encode(cipher.seal(kind: "clip", clip: clip)) }
+            let result = Result { try Framing.encode(cipher.prepareClipboard(clip)) }
             let elapsedMS = Int((ProcessInfo.processInfo.systemUptime - start) * 1000)
             DispatchQueue.main.async {
                 guard let self, !self.closed else { return }
+                guard self.preparingClipboard else { self.sending = false; self.flush(); return }
+                self.preparingClipboard = false
                 if elapsedMS >= 16 { self.logger.notice("clipboard_prepare_slow elapsed_ms=\(elapsedMS, privacy: .public)") }
                 switch result {
                 case .success(let frame):
+                    cipher.commitClipboard()
                     self.connection.send(content: frame, completion: .contentProcessed { [weak self] error in
                         guard let self, !self.closed else { return }
                         self.sending = false
@@ -953,5 +961,6 @@ final class LocalTransport {
         guard let link = links.values.first(where: { $0.ready && $0.remote?.device == peer }) else { completion(false); return }
         link.sendFeature(packet, completion: completion)
     }
+    func cancelClipboard() { for link in links.values { link.cancelClipboard() } }
     func send(_ message: ClipMessage) { for link in links.values where link.ready { link.send(message) } }
 }

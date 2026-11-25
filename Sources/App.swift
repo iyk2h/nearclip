@@ -859,8 +859,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
     }
     @objc private func toggleSharing() {
         enabled.toggle();
-        if !enabled { appDrop = nil; approvedDropDirectory = nil; fileDestination = nil; mouse?.stop(); files.cancel() }
-         sync?.enabled = enabled
+        sync?.enabled = enabled
+        if !enabled {
+            transport?.cancelClipboard()
+            mouse?.stop()
+            discardPreparedImage()
+            dragImages.cancel()
+            appDrop = nil; approvedDropDirectory = nil; fileDestination = nil
+            files.cancel()
+        }
         if !preview { UserDefaults.standard.set(enabled, forKey: "enabled") }
         refresh()
     }
@@ -1240,7 +1247,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
                   let peer = self.featurePeer, peer.connection == drag.connection else { return }
             if self.preparingImageID == id {
                 self.preparingImageID = nil
-                if prepared { return }
+                if prepared { self.dragImages.releaseImage(id: id); return }
                 self.dragImages.decline(id: id)
             }
             self.directDrop = true
@@ -1298,9 +1305,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
                 self.dragImages.decline(id: offer.id); return
             }
             self.preparedImage = image
-            self.dragImages.accept(id: offer.id, destination: image.url)
             if let data = offer.previewPNG, let thumbnail = PreparedDragImage.thumbnail(data, isPreview: true) {
                 self.fileBadge.setThumbnail(NSImage(cgImage: thumbnail, size: NSSize(width: thumbnail.width, height: thumbnail.height)))
+                self.startHeldDropIfReady()
             }
         }
         dragImages.onStatus = { [weak self] text, progress, busy in
@@ -1309,13 +1316,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
                 self.fileLabel.stringValue = text
                 if self.appDrop?.id == image.id { self.appDrop = nil }
             }
+            self.heldDrop?.abort(); self.heldDrop = nil
             self.preparedImage = nil
             self.fileBadge.setThumbnail(nil)
         }
         dragImages.onComplete = { [weak self] url in
             guard let self, let image = self.preparedImage, image.url == url else { return }
             image.verified = true
-            if image.released { self.deliverPreparedImage() } else { self.startHeldDropIfReady() }
+            if image.released { self.deliverPreparedImage() }
         }
         files.send = { [weak self] peer, packet, reply in
             guard let transport = self?.transport else { reply(false); return }
@@ -1343,12 +1351,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
         fileDestination = nil
         let image = preparedImage
         let matchesImage = image?.id == id && image?.url.lastPathComponent == name
-        if matchesImage, let image, let held = heldDrop, held.id == id, held.canReleaseHeld(at: point) {
+        if matchesImage, let image, let held = heldDrop, held.id == id, held.pinRelease(at: point) {
+            appDrop = AppFileDrop(id: id, name: name, point: point)
             image.released = true
-            if image.take() != nil {
-                held.releaseHeld(at: point)
-                return true
-            }
+            dragImages.accept(id: id, destination: image.url)
+            return true
         }
         heldDrop?.abort()
         appDrop = AppFileDrop(id: id, name: name, point: point)
@@ -1365,6 +1372,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
         guard matchesImage, let image else { discardPreparedImage(); return false }
         // An unresolved app drop keeps the verified file available for a local retry.
         image.released = true
+        dragImages.accept(id: id, destination: image.url)
         if mouse.returningFile {
             // AppKit can start the local drop once the physical mouse-up has cleared the event tap.
             DispatchQueue.main.async { [weak self] in
@@ -1375,7 +1383,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
         return true
     }
     private func startHeldDropIfReady(recheck: Bool = false) {
-        guard heldDrop?.isDragging != true, let image = preparedImage, image.verified, !image.released,
+        guard heldDrop?.isDragging != true, let image = preparedImage, !image.released,
               let preview = fileBadge.preview, enabled, mouse.draggedFileName == image.url.lastPathComponent else { return }
         if !recheck {
             let now = ProcessInfo.processInfo.systemUptime
@@ -1400,10 +1408,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
         }) { [weak self, weak drop] accepted in
             guard let self, let drop, self.heldDrop === drop else { return }
             self.heldDrop = nil
-            if image.released {
+            if image.released && image.verified {
                 self.preparedImage = nil
-                self.appDrop = nil
-                self.finishAppDrop(accepted: accepted, url: image.url)
+                if !accepted, drop.releasedVerifiedFile, let target = self.appDrop, target.id == image.id {
+                    // Some apps check for the file on drag-enter. Offer its verified URL once more at the pinned target.
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self, self.appDrop === target else { return }
+                        self.deliverAppDrop(target, url: image.url)
+                    }
+                } else {
+                    self.appDrop = nil
+                    self.finishAppDrop(accepted: accepted, url: image.url)
+                }
             }
         }
     }
@@ -1416,6 +1432,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
     }
     private func deliverPreparedImage() {
         guard let image = preparedImage, let url = image.take() else { return }
+        if let heldDrop, heldDrop.id == image.id {
+            if heldDrop.releaseWhenVerified() { return }
+            heldDrop.abort()
+            return
+        }
         preparedImage = nil
         if let drop = appDrop, drop.id == image.id { deliverAppDrop(drop, url: url) }
         else { finishAppDrop(accepted: false, url: url) }
@@ -1604,7 +1625,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPa
         let inputStatus = InputSharingStatus.resolve(requested: mouse.sharingRequested, connected: supportsMouse,
             inputReady: featurePeer?.inputReady == true, permissions: permissions.granted,
             captureEnabled: mouse.enabled, peerEnabled: mouse.remoteEnabled, paused: mouse.inputPauseMessage != nil)
-        inputStatusLabel.stringValue = ui(inputStatus.rawValue)
+        inputStatusLabel.stringValue = mouse.pointerOnly ? ui("Mouse only") : ui(inputStatus.rawValue)
         inputStatusLabel.textColor = inputStatus == .ready ? .systemGreen : inputStatus == .off ? .secondaryLabelColor : .systemOrange
         arrangement.update(peerID: supportsMouse ? featurePeer?.connection.uuidString : nil,
                            localName: preview ? "My MacBook" : deviceName,

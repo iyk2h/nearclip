@@ -103,6 +103,8 @@ final class FileTransferWorker {
         var hash = SHA256()
         var offset: Int64 = 0
         var pendingOffsets: [Int64] = []
+        var accepted = false
+        var released = true
         var chunkWindow = 1
         var finishing = false
         init(url: URL, peer: String, id: UUID) throws {
@@ -140,6 +142,7 @@ final class FileTransferWorker {
     func offer(url: URL, to peer: String, id: UUID = UUID(), preparePreview: Bool = false) throws {
         guard !busy else { throw ClipError.invalid(ui("Finish or cancel the current file transfer first.")) }
         let job = try Outgoing(url: url, peer: peer, id: id); outgoing = job; updated = Date()
+        job.released = !preparePreview
         status(ui("Waiting for the recipient · ") + (job.offer.name ?? ui("File")))
         var offer = job.offer
         if preparePreview, FilePacket.canPrepareImage(name: offer.name, size: offer.size), let size = offer.size {
@@ -151,6 +154,13 @@ final class FileTransferWorker {
             } catch { fail(error.localizedDescription); return }
         }
         emit(offer, to: peer)
+    }
+    func releaseImage(id: UUID) {
+        guard let job = outgoing, job.offer.id == id, !job.released else { return }
+        job.released = true
+        if job.accepted {
+            do { try sendChunks(job) } catch { fail(error.localizedDescription) }
+        }
     }
     func accept(id: UUID, destination: URL, directory: ReceiveDirectory? = nil, keepBoth: Bool = false) {
         guard let job = incoming, job.offer.id == id, job.writer == nil else { return }
@@ -175,9 +185,10 @@ final class FileTransferWorker {
             updated = Date()
             switch message.kind {
             case .accept:
-                guard let job = outgoing, job.offset == 0, !job.finishing else { throw ClipError.invalid(ui("Unexpected file acceptance.")) }
+                guard let job = outgoing, !job.accepted, !job.finishing else { throw ClipError.invalid(ui("Unexpected file acceptance.")) }
+                job.accepted = true
                 job.chunkWindow = message.chunkWindow ?? 1
-                try sendChunks(job)
+                if job.released { try sendChunks(job) }
             case .ack:
                 guard let job = outgoing, let first = job.pendingOffsets.first, message.offset == first else { throw ClipError.invalid(ui("Invalid file receipt.")) }
                 job.pendingOffsets.removeFirst(); try sendChunks(job)
@@ -296,6 +307,7 @@ final class FileTransfer {
             DispatchQueue.main.async { [weak self] in self?.pendingPackets -= 1 }
         }
     }
+    func releaseImage(id: UUID) { queue.async { [self] in worker.releaseImage(id: id) } }
     func accept(id: UUID, destination: URL, directory: ReceiveDirectory? = nil, keepBoth: Bool = false) { queue.async { [self] in worker.accept(id: id, destination: destination, directory: directory, keepBoth: keepBoth) } }
     func decline(id: UUID) { queue.async { [self] in worker.decline(id: id) } }
     func cancel() { queue.async { [self] in worker.cancel() } }

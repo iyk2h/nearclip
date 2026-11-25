@@ -37,7 +37,9 @@ final class MouseSharing {
     private(set) var remoteEnabled = false
     private(set) var secureInputBlocked = false
     private(set) var remoteSecureInputBlocked = false
+    private(set) var pointerOnly = false
     var inputPauseMessage: String? {
+        if pointerOnly { return ui("Mouse only. Enter passwords on the Mac with the password field. Return to your screen and cross again to share the keyboard.") }
         if secureInputBlocked { return ui("Secure Input on this Mac paused input sharing. Finish entering your password or leave the protected app, then move to the edge again.") }
         if remoteSecureInputBlocked { return ui("Secure Input on the other Mac paused input sharing. Finish entering your password there, then move to the edge again.") }
         return nil
@@ -51,7 +53,7 @@ final class MouseSharing {
     var sendGesture: ((String, DockSwipePacket, @escaping (Bool) -> Void) -> Void)?
     var onGesture: ((DockSwipePacket) -> Void)?
     private(set) var remoteKeyboardEnabled = false
-    var keyboardActive: Bool { enabled && keyboardSupported && remoteKeyboardEnabled }
+    var keyboardActive: Bool { !pointerOnly && enabled && keyboardSupported && remoteKeyboardEnabled }
     private(set) var lastEndReason: MouseEndReason?
     private(set) var endedByPeer = false
     var lastEndMessage: String? {
@@ -81,7 +83,7 @@ final class MouseSharing {
     private var controllerButtons: Set<Int> = []
     private var releasedReturn: UUID?
     var canPickUpRemoteDrag: Bool {
-        supportsReturnFile && mode == .receiving && pressed == [0] && draggedFileName == nil &&
+        !pointerOnly && supportsReturnFile && mode == .receiving && pressed == [0] && draggedFileName == nil &&
             pressedKeys.isEmpty && receivedKeyFlags & 0x1E0000 == 0 && !remoteSecureInputBlocked && !secureInputBlocked
     }
     var onFileEdge: ((CGPoint, ScreenSide) -> Void)?
@@ -271,12 +273,25 @@ final class MouseSharing {
     private func advertise() {
         emit(MousePacket(kind: .availability, enabled: enabled, keyboardEnabled: enabled && keyboardSupported, secureInputActive: secureInputBlocked))
     }
+    private func protectActiveInput() {
+        guard active, !pointerOnly else { return }
+        guard mode != .requesting, draggedFileName == nil, sentGesture == nil, receivedGesture == nil,
+              localHeldKeys.isEmpty, pressedKeys.isEmpty, receivedKeyFlags == 0,
+              controllerButtons.isSubset(of: [0]), pressed.isSubset(of: [0]) else {
+            endSession(reason: .secureInput)
+            return
+        }
+        // Latch until a fresh handoff. A delayed key packet must never revive this token.
+        pointerOnly = true
+        pendingX = 0; pendingY = 0; pendingFlags = 0
+    }
     @discardableResult
     private func observeSecureInput() -> Bool {
         let blocked = enabled && secureInputEnabled()
         guard blocked != secureInputBlocked else { return blocked }
         if blocked { releasedReturn = nil }
         secureInputBlocked = blocked
+        if blocked { protectActiveInput() }
         edgeSince = nil
         onEdgeProgress?(nil, side, 0)
         if !blocked {
@@ -303,7 +318,7 @@ final class MouseSharing {
             }
             remoteEnabled = packet.enabled == true
             remoteSecureInputBlocked = packet.secureInputActive == true
-            if remoteSecureInputBlocked && active { endSession(notify: false, reason: .secureInput, byPeer: true) }
+            if remoteSecureInputBlocked { protectActiveInput() }
             let wasKeyboardEnabled = remoteKeyboardEnabled
             remoteKeyboardEnabled = keyboardSupported && packet.keyboardEnabled == true
             if wasKeyboardEnabled && !remoteKeyboardEnabled { endSession(reason: .disabled, byPeer: true) }
@@ -311,7 +326,7 @@ final class MouseSharing {
             onChange?(); return
         }
         if packet.kind == .enter {
-            if observeSecureInput() {
+            if observeSecureInput() || remoteSecureInputBlocked {
                 emit(MousePacket(kind: .leave, token: packet.token, endReason: MouseEndReason.secureInput.rawValue)); return
             }
             guard enabled, remoteEnabled, mode == .local, now >= cooldown, packet.draggedFileName == nil || supportsFileDrag,
@@ -330,7 +345,9 @@ final class MouseSharing {
             emit(MousePacket(kind: .accepted, token: token)); onChange?(); return
         }
         guard let token, token == packet.token, enabled else { return }
-        if observeSecureInput() { endSession(reason: .secureInput); return }
+        observeSecureInput()
+        guard self.token == token else { return }
+        if pointerOnly && ![.input, .heartbeat, .leave, .deny].contains(packet.kind) { return }
         lastHeard = now
         switch packet.kind {
         case .accepted:
@@ -389,7 +406,12 @@ final class MouseSharing {
             onChange?()
         case .input:
             guard mode == .receiving, !returningFile, draggedFileName == nil || (packet.action == .move && !fileDropReleased) else { return }
-            apply(packet, now: now)
+            if pointerOnly {
+                guard packet.action == .move || ((packet.action == .down || packet.action == .up) && packet.button == 0) else { return }
+                var mouse = packet
+                mouse.flags = 0
+                apply(mouse, now: now)
+            } else { apply(packet, now: now) }
         case .leave: endSession(notify: false, fraction: packet.fraction, reason: packet.endReason.flatMap(MouseEndReason.init(rawValue:)) ?? .peerEnded, byPeer: true)
         case .deny: if mode == .requesting { endSession(notify: false, reason: .notReady, byPeer: true) }
         case .heartbeat: break
@@ -399,7 +421,8 @@ final class MouseSharing {
     // Return true only while local mouse events must be suppressed.
     func localMove(point: CGPoint, dx: Double, dy: Double, flags: UInt64 = 0, buttonsDown: Bool = false, now: Date = Date()) -> Bool {
         guard enabled else { return false }
-        if observeSecureInput() { endSession(reason: .secureInput); return false }
+        if observeSecureInput() && !pointerOnly { return false }
+        let flags = pointerOnly ? 0 : flags
         if mode == .receiving {
             // A position-only event is not evidence of local input. In particular,
             // it must not undo a newly accepted handoff with no physical motion.
@@ -438,7 +461,7 @@ final class MouseSharing {
         return false
     }
     func isReceivingDrop(_ id: UUID) -> Bool {
-        guard enabled, remoteEnabled, !remoteSecureInputBlocked, !observeSecureInput() else { return false }
+        guard enabled, remoteEnabled, !remoteSecureInputBlocked, !observeSecureInput(), !pointerOnly else { return false }
         if releasedReturn == id { return true }
         return token == id && (returningFile ? mode == .controlling : mode == .receiving)
     }
@@ -479,6 +502,9 @@ final class MouseSharing {
         onChange?()
     }
     func localButton(action: MousePacket.Action, button: Int, clicks: Int = 1, flags: UInt64 = 0, at point: CGPoint? = nil) -> Bool {
+        observeSecureInput()
+        if pointerOnly && mode == .controlling && button != 0 { return true }
+        let flags = pointerOnly ? 0 : flags
         if returningFile, mode == .controlling, let token {
             guard action == .up, button == 0, controllerButtons == [0], !observeSecureInput() else {
                 endSession(reason: .handoffCancelled); return true
@@ -511,7 +537,7 @@ final class MouseSharing {
         if mode == .receiving || mode == .requesting { endSession(reason: .localScroll); return false }
         guard mode == .controlling, gesturesSupported, remoteEnabled, let token,
               let peer, let sendGesture else { return false }
-        if observeSecureInput() { endSession(reason: .secureInput); return false }
+        if observeSecureInput() || pointerOnly { return false }
         // Once a swipe belongs to the remote Mac, malformed sequence updates
         // must not leak into the source Dock. Ignore them but keep ownership.
         guard packet.phase == 1 ? sentGesture == nil : sentGesture?.axis == packet.axis else { return sentGesture != nil }
@@ -530,7 +556,7 @@ final class MouseSharing {
     func receiveGesture(_ packet: DockSwipePacket, from sender: String, now: Date = Date()) {
         guard draggedFileName == nil, enabled, remoteEnabled, gesturesSupported, mode == .receiving,
               sender == peer, packet.token == token, (try? packet.validate()) != nil else { return }
-        if observeSecureInput() { endSession(reason: .secureInput); return }
+        if observeSecureInput() || pointerOnly { return }
         guard packet.phase == 1 ? receivedGesture == nil : receivedGesture?.axis == packet.axis else { return }
         lastHeard = now
         if native, packet.phase == 1 || packet.isTerminal {
@@ -558,7 +584,7 @@ final class MouseSharing {
             return false // A modifier release without a local press does not take over a Finder drag.
         }
         if draggedFileName != nil { endSession(reason: .localKeyboard); return false }
-        if observeSecureInput() { endSession(reason: .secureInput); return false }
+        if observeSecureInput() || pointerOnly { return false }
         switch action {
         case .down: localHeldKeys.insert(keyCode)
         case .up: localHeldKeys.remove(keyCode)
@@ -585,7 +611,7 @@ final class MouseSharing {
     func receiveKeyboard(_ packet: KeyboardPacket, from sender: String, now: Date = Date()) {
         guard draggedFileName == nil, sender == peer, keyboardActive, mode == .receiving, packet.token == token,
               (try? packet.validate()) != nil else { return }
-        if observeSecureInput() { endSession(reason: .secureInput); return }
+        if observeSecureInput() || pointerOnly { return }
         lastHeard = now
         switch packet.action {
         case .down:
@@ -613,8 +639,7 @@ final class MouseSharing {
             lastPermissionCheck = now
             if enabled && !Self.permissionsGranted { emergencyStop(); return }
         }
-        let secure = observeSecureInput()
-        if secure && active { endSession(reason: .secureInput); return }
+        observeSecureInput()
         guard active else { return }
         if let dropDeadline, now > dropDeadline { endSession(reason: .timeout); return }
         // Heartbeats prove liveness, not progress of an interactive Dock swipe.
@@ -630,7 +655,8 @@ final class MouseSharing {
     }
     private func flushMove(force: Bool = false) {
         guard mode == .controlling, force || movesInFlight == 0, pendingX != 0 || pendingY != 0 else { return }
-        if observeSecureInput() { endSession(reason: .secureInput); return }
+        observeSecureInput()
+        guard mode == .controlling, pendingX != 0 || pendingY != 0 else { return }
         let dx = pendingX, dy = pendingY; pendingX = 0; pendingY = 0
         sentMoves += 1
         movesInFlight += 1
@@ -690,6 +716,7 @@ final class MouseSharing {
     }
     func endSession(notify: Bool = true, fraction: Double? = nil, reason: MouseEndReason = .stopped, byPeer: Bool = false) {
         let old = mode, oldToken = token
+        pointerOnly = false
         let cursorReturned = returningFile && old == .controlling
         returningFile = false; controllerButtons.removeAll(); releasedReturn = nil
         if let gesture = receivedGesture {
@@ -772,6 +799,7 @@ final class MouseSharing {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput { emergencyStop(); return Unmanaged.passUnretained(event) }
         if event.getIntegerValueField(.eventSourceUserData) == Self.marker { return Unmanaged.passUnretained(event) }
         if type == .keyDown || type == .keyUp || type == .flagsChanged {
+            if observeSecureInput() { return Unmanaged.passUnretained(event) }
             let action: KeyboardPacket.Action = type == .flagsChanged ? .modifiers : type == .keyDown ? .down : .up
             let blocked = localKey(action: action, keyCode: Int(event.getIntegerValueField(.keyboardEventKeycode)),
                                    flags: event.flags.rawValue, isRepeat: type == .keyDown && event.getIntegerValueField(.keyboardEventAutorepeat) != 0)
@@ -828,6 +856,8 @@ final class MouseSharing {
             let down = [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(type)
             if localButton(action: down ? .down : .up, button: button, clicks: Int(event.getIntegerValueField(.mouseEventClickState)), flags: flags, at: event.location) { return nil }
         case .scrollWheel:
+            observeSecureInput()
+            if pointerOnly && mode == .controlling { return nil }
             if returningFile { endSession(reason: .localScroll); return nil }
             if mode == .receiving { endSession(reason: .localScroll) }
             if mode == .controlling {

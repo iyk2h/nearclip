@@ -261,7 +261,7 @@ final class DraggedFileBadge: NSPanel {
     }
 }
 
-// AppKit advertises the verified local URL on the drag pasteboard. Some apps read it
+// The hover advertises a reserved local URL. The verified file appears at release. Some apps read it
 // later (for example, when a draft is sent), so keep it in the user's caches.
 private final class FileDragSourceView: NSView {
     var begin: ((NSEvent) -> Void)?
@@ -286,6 +286,9 @@ final class AppFileDrop: NSObject, NSDraggingSource {
     private var session: NSDraggingSession?
     private var heldPoint: CGPoint?
     private var postedDown = false
+    private var releaseElement: AXUIElement?
+    private var releasePoint: CGPoint?
+    private(set) var releasedVerifiedFile = false
     var didBegin: (() -> Void)?
     var isDragging: Bool { session != nil }
     private var authorized: (() -> Bool)?
@@ -319,6 +322,21 @@ final class AppFileDrop: NSObject, NSDraggingSource {
         // The system drag image can cover the window being hit-tested during an active drag.
         if let pid = Self.owner(of: Self.hit(location)) { return Self.acceptsAppDrop(pid) }
         return originalWindow(at: location)
+    }
+    func pinRelease(at location: CGPoint) -> Bool {
+        guard canReleaseHeld(at: location) else { return false }
+        releaseElement = Self.hit(location)
+        releasePoint = location
+        return true
+    }
+    func releaseWhenVerified() -> Bool {
+        guard let point = releasePoint, authorized?() == true, canReleaseHeld(at: point) else { return false }
+        if let releaseElement {
+            guard let current = Self.hit(point), CFEqual(current, releaseElement) else { return false }
+        } else if !originalWindow(at: point) { return false }
+        releasedVerifiedFile = true
+        releaseHeld(at: point)
+        return true
     }
     init?(id: UUID, name: String, point: CGPoint, expectedPID: pid_t? = nil) {
         guard FilePacket.safeName(name), let primary = NSScreen.screens.first else { return nil }

@@ -59,9 +59,27 @@ func inputBoundaryTests() throws {
         let count = f.inputs.count
         f.b.secureInputEnabled = { true }
         f.b.receive(MousePacket(kind: .input, token: token, action: action, dx: 1, dy: 1), from: "A", now: f.now)
-        try Check.that(f.inputs.count == count && f.b.mode == .local && f.b.lastEndReason == .secureInput,
-            "secure input immediately blocks received \(action.rawValue) before the next timer tick")
+        try Check.that(f.inputs.count == count + (action == .scroll ? 0 : 1) && f.b.pointerOnly,
+            "secure input allows plain pointer motion and clicks, and blocks scroll")
+        try f.pump()
+        try Check.that(f.a.pointerOnly && !f.a.keyboardActive, "both peers switch to pointer only")
+        f.b.receiveKeyboard(KeyboardPacket(token: token, action: .down, keyCode: 0), from: "A")
+        f.b.secureInputEnabled = { false }; f.b.tick(now: f.now); try f.pump()
+        f.b.receiveKeyboard(KeyboardPacket(token: token, action: .up, keyCode: 0), from: "A")
+        try Check.that(f.keys.isEmpty && f.b.pointerOnly, "old-token keys stay blocked after secure input clears")
+        f.b.receive(MousePacket(kind: .input, token: token, action: .move, dx: 4, flags: 0x20000), from: "A")
+        try Check.that(f.inputs.last?.flags == 0, "pointer only strips keyboard modifiers")
     }
+    let f = try InputFixture()
+    try f.enter()
+    let token = try f.token()
+    f.b.secureInputEnabled = { true }
+    f.b.tick(now: f.now); try f.pump()
+    for (dx, delay) in [(60.0, 0.0), (-100.0, 0.05), (-4.0, 0.22)] {
+        f.b.receive(MousePacket(kind: .input, token: token, action: .move, dx: dx), from: "A", now: f.now.addingTimeInterval(delay))
+    }
+    try f.pump()
+    try Check.that(f.a.mode == .local && f.b.mode == .local && f.a.lastEndReason == .returnEdge, "pointer returns home across the edge while Secure Input remains active")
 }
 
 func inputInterruptionTests() throws {
