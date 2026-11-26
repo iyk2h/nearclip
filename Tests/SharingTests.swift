@@ -25,13 +25,27 @@ func sharingProtocolTests() throws {
             try FeaturePacket(dragImage: FilePacket(kind: .offer, id: UUID(), name: name, size: size)).validate()
         }
     }
-    var staged: PreparedDragImage? = try PreparedDragImage(offer: imageOffer)
+    let movieID = UUID()
+    guard let movie = PreparedDragFile(movieNamed: "capture.MOV", id: movieID) else { throw ClipError.invalid("MOV staging failed") }
+    let offer = FilePacket(kind: .offer, id: movieID, name: "capture.MOV", size: 64 * 1024 * 1024)
+    let release = Date()
+    try Check.that(!movie.consumeMovieOffer(offer) && (try Data(contentsOf: movie.url)).isEmpty, "movie hover exposes no file contents")
+    movie.releaseMovie(now: release)
+    var wrongFile = offer; wrongFile.name = "other.mov"
+    try Check.that(!movie.consumeMovieOffer(wrongFile) && !movie.consumeMovieOffer(offer, now: release.addingTimeInterval(6)), "movie handoff checks the released name and deadline")
+    try Check.that(movie.consumeMovieOffer(offer) && !movie.consumeMovieOffer(offer), "movie over 20 MiB is accepted once through the regular file channel")
+    let original = Data([1, 2, 3])
+    guard let incoming = movie.movieTransferURL else { throw ClipError.invalid("Missing movie transfer URL") }
+    try original.write(to: incoming)
+    try movie.commitMovie(incoming)
+    try Check.that((try Data(contentsOf: movie.url)) == original && movie.verified, "verified movie atomically replaces the empty hover file")
+    var staged: PreparedDragFile? = try PreparedDragFile(offer: imageOffer)
     let discarded = staged!.url.deletingLastPathComponent()
     staged!.verified = true
     try Check.that(staged!.take() == nil, "finishing before release cannot deliver an image")
     staged = nil
     try Check.that(!FileManager.default.fileExists(atPath: discarded.path), "cancelling a prepared drag removes its private directory")
-    let earlyRelease = try PreparedDragImage(offer: imageOffer)
+    let earlyRelease = try PreparedDragFile(offer: imageOffer)
     earlyRelease.released = true
     try Check.that(earlyRelease.take() == nil, "release waits for verified bytes")
     earlyRelease.verified = true
@@ -128,10 +142,10 @@ func fileTransferTests() throws {
     try Check.that(FinderFileDrop.fileURL(from: board) == nil, "plain text paths are not Finder drags")
     board.clearContents()
     let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgqWr8DwADhAH/SDByBQAAAABJRU5ErkJggg==")!
-    if let thumbnail = PreparedDragImage.thumbnail(png), let preview = PreparedDragImage.encodePreview(thumbnail) {
-        try Check.that(PreparedDragImage.thumbnail(preview, isPreview: true)?.width == 1, "sender thumbnail decodes within receiver preview limits")
+    if let thumbnail = PreparedDragFile.thumbnail(png), let preview = PreparedDragFile.encodePreview(thumbnail) {
+        try Check.that(PreparedDragFile.thumbnail(preview, isPreview: true)?.width == 1, "sender thumbnail decodes within receiver preview limits")
     } else { try Check.that(false, "generate thumbnail for a valid PNG") }
-    try Check.that(PreparedDragImage.thumbnail(Data(repeating: 0, count: FilePacket.maxPreviewBytes + 1), isPreview: true) == nil, "reject oversized drag preview")
+    try Check.that(PreparedDragFile.thumbnail(Data(repeating: 0, count: FilePacket.maxPreviewBytes + 1), isPreview: true) == nil, "reject oversized drag preview")
     let badge = DraggedFileBadge()
     let label = badge.contentView?.subviews.compactMap { $0 as? NSTextField }.first
     badge.setThumbnail(NSImage(size: NSSize(width: 64, height: 32)))
@@ -785,7 +799,7 @@ func featureNetworkTests() throws {
     }
     earlyReceiver.onOffer = { _, offer in
         guard receiverMouse.isReceivingDrop(offer.id), offer.name == receiverMouse.draggedFileName,
-              let preview = offer.previewPNG, PreparedDragImage.thumbnail(preview, isPreview: true)?.width == 64,
+              let preview = offer.previewPNG, PreparedDragFile.thumbnail(preview, isPreview: true)?.width == 64,
               !FileManager.default.fileExists(atPath: preparedURL.path) else { earlyReceiver.decline(id: offer.id); return }
         previewReceived = true
         earlyReceiver.accept(id: offer.id, destination: preparedURL)

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.4 build 54
+
+Drag a Finder movie over a chat attachment field to see the drop target before release. The original travels on the file channel after release. Update the receiving Mac.
+
 ## 0.4.4 build 53
 
 Pause discards unsent clipboard items. During Secure Input, an active handoff can keep the pointer while keyboard sharing waits for a fresh handoff. Image drags send a thumbnail while you hover and the original when you release. Update both Macs for all three changes.

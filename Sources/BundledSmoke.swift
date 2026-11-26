@@ -98,6 +98,9 @@ final class BundledSmoke {
 
 private final class WebDropFixture: NSObject, WKScriptMessageHandler {
     static let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgqWr8DwADhAH/SDByBQAAAABJRU5ErkJggg=="
+    static let movie = CommandLine.arguments.contains("--movie-fixture")
+    static var fileExtension: String { movie ? "mp4" : "png" }
+    static var expected: String { movie ? "AAAAGGZ0eXBpc29tAAAAAGlzb21tcDQy" : png }
     static func composer(id: UUID) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.userContentController.add(WebDropFixture(), name: "result")
@@ -130,9 +133,11 @@ private final class WebDropFixture: NSObject, WKScriptMessageHandler {
                 event.preventDefault();
                 if (\(CommandLine.arguments.contains("--held-target")) && !(performance.now() - fileHover >= 300)) return;
                 const file = event.dataTransfer.files[0];
-                if (file?.name !== '\(id.uuidString).png' || file.type !== 'image/png') return;
-                const image = await createImageBitmap(file);
-                if (image.width !== 1 || image.height !== 1) return;
+                if (file?.name !== '\(id.uuidString).\(fileExtension)' || file.type !== '\(movie ? "video/mp4" : "image/png")') return;
+                if (!\(movie)) {
+                    const image = await createImageBitmap(file);
+                    if (image.width !== 1 || image.height !== 1) return;
+                }
                 const bytes = new Uint8Array(await file.arrayBuffer());
                 window.webkit.messageHandlers.result.postMessage(btoa(String.fromCharCode(...bytes)));
             };
@@ -145,8 +150,8 @@ private final class WebDropFixture: NSObject, WKScriptMessageHandler {
             guard message.body as? String == "cancelled" else { exit(1) }
             print("PASS: hover ended without delivering the file"); fflush(stdout); exit(0)
         }
-        guard message.body as? String == Self.png else { exit(1) }
-        print("PASS: web composer attached the original PNG after replacing its drop zone"); fflush(stdout)
+        guard message.body as? String == Self.expected else { exit(1) }
+        print("PASS: web composer attached the original file after replacing its drop zone"); fflush(stdout)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { exit(0) }
     }
 }
@@ -193,7 +198,7 @@ final class AppDropSmoke: NSView {
         if CommandLine.arguments.contains("--edge-target") {
             let checkFocus = CommandLine.arguments.contains("--held-target")
             let name = checkFocus ? id.uuidString + ".png" : id.uuidString
-            let expectedBytes = checkFocus ? Data(base64Encoded: WebDropFixture.png)! : Data(id.uuidString.utf8)
+            let expectedBytes = checkFocus ? Data(base64Encoded: WebDropFixture.expected)! : Data(id.uuidString.utf8)
             let edge = FileEdgePanel()
             edge.setFrameOrigin(NSPoint(x: point.x - edge.frame.width / 2, y: point.y - edge.frame.height / 2))
             var stoleFocus = false
@@ -243,17 +248,18 @@ final class AppDropSmoke: NSView {
         if cancel { child.arguments?.append("--cancel-target") }
         let web = held || CommandLine.arguments.contains("--web-drop-smoke")
         if held { child.arguments?.append("--held-target") }
+        if WebDropFixture.movie { child.arguments?.append("--movie-fixture") }
         if web { child.arguments?.append("--web-target") }
         do { try child.run() } catch { exit(1) }
         DispatchQueue.main.asyncAfter(deadline: .now() + (web ? 1.7 : 1)) {
             guard let point = CGEvent(source: nil)?.location,
-                  let drop = AppFileDrop(id: id, name: web ? id.uuidString + ".png" : id.uuidString, point: point, expectedPID: child.processIdentifier) else {
+                  let drop = AppFileDrop(id: id, name: web ? id.uuidString + "." + WebDropFixture.fileExtension : id.uuidString, point: point, expectedPID: child.processIdentifier) else {
                 print("FAIL: test drop window unavailable"); exit(1)
             }
             do {
                 let file = try drop.stage()
-                let bytes = web ? Data(base64Encoded: WebDropFixture.png)! : Data(id.uuidString.utf8)
-                try bytes.write(to: file)
+                let bytes = web ? Data(base64Encoded: WebDropFixture.expected)! : Data(id.uuidString.utf8)
+                try (WebDropFixture.movie && held ? Data() : bytes).write(to: file)
                 if refresh {
                     let fixture = AXUIElementCreateApplication(child.processIdentifier)
                     var before: AXUIElement?, after: AXUIElement?
@@ -292,7 +298,8 @@ final class AppDropSmoke: NSView {
                     }
                 }
                 var completed = false
-                drop.deliver(preview: held ? NSImage(data: bytes) : nil, returningDrag: returning, authorized: { child.isRunning }) { completed = ($0 != cancel) }
+                let icon = WebDropFixture.movie ? NSWorkspace.shared.icon(for: .mpeg4Movie) : NSImage(data: bytes)
+                drop.deliver(preview: held ? icon : nil, returningDrag: returning, authorized: { child.isRunning }) { completed = ($0 != cancel) }
                 if held && !CommandLine.arguments.contains("--edge-target") {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.85) {
                         guard drop.canReleaseHeld(at: point),
@@ -303,7 +310,12 @@ final class AppDropSmoke: NSView {
                             }
                             print("FAIL: target changed while hovering"); exit(1)
                         }
-                        if cancel { drop.abort() } else { drop.releaseHeld(at: point) }
+                        if cancel { drop.abort() }
+                        else if WebDropFixture.movie {
+                            guard drop.pinRelease(at: point) else { exit(1) }
+                            do { try bytes.write(to: file, options: .atomic) } catch { exit(1) }
+                            guard drop.releaseWhenVerified() else { exit(1) }
+                        } else { drop.releaseHeld(at: point) }
                     }
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 4) {

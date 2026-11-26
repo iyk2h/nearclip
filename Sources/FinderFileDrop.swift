@@ -510,7 +510,10 @@ final class AppFileDrop: NSObject, NSDraggingSource {
 }
 
 // The private copy is disposable until the user releases the drag over an app.
-final class PreparedDragImage {
+final class PreparedDragFile {
+    let movieTransferURL: URL?
+    var usesFileTransfer: Bool { movieTransferURL != nil }
+    private(set) var movieReleaseDate: Date?
     let id: UUID
     let url: URL
     var nextHoverCheck: TimeInterval = 0
@@ -522,7 +525,44 @@ final class PreparedDragImage {
         guard offer.kind == .offer, let name = offer.name, FilePacket.canPrepareImage(name: name, size: offer.size) else {
             throw ClipError.invalid(ui("Invalid file message."))
         }
+        movieTransferURL = nil
         id = offer.id; url = try AppFileDrop.cacheURL(for: name)
+    }
+    static func movieType(_ name: String) -> UTType? {
+        guard FilePacket.safeName(name),
+              let type = UTType(filenameExtension: (name as NSString).pathExtension),
+              type.conforms(to: .movie) else { return nil }
+        return type
+    }
+    init?(movieNamed name: String, id: UUID) {
+        guard Self.movieType(name) != nil, let destination = try? AppFileDrop.cacheURL(for: name) else { return nil }
+        // WebKit checks that a file URL exists on drag-enter. Expose an empty file
+        // until the verified download can replace it atomically in the same directory.
+        let folder = destination.deletingLastPathComponent()
+        let incoming = folder.appendingPathComponent(".incoming", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: incoming, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+            try Data().write(to: destination, options: .withoutOverwriting)
+        } catch { try? FileManager.default.removeItem(at: folder); return nil }
+        movieTransferURL = incoming.appendingPathComponent(name)
+        self.id = id; url = destination
+    }
+    func commitMovie(_ received: URL) throws {
+        guard released, !verified, received == movieTransferURL, movieReleaseDate == nil,
+              rename(received.path, url.path) == 0 else { throw ClipError.invalid(ui("Couldn’t save the file safely here. Choose another folder.")) }
+        _ = rmdir(received.deletingLastPathComponent().path)
+        verified = true
+    }
+    func releaseMovie(now: Date = Date()) {
+        guard usesFileTransfer, !released else { return }
+        released = true; movieReleaseDate = now
+    }
+    func consumeMovieOffer(_ offer: FilePacket, now: Date = Date()) -> Bool {
+        guard let date = movieReleaseDate, (0..<5).contains(now.timeIntervalSince(date)),
+              offer.kind == .offer, offer.id == id, offer.name == url.lastPathComponent,
+              (try? offer.validate()) != nil else { return false }
+        movieReleaseDate = nil
+        return true
     }
     func take() -> URL? {
         guard released, verified, !retained else { return nil }

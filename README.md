@@ -2,7 +2,7 @@
 
 Copy on one Mac. Paste on the other. NearClip is a free, ad-free app that connects two Macs on the same local network, even if they use different Apple accounts. Move the pointer across the screen edge to keep typing on the other Mac, or send a file and choose where to save it.
 
-[**Download NearClip for Mac**](https://github.com/iyk2h/nearclip/releases/download/v0.4.4-build53/NearClip-0.4.4-build53-macOS.dmg) · [Release notes](https://github.com/iyk2h/nearclip/releases) · macOS 13 or later · Apple silicon and Intel
+[**Download NearClip for Mac**](https://github.com/iyk2h/nearclip/releases/download/v0.4.4-build54/NearClip-0.4.4-build54-macOS.dmg) · [Release notes](https://github.com/iyk2h/nearclip/releases) · macOS 13 or later · Apple silicon and Intel
 
 ![NearClip demo showing text copied between Macs, a pointer crossing the screen edge, and file selection](docs/media/nearclip-connected.gif)
 
@@ -23,6 +23,7 @@ Copy on one Mac. Paste on the other. NearClip is a free, ad-free app that connec
 | Send a file | Click **Send File**. The recipient chooses where to save it. With build 37 or later on both Macs and input sharing enabled, you can also drag a Finder file across the shared edge and release it over a Finder folder or the desktop. Build 46 saves drops directly in Desktop, Documents, Downloads, and their ordinary subfolders. Duplicate names get a number. For other Finder destinations, choose where to save. Send one regular file up to 2 GiB at a time. |
 | Drop a file into an app (build 39) | Drag a file across the shared edge and release it over a window that accepts files. Keep the pointer over the target until the file arrives. If the app declines it, drag the filename from NearClip into the app to try again. |
 | Drag an image | Drag an image file or a PNG or TIFF from an app across the shared edge. With build 53 on both Macs, a small preview follows the pointer for supported images up to 20 MiB. Compatible apps can highlight their drop target while you hover. Release to send and attach the original. Release over Finder to copy it into the destination folder. |
+| Drag a video into a chat (receiver build 54) | Drag one movie file from Finder across the shared edge and release over an attachment field. The receiving Mac shows a file icon during the drag. NearClip streams files up to 2 GiB after release. The chat app sets its own attachment limit. |
 | Bring a file back (build 48 on both Macs) | While controlling the other Mac, drag a file back across the shared edge. Keep the button down until you reach a Finder folder or an attachment field on your Mac, then release. The original file and your clipboard stay in place. |
 | Change the language | In build 36 and later, open **Settings → Language**, choose English or Korean, then quit and reopen NearClip. English is the default. |
 | Update NearClip | Choose **Check for Updates** from the menu bar on each Mac. Install the update and relaunch. |

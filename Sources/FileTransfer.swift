@@ -147,8 +147,8 @@ final class FileTransferWorker {
         var offer = job.offer
         if preparePreview, FilePacket.canPrepareImage(name: offer.name, size: offer.size), let size = offer.size {
             do {
-                if let bytes = try job.handle.read(upToCount: Int(size)), let thumb = PreparedDragImage.thumbnail(bytes) {
-                    offer.previewPNG = PreparedDragImage.encodePreview(thumb)
+                if let bytes = try job.handle.read(upToCount: Int(size)), let thumb = PreparedDragFile.thumbnail(bytes) {
+                    offer.previewPNG = PreparedDragFile.encodePreview(thumb)
                 }
                 try job.handle.seek(toOffset: 0)
             } catch { fail(error.localizedDescription); return }

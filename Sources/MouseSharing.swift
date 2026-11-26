@@ -144,6 +144,10 @@ final class MouseSharing {
     var onKeyboardInput: ((KeyboardPacket) -> Void)?
     var onKeysReleased: ((Set<Int>) -> Void)?
     var secureInputEnabled: () -> Bool = { false }
+    var incomingFileDragID: UUID? {
+        guard draggedFileName != nil, let token, isReceivingDrop(token) else { return nil }
+        return token
+    }
     var indicatorPoint: CGPoint { mode == .receiving || returningFile ? position : origin }
     var side: ScreenSide { layout?.peerSide(for: local) ?? .right }
     var active: Bool { mode != .local }
